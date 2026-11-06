@@ -33,7 +33,7 @@ let html = readFileSync('index.html', 'utf8');
 if (preview) {
   // Fragment for the Claude artifact host (it supplies doctype/head/body).
   const frag = `<title>Ridgecrest Pipe Calculator</title>
-<meta name="theme-color" content="#0d1013">
+<meta name="theme-color" content="#100f0d">
 <style>html,body{height:100%}${css}</style>
 <div id="root"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>

@@ -6,6 +6,7 @@ import { LayoutTools } from './LayoutTools';
 import { FittingTools } from './FittingTools';
 import { PipeTools } from './PipeTools';
 import { JobsView } from './Jobs';
+import { BrandLogo } from './brand';
 
 type Tab = 'calc' | 'layout' | 'fittings' | 'pipe' | 'jobs';
 
@@ -16,16 +17,6 @@ const TOOL_ROUTE: Record<string, [Tab, string, string]> = {
   takeout: ['fittings', 'fittings', 'takeout'], cutlen: ['fittings', 'fittings', 'cut'], trim: ['fittings', 'fittings', 'trim'], f2f: ['fittings', 'fittings', 'f2f'],
   pipedata: ['pipe', 'pipe', 'data'], flow: ['pipe', 'pipe', 'flow'], pfa: ['pipe', 'pipe', 'pfa'], loss: ['pipe', 'pipe', 'loss'], circle: ['pipe', 'pipe', 'circle'],
 };
-
-export function Logo() {
-  return (
-    <svg viewBox="0 0 40 40" className="logo" aria-hidden="true">
-      <rect x="1" y="1" width="38" height="38" rx="9" className="logo-bg" />
-      <path d="M6 24 L14 13 L19 19 L25 10 L34 24" className="logo-ridge" />
-      <path d="M8 30 H22 A6 6 0 0 0 28 24 V22" className="logo-pipe" />
-    </svg>
-  );
-}
 
 const ICONS: Record<Tab, React.ReactNode> = {
   calc: <svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2.5" /><path d="M8 7h8M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01" /></svg>,
@@ -52,7 +43,7 @@ export function App() {
     const apply = () => {
       const dark = s.theme === 'dark' || (s.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
       root.dataset.theme = dark ? 'dark' : 'light';
-      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0d1013' : '#f2efe9');
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#100f0d');
     };
     apply();
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -83,8 +74,8 @@ export function App() {
     <AppCtx.Provider value={ctx}>
       <div className={'app tab-' + tab}>
         <header className="top">
-          <Logo />
-          <div className="brand"><b>RIDGECREST</b><span>Pipe Calculator</span></div>
+          <BrandLogo />
+          <div className="appname">Pipe<br />Calculator</div>
           <button className="topbtn" aria-label="Settings" onClick={() => { setJobsSection('settings'); setTab('jobs'); }}>
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" /></svg>
           </button>
