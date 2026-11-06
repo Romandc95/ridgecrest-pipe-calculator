@@ -1,0 +1,189 @@
+import React, { useState } from 'react';
+
+/** Two-tap confirmation (browser confirm() dialogs are not available everywhere). */
+function ConfirmButton({ label, confirmLabel, onConfirm, className = 'btn danger' }: { label: string; confirmLabel: string; onConfirm: () => void; className?: string }) {
+  const [armed, setArmed] = useState(false);
+  return armed
+    ? <div className="actions"><button className={className} onClick={() => { setArmed(false); onConfirm(); }}>{confirmLabel}</button><button className="btn" onClick={() => setArmed(false)}>Cancel</button></div>
+    : <button className={className} onClick={() => setArmed(true)}>{label}</button>;
+}
+import { Segmented, Select, useApp, Card, Msg } from './components';
+import { SavedItem, Job, uid, shareText, storageAvailable, Settings, OutUnit } from './store';
+import { CONV_MAP } from '../engine/calculator';
+import { KEYPAD } from './Calculator';
+import { FracDen } from '../engine/format';
+
+export function JobsView(props: {
+  items: SavedItem[]; setItems: (f: (p: SavedItem[]) => SavedItem[]) => void;
+  jobs: Job[]; setJobs: (f: (p: Job[]) => Job[]) => void;
+  open: (it: SavedItem) => void; section: string; setSection: (s: string) => void;
+}) {
+  return (
+    <div className="tool">
+      <Segmented value={props.section} onChange={props.setSection} options={[['history', 'History'], ['jobs', 'Jobs'], ['settings', 'Settings'], ['help', 'Help']]} />
+      {props.section === 'history' && <History {...props} />}
+      {props.section === 'jobs' && <Jobs {...props} />}
+      {props.section === 'settings' && <SettingsView />}
+      {props.section === 'help' && <Help />}
+    </div>
+  );
+}
+
+function ItemCard({ it, jobs, setItems, open }: { it: SavedItem; jobs: Job[]; setItems: (f: (p: SavedItem[]) => SavedItem[]) => void; open: (it: SavedItem) => void }) {
+  const { toast } = useApp();
+  const upd = (patch: Partial<SavedItem>) => setItems((p) => p.map((x) => (x.id === it.id ? { ...x, ...patch } : x)));
+  return (
+    <div className="item">
+      <div className="ihead">
+        <button className={'star' + (it.fav ? ' on' : '')} aria-label={it.fav ? 'Unfavorite' : 'Favorite'} onClick={() => upd({ fav: !it.fav })}>★</button>
+        <b>{it.title}</b>
+        <span className="muted">{new Date(it.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+      </div>
+      <pre className="isum">{it.summary}</pre>
+      <div className="iact">
+        {it.kind === 'guided' && <button className="chip" onClick={() => open(it)}>Open</button>}
+        <button className="chip" onClick={async () => { const m = await shareText(it.summary); if (m) toast(m); }}>Share</button>
+        <select className="chip" value={it.jobId ?? ''} onChange={(e) => upd({ jobId: e.target.value || undefined })} aria-label="Assign to job">
+          <option value="">No job</option>
+          {jobs.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
+        </select>
+        <button className="chip danger" onClick={() => setItems((p) => p.filter((x) => x.id !== it.id))}>Delete</button>
+      </div>
+    </div>
+  );
+}
+
+function History({ items, setItems, jobs, open }: Parameters<typeof JobsView>[0]) {
+  const [filter, setFilter] = useState<'all' | 'fav'>('all');
+  const list = items.filter((i) => filter === 'all' || i.fav);
+  return (
+    <>
+      <div className="row-between">
+        <Segmented small value={filter} onChange={setFilter} options={[['all', `All (${items.length})`], ['fav', `★ Favorites (${items.filter((i) => i.fav).length})`]]} />
+      </div>
+      {list.length === 0 && <p className="muted center">Nothing here yet. Calculations made with = are recorded automatically; use Save in guided tools.</p>}
+      {list.map((it) => <ItemCard key={it.id} it={it} jobs={jobs} setItems={setItems} open={open} />)}
+      {items.some((i) => !i.fav && !i.jobId) && <ConfirmButton className="btn" label="Clear unstarred history" confirmLabel="Delete unstarred items" onConfirm={() => setItems((p) => p.filter((i) => i.fav || i.jobId))} />}
+    </>
+  );
+}
+
+function Jobs({ items, setItems, jobs, setJobs, open }: Parameters<typeof JobsView>[0]) {
+  const { toast } = useApp();
+  const [name, setName] = useState('');
+  const [sel, setSel] = useState<string | null>(null);
+  const job = jobs.find((j) => j.id === sel);
+  if (job) {
+    const its = items.filter((i) => i.jobId === job.id);
+    return (
+      <>
+        <button className="btn ghost" onClick={() => setSel(null)}>‹ All jobs</button>
+        <Card>
+          <label className="field"><span className="flabel">Job name</span><input value={job.name} onChange={(e) => setJobs((p) => p.map((j) => (j.id === job.id ? { ...j, name: e.target.value } : j)))} /></label>
+          <div className="actions">
+            <button className="btn" onClick={async () => { const m = await shareText(`${job.name}\n\n` + its.map((i) => `${i.title}\n${i.summary}`).join('\n\n')); if (m) toast(m); }}>Share job</button>
+            <ConfirmButton label="Delete job" confirmLabel="Delete job (items stay)" onConfirm={() => { setItems((p) => p.map((i) => (i.jobId === job.id ? { ...i, jobId: undefined } : i))); setJobs((p) => p.filter((j) => j.id !== job.id)); setSel(null); }} />
+          </div>
+        </Card>
+        {its.length === 0 && <p className="muted center">No items. Assign history items to this job from the History list.</p>}
+        {its.map((it) => <ItemCard key={it.id} it={it} jobs={jobs} setItems={setItems} open={open} />)}
+      </>
+    );
+  }
+  return (
+    <>
+      <Card>
+        <label className="field"><span className="flabel">New job</span>
+          <span className="finput"><input value={name} placeholder="e.g. Boiler room — line 12" onChange={(e) => setName(e.target.value)} /></span>
+        </label>
+        <button className="btn" disabled={!name.trim()} onClick={() => { setJobs((p) => [{ id: uid(), name: name.trim(), ts: Date.now() }, ...p]); setName(''); }}>Create job</button>
+      </Card>
+      {jobs.length === 0 && <p className="muted center">Create a named job, then assign saved calculations to it.</p>}
+      {jobs.map((j) => (
+        <button key={j.id} className="jobrow" onClick={() => setSel(j.id)}>
+          <b>{j.name}</b><span className="muted">{items.filter((i) => i.jobId === j.id).length} items ›</span>
+        </button>
+      ))}
+    </>
+  );
+}
+
+function SettingsView() {
+  const { settings, setSettings } = useApp();
+  const S = <K extends keyof Settings>(k: K, v: Settings[K]) => setSettings((s) => ({ ...s, [k]: v }));
+  const P = <K extends keyof Settings['prefs']>(k: K, v: Settings['prefs'][K]) => setSettings((s) => ({ ...s, prefs: { ...s.prefs, [k]: v } }));
+  return (
+    <>
+      <Card>
+        <h4>Display</h4>
+        <Segmented small value={settings.theme} onChange={(v) => S('theme', v)} options={[['dark', 'Dark'], ['light', 'Light'], ['system', 'Auto']]} />
+        <Select label="Fractional resolution" value={String(settings.prefs.fracDen)} options={[['2', '1/2"'], ['4', '1/4"'], ['8', '1/8"'], ['16', '1/16" (default)'], ['32', '1/32"'], ['64', '1/64"']]} onChange={(v) => P('fracDen', Number(v) as FracDen)} />
+        <Select label="Fraction display" value={settings.prefs.fracMode} options={[['std', 'Standard — reduced (8/16 → 1/2)'], ['const', 'Constant — always in set resolution']]} onChange={(v) => P('fracMode', v as 'std' | 'const')} />
+        <Select label="Guided-mode length results" value={settings.outUnit} options={[['infrac', 'Inches & fractions'], ['ftin', 'Feet-inch-fraction'], ['indec', 'Decimal inches'], ['ftdec', 'Decimal feet'], ['mm', 'Millimeters'], ['m', 'Meters']]} onChange={(v) => S('outUnit', v as OutUnit)} />
+        <Select label="Area answers" value={settings.prefs.areaPref} options={[['std', 'Standard (by input units)'], ['sqft', 'Always sq ft'], ['sqin', 'Always sq in'], ['sqm', 'Always sq m']]} onChange={(v) => P('areaPref', v as Settings['prefs']['areaPref'])} />
+        <Select label="Volume answers" value={settings.prefs.volPref} options={[['std', 'Standard (by input units)'], ['cuft', 'Always cu ft'], ['cum', 'Always cu m']]} onChange={(v) => P('volPref', v as Settings['prefs']['volPref'])} />
+        <Select label="Meters" value={settings.prefs.meterDecimals} options={[['fixed3', '0.000 m'], ['float', 'Floating']]} onChange={(v) => P('meterDecimals', v as 'fixed3' | 'float')} />
+        <Select label="Calculator degrees" value={settings.prefs.degDecimals} options={[['fixed2', '0.00°'], ['float', 'Floating']]} onChange={(v) => P('degDecimals', v as 'fixed2' | 'float')} />
+      </Card>
+      <Card>
+        <h4>Math</h4>
+        <Segmented small value={settings.chain ? 'chain' : 'order'} onChange={(v) => S('chain', v === 'chain')} options={[['order', 'Order of operations (10+4×5=30)'], ['chain', 'Chain (10+4×5=70)']]} />
+        <p className="fhint">Trigonometry is in degrees.</p>
+        <label className="toggle sm"><input type="checkbox" checked={settings.haptics} onChange={(e) => S('haptics', e.target.checked)} /> Key vibration (where the browser supports it)</label>
+      </Card>
+      <Card>
+        <h4>Storage</h4>
+        <p className="fhint">{storageAvailable() ? 'Settings, history, jobs and calculator memory are saved on this device only.' : 'Local storage is unavailable here (private mode or preview) — nothing will be kept after closing.'}</p>
+        <ConfirmButton label="Erase all local data" confirmLabel="Erase everything" onConfirm={() => { try { Object.keys(localStorage).filter((k) => k.startsWith('ridgecrest.')).forEach((k) => localStorage.removeItem(k)); } catch { /* */ } location.reload(); }} />
+      </Card>
+    </>
+  );
+}
+
+function Help() {
+  const convRows = KEYPAD.flat().filter((k) => CONV_MAP[k.k]);
+  return (
+    <div className="help">
+      <Card>
+        <h4>Calculator mode</h4>
+        <ul>
+          <li><b>Enter vs. solve.</b> Type a value, then press a project key (Offset, Run, Travel, Angle/Slope…) to <i>store</i> it — the display shows <i className="tag tag-entered">stored</i>. Press a project key with nothing typed to <i>solve</i> it — <i className="tag tag-solved">solved</i>. Press it again to step through related results (Travel → cut, take-out, gap, fitting angle, arcs, run, offset).</li>
+          <li>A result from = or a function counts as a new value, so “12 + 3 Offset” stores 15.</li>
+          <li>Only two of Offset / Run / Travel / Angle are independent. A third entry replaces the oldest; the display says which.</li>
+          <li><b>Dimensions:</b> 5 Feet 7 Inch 3 ⁄ 8 → 5′ 7-3/8″. A fraction without a denominator uses the resolution (3 ⁄ Inch = 3/16″). Feet Feet = sq ft, Feet Feet Feet = cu ft. With a result showing, Feet / Inch / mm / m convert it; pressing again toggles fraction ↔ decimal.</li>
+          <li>Angle/Slope accepts degrees (45), slope per foot (1⁄8 Inch) or percent grade (2 Conv x² %).</li>
+          <li>Pipe Matl cycles material; Conv+Matl cycles schedule (or type 80 Conv Matl). Size: 6 Inch Pipe Size, then Pipe Size again for OD, ID, wall, weights, area.</li>
+          <li>Stor 1–9 / Rcl 1–9 memory registers; M+ / Conv M+ (M−) accumulate; Rcl M+ shows total, then average and count. C clears; C twice clears project values; AC restores defaults.</li>
+        </ul>
+      </Card>
+      <Card>
+        <h4>Conv (second functions)</h4>
+        <div className="convgrid">{convRows.map((k) => <div key={k.k}><span>{k.aria}</span><b>{CONV_MAP[k.k]!.label}</b></div>)}</div>
+      </Card>
+      <Card>
+        <h4>Conventions</h4>
+        <ul>
+          <li>All layout dimensions are centerline. O = offset perpendicular to the run, A = run along it, L = center-to-center travel, θ = bend angle at each fitting.</li>
+          <li>Rolling offset: H horizontal transverse, V vertical (+ up), φ = atan2(V, H) from +H toward +V looking downstream. φ is the offset-plane rotation, not an elbow’s clocking.</li>
+          <li>Take-outs: ASME B16.9 center-to-end for factory 90° and LR 45°; ideal R·tan(θ/2) for field-cut / odd angles. Cut = L − both take-outs − both gaps.</li>
+          <li>Full precision is kept internally; rounding to the selected fraction happens only on screen.</li>
+        </ul>
+      </Card>
+      <Card>
+        <h4>Not included / limits</h4>
+        <ul>
+          <li>No bundled dimension tables for brass pipe, cast-iron soil pipe, copper ACR tube or PVC Sch 120 — use manual OD and wall.</li>
+          <li>Automatic take-outs exist only for butt-weld steel / stainless / aluminum elbows (B16.9). Other fittings need a known take-out.</li>
+          <li>Pressure loss: water only, straight pipe, no fittings or valves.</li>
+          <li>Fitting-to-fitting solver models ideal elbows (tangent lengths); verify trimmed fittings against the actual part.</li>
+        </ul>
+      </Card>
+      <Card>
+        <h4>Install on iPhone</h4>
+        <p>Open the app URL in Safari → Share → Add to Home Screen. After the first load it works offline. Data stays on the phone.</p>
+        <Msg kind="info">In the Claude preview, offline install and service workers are not available and saved data may not persist. Use the standalone build for field use.</Msg>
+      </Card>
+      <p className="muted center">Ridgecrest Pipe Calculator · independent software. Function set modeled on a commonly used pipe-trades calculator; not affiliated with or endorsed by its manufacturer.</p>
+    </div>
+  );
+}

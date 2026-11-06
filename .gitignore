@@ -1,0 +1,7 @@
+node_modules
+dist
+dist-preview
+.dev
+.test-out
+*.zip
+scripts/shots*.mjs

@@ -1,0 +1,152 @@
+✓ simple offset › 3" offset, 4" run → 5" travel, 36.8699°
+✓ simple offset › offset + angle: L = O/sinθ, A = O/tanθ
+✓ simple offset › every valid pair gives the same triangle
+✓ simple offset › insufficient input detected
+✓ simple offset › conflicting input detected
+✓ simple offset › consistent extra input accepted
+✓ simple offset › travel shorter than offset rejected
+✓ simple offset › angle near 1°
+✓ simple offset › angle 90°: run = 0, travel = offset
+✓ simple offset › angle near 90° (89.99)
+✓ simple offset › angle 0 rejected
+✓ simple offset › run + 90° rejected (undefined)
+✓ rolling offset › H=3, V=4, A=12 → O=5, L=13, θ≈22.6199°
+✓ rolling offset › direction preserved: H=−3, V=−4 → φ = −126.87°
+✓ rolling offset › O & φ input equals H & V input
+✓ rolling offset › H, V and travel
+✓ rolling offset › H, V and angle
+✓ rolling offset › conflict between O and H,V detected
+✓ slope, grade, cutback, combination › 1/8" per foot over 25' → 3-1/8" drop
+✓ slope, grade, cutback, combination › 6" in 50' → 0.57°, 1% grade
+✓ slope, grade, cutback, combination › parallel cutback 45°, 10" → 4.142"
+✓ slope, grade, cutback, combination › combination H→V: entry 43.44°, exit 67.94°, length 39.937"
+✓ slope, grade, cutback, combination › combination H→H: exit 54.84°
+✓ fittings › ideal elbow R=6, θ=30 → 1.607695" takeout
+✓ fittings › arcs = (R ∓ OD/2)·θ
+✓ fittings › factory LR 90 uses B16.9 center-to-end
+✓ fittings › factory LR 45 uses B16.9 (differs from ideal for small sizes)
+✓ fittings › short radius 4" 30° field cut
+✓ fittings › bend 1° and 90° limits
+✓ fittings › cut length shows every deduction, zero gap valid
+✓ fittings › different takeouts and gaps at each end
+✓ fittings › negative cut length reported as impossible
+✓ fittings › trim 90° to 30°: retained vs removed
+✓ fitting-to-fitting solver › 2" drop, 6" 90° rolled into a trimmed 6"-radius elbow
+✓ fitting-to-fitting solver › gap is included in travel and changes the roll
+✓ fitting-to-fitting solver › second fitting radius matters
+✓ fitting-to-fitting solver › too large a drop is reported with the maximum achievable
+✓ fitting-to-fitting solver › straight-through outlet gives 2 solutions and names the missing constraint
+✓ fitting-to-fitting solver › outlet parallel to drop axis is undefined
+✓ fitting-to-fitting solver › fixed 45° second fitting over-constrains
+✓ guide: dimensional math › add/subtract string of dimensions
+✓ guide: dimensional math › 5'3" × 11'6-1/2" = 60.59375 sq ft
+✓ guide: dimensional math › 30'4" ÷ 7" = 52
+✓ guide: dimensional math › 20'3" ÷ 9 = 2'3"
+✓ guide: dimensional math › 2' 3" + 9" = 3' (key sequence)
+✓ guide: dimensional math › order of operations 10 + 4 × 5 = 30
+✓ guide: dimensional math › chain mode 10 + 4 × 5 = 70
+✓ guide: dimensional math › parentheses (10 + 4) × 5 = 70
+✓ guide: dimensional math › powers: 2 xʸ 10 = 1024, root: 27 ʸ√ 3 = 3
+✓ guide: dimensional math › reciprocal 8 → 0.125, sign change
+✓ guide: dimensional math › x² of a length gives area; √ gives length back
+✓ guide: dimensional math › dimension error is explained
+✓ guide: dimensional math › divide by zero
+✓ guide: dimensional math › mixed-unit entry: 1 ft + 150 mm
+✓ guide: dimensional math › fraction default denominator: 3 / Inch = 3/16"
+✓ guide: dimensional math › repeated Feet toggles decimal feet; Inch, mm, m convert
+✓ guide: dimensional math › percent: 18% of 500 ft, −20%, +10%
+✓ guide: conversions › 8.5 gal → L
+✓ guide: conversions › 5 cu ft water → 312.1398 lb → 141.5842 kg
+✓ guide: conversions › 1 m³ of 111 lb/ft³ concrete → 3919.928 lb
+✓ guide: conversions › 78 °F → 25.55556 °C
+✓ guide: conversions › D:M:S 23.42.39 → 23.71°; 44.29 → 44°17′24″
+✓ guide: conversions › trig: sin 30 = 0.5, tan⁻¹ 1 = 45°, tan 90 error
+✓ guide: conversions › circle Ø25" → area 490.8739 sq in, circ 78-9/16"
+✓ guide: memory & cost › M+ 355, M+ 255, M− 745 → TTL −135, AVG −45, CNT 3
+✓ guide: memory & cost › store/recall M1
+✓ guide: memory & cost › cost: $3.21 unit, 12 → $38.52; 17 × 2.89 → $49.13
+✓ guide: pipe layout key sequences › simple offset known angle: 24" offset, 45° → 33-15/16"
+✓ guide: pipe layout key sequences › simple offset unknown angle: 16" & 27" → 31-3/8", 30.65°
+✓ guide: pipe layout key sequences › simple offset cut length, 6" stainless, gap 0
+✓ guide: pipe layout key sequences › rolling offset known angle: roll 4", offset 24", 45° → 34-7/16"
+✓ guide: pipe layout key sequences › rolling offset unknown angle: 17, 28, 6-1/2 → 33-3/8", 33.02°
+✓ guide: pipe layout key sequences › rolling offset cut length, 6" Std, gap 3/32" (1/32 display)
+✓ guide: pipe layout key sequences › concentric bend cutback: 45°, 10" → 4-1/8"
+✓ guide: pipe layout key sequences › take-out and cut marks: 12" pipe, 37° → TO 6", 7-1/2", 11-5/8", 15-3/4"
+✓ guide: pipe layout key sequences › cut length with known take-out: 4" PVC Sch 40, 45°, TO 2-3/16", gap 0 → 14-1/8", 9-3/4"
+✓ guide: pipe layout key sequences › combination rolling offset H→V: 39-15/16", 43.44°, then exit 67.94°
+✓ guide: pipe layout key sequences › combination H→H exit angle 54.84°
+✓ guide: pipe layout key sequences › calculating drop: 1/8" per ft over 25' → 3-1/8"
+✓ guide: pipe layout key sequences › slope from 6" over 50': SLP 1/8", 0.57°, 1%, 0.01
+✓ guide: pipe layout key sequences › entering vs solving: a typed value is stored, a bare press solves
+✓ guide: pipe layout key sequences › a third geometric input replaces the oldest and says so
+✓ guide: pipe layout key sequences › impossible cut length is shown as an error item
+✓ guide: pipe data, flow, pressure › 3" Steel Sch 80 data
+✓ guide: pipe data, flow, pressure › 3" Sch 80 via keys: type 80, size 3
+✓ guide: pipe data, flow, pressure › flow from velocity 5 fps and area 1.8 sq in → 28.05195 gpm, 3.75 cfm, 0.0625 cfs, 1.769803 L/s
+✓ guide: pipe data, flow, pressure › velocity from 5 gpm and 1.8 sq in → 0.891204 fps, 53.47222 fpm, 0.271639 m/s
+✓ guide: pipe data, flow, pressure › pressure from 100 lbf on 2 sq in → 50 psi, 7200 psf, 101.801 inHg, 3.447379 bar, 344.7379 kPa
+✓ guide: pipe data, flow, pressure › head: 50 psi → 115.33 ft of water (ρ = 1000 kg/m³)
+✓ guide: pipe data, flow, pressure › area from 85 lbf, 15 psi → 5.666667 sq in
+✓ guide: pipe data, flow, pressure › force from 100 psi on 2 sq in → 200 lbf, 889.6443 N
+✓ guide: pipe data, flow, pressure › pipe capacity: 6" Std area × 20 ft → 4.012536 cu ft → 30.01586 gal
+✓ guide: pipe data, flow, pressure › filled weight: 10 ft of 6" 5S stainless ≈ 217.14 lb (reference 217.1418)
+✓ guide: pipe data, flow, pressure › pressure loss 2" Std steel, 4 gpm per foot: Re 6120.09, 0.000205 psi/ft
+✓ guide: pipe data, flow, pressure › pressure loss over 50 ft: 0.010232 psi, 1.47346 psf
+✓ guide: pipe data, flow, pressure › pressure loss at 40 gpm: 0.575408 psi, Re 61200.9
+✓ guide: pipe data, flow, pressure › missing pipe data is reported (brass)
+✓ guide: pipe data, flow, pressure › pipe material sequence includes all seven
+✓ unit parsing › 5' 7 3/8" = 67.375 in
+✓ unit parsing › 7 3/8" = 7.375 in
+✓ unit parsing › 7-3/8" = 7.375 in
+✓ unit parsing › 7.375 in
+✓ unit parsing › 150 mm
+✓ unit parsing › 1.2 m
+✓ unit parsing › 2.5 ft decimal feet
+✓ unit parsing › mixed units 1' 150 mm
+✓ unit parsing › 5' 7 (trailing number after feet = inches)
+✓ unit parsing › negative length
+✓ unit parsing › typographic quotes ′ ″
+✓ unit parsing › unitless = number
+✓ unit parsing › degrees-minutes-seconds
+✓ unit parsing › percent
+✓ unit parsing › rejects garbage
+✓ unit parsing › rejects zero denominator
+✓ unit parsing › area entry 11 sq ft
+✓ unit parsing › flow 40 gpm
+✓ exact conversions › 1 inch = exactly 25.4 mm
+✓ exact conversions › 10' 6" → 10.5 ft, 126 in, 3200.4 mm, 3.200 m
+✓ exact conversions › 8.5 gal → 32.176 L
+✓ exact conversions › 20 lb → 9.071847 kg
+✓ exact conversions › 78 °F → 25.55556 °C
+✓ exact conversions › 11 °C → 51.8 °F
+✓ exact conversions › 47 cfs → 1330.892 L/s, 2820 cfm, 21095.07 gpm
+✓ exact conversions › 5 gpm → 0.668403 cfm, 0.315451 L/s
+✓ exact conversions › 5 fps → 300 fpm, 1.524 m/s
+✓ fraction rounding & display › rounds to 1/16 by default and reduces
+✓ fraction rounding & display › reduces 8/16 → 1/2
+✓ fraction rounding & display › carries across whole inch: 5.97" → 6" at 1/16
+✓ fraction rounding & display › carries inches into feet: 11.99" → 1' 0"
+✓ fraction rounding & display › carries 2' 11-31/32" → 3' 0" at 1/16
+✓ fraction rounding & display › 1/32 resolution keeps 31/32
+✓ fraction rounding & display › 1/64 resolution
+✓ fraction rounding & display › 1/2 resolution
+✓ fraction rounding & display › 1/8 resolution
+✓ fraction rounding & display › constant fraction mode keeps denominator
+✓ fraction rounding & display › negative values
+✓ fraction rounding & display › tiny negative rounds to 0 without sign
+✓ fraction rounding & display › internal precision preserved
+✓ fraction rounding & display › D:M:S formatting 44.29° → 44° 17′ 24″
+✓ dimensional arithmetic › 2' 3" + 9" = 3'
+✓ dimensional arithmetic › length × length = area
+✓ dimensional arithmetic › area × length = volume
+✓ dimensional arithmetic › volume × length rejected
+✓ dimensional arithmetic › length + plain number rejected with explanation
+✓ dimensional arithmetic › length + area rejected
+✓ dimensional arithmetic › length ÷ length = number
+✓ dimensional arithmetic › division by zero
+✓ dimensional arithmetic › √ area = length
+✓ dimensional arithmetic › √ length rejected
+✓ dimensional arithmetic › metric + imperial mixes correctly
+
+150 passed, 0 failed, 150 total
