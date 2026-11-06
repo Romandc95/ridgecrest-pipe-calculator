@@ -28,6 +28,7 @@ Service workers need HTTPS, so host `dist/` on any static HTTPS host (GitHub Pag
 | **Layout** | Simple offset (any two of O, A, L, θ), rolling offset (H & V or O & φ, plus A, L or θ), slope/grade/drop, parallel cutback, combination offset (entry/exit angles for any in/out directions). Conflicting or insufficient inputs are reported. Optional cut length with separate take-out and gap per end. |
 | **Fittings** | Take-out & inside/center/outside arcs (B16.9 or manual R & OD), cut length with every deduction shown, elbow trim (retained vs removed angle, arcs measured from the kept factory end), **Fit-to-Fit** solver. |
 | **Pipe** | Pipe data (OD, ID, wall, area, capacity, empty & filled weight), flow/velocity, pressure·force·area, pressure loss, unit converter, circle. |
+| **Data** | Reference library. **Flanges** (ASME B16.5, Class 150–2500): OD, thickness, raised face, hub, length through hub by type, bolt circle, bolts, stud lengths RF/RTJ, wrench size, full class tables. **Bolting**: torque from target stress and nut factor, pass torques, cross-pattern tightening order diagram. **Gaskets**: B16.20 spiral-wound dimensions. **Fittings**: B16.9 elbows, tees, reducers, caps, 180° returns, stub ends; B16.11 socket-weld and threaded; B16.3 150# malleable; threaded and socket take-outs. **Valves**: B16.10 face-to-face (gate, globe, swing check, ball). **Pipe & supports**: volume in all units, inside/outside surface area, B31.1 support spans, parallel pipe spacing, Weldolet center-to-end. Every table shows its source. |
 | **Jobs** | History (auto-records = results), favorites, named jobs, reopen saved guided calculations, copy/share, settings, help. |
 
 ### Keypad: entering vs. solving
@@ -46,6 +47,8 @@ Elbow 1 (fixed angle, measured center-to-face) is rolled about its inlet and wel
 | PVC | ASTM D1785 Sch 40/80; ASTM D2241 SDR (wall = OD/SDR, min 0.060") | NPS 1/2–12 (no 3-1/2, 5) |
 | Aluminum | ANSI H35.2 (B36.10M dims) | Sch 40/80, NPS 1/8–12 |
 | Elbows | ASME B16.9 center-to-end (LR 90, LR 45, SR 90) | NPS 1/2–24 |
+
+**Data tab, not included:** ring numbers for Classes 150/900/1500/2500 (only 300–600 could be confirmed), B16.47 large-diameter, B16.36 orifice and AWWA flanges, B16.21 flat gaskets, B16.48 line blanks (published sources disagree on thickness), fitting/flange/valve weights, reducing-tee outlet dimensions, sockolet/threadolet/elbolet heights, 3/4" LR return (sources disagree). Bolt torque is a calculation from your procedure's target stress and nut factor, not a published torque table.
 
 **Not included (enter dimensions manually):** brass pipe (ASTM B43), cast-iron soil pipe (CISPI 301 / ASTM A74 / A888), copper ACR tube (B280), PVC Sch 120. Automatic take-outs exist only for butt-weld steel/stainless/aluminum elbows. Dimension tables were transcribed from the standards listed; spot-check critical values against your current standard or mill certs.
 

@@ -96,6 +96,62 @@
 ✓ guide: pipe data, flow, pressure › pressure loss at 40 gpm: 0.575408 psi, Re 61200.9
 ✓ guide: pipe data, flow, pressure › missing pipe data is reported (brass)
 ✓ guide: pipe data, flow, pressure › pipe material sequence includes all seven
+✓ flanges (B16.5) › Class 150 NPS 1/2: OD 3.5, BC 2.375, 4 × 0.5" bolts
+✓ flanges (B16.5) › Class 150 NPS 4: OD 9, BC 7.5, 8 × 0.625" bolts
+✓ flanges (B16.5) › Class 150 NPS 24: OD 32, BC 29.5, 20 × 1.25" bolts
+✓ flanges (B16.5) › Class 300 NPS 2: OD 6.5, BC 5, 8 × 0.625" bolts
+✓ flanges (B16.5) › Class 300 NPS 6: OD 12.5, BC 10.625, 12 × 0.75" bolts
+✓ flanges (B16.5) › Class 300 NPS 24: OD 36, BC 32, 24 × 1.5" bolts
+✓ flanges (B16.5) › Class 400 NPS 4: OD 10, BC 7.875, 8 × 0.875" bolts
+✓ flanges (B16.5) › Class 400 NPS 24: OD 36, BC 32, 24 × 1.75" bolts
+✓ flanges (B16.5) › Class 600 NPS 4: OD 10.75, BC 8.5, 8 × 0.875" bolts
+✓ flanges (B16.5) › Class 600 NPS 12: OD 22, BC 19.25, 20 × 1.25" bolts
+✓ flanges (B16.5) › Class 600 NPS 24: OD 37, BC 33, 24 × 1.875" bolts
+✓ flanges (B16.5) › Class 900 NPS 3: OD 9.5, BC 7.5, 8 × 0.875" bolts
+✓ flanges (B16.5) › Class 900 NPS 2-1/2: OD 9.625, BC 7.5, 8 × 1" bolts
+✓ flanges (B16.5) › Class 900 NPS 24: OD 41, BC 35.5, 20 × 2.5" bolts
+✓ flanges (B16.5) › Class 1500 NPS 2: OD 8.5, BC 6.5, 8 × 0.875" bolts
+✓ flanges (B16.5) › Class 1500 NPS 10: OD 23, BC 19, 12 × 1.875" bolts
+✓ flanges (B16.5) › Class 1500 NPS 24: OD 46, BC 39, 16 × 3.5" bolts
+✓ flanges (B16.5) › Class 2500 NPS 1/2: OD 5.25, BC 3.5, 4 × 0.75" bolts
+✓ flanges (B16.5) › Class 2500 NPS 6: OD 19, BC 14.5, 8 × 2" bolts
+✓ flanges (B16.5) › Class 2500 NPS 12: OD 30, BC 24.375, 12 × 2.75" bolts
+✓ flanges (B16.5) › Class 150 4" weld neck hub length 2.94, thickness 0.88, RF 6.19
+✓ flanges (B16.5) › 4" stud lengths by class match Texas Flange 4" table
+✓ flanges (B16.5) › every class covers its sizes; 2500 stops at 12
+✓ flanges (B16.5) › hole = bolt + 1/8 everywhere
+✓ flanges (B16.5) › raised face height 1/16 for 150/300, 1/4 for 400+
+✓ flanges (B16.5) › ring numbers (Class 300–600): 4" R-37, 2" R-23
+✓ flanges (B16.5) › no slip-on length for Class 1500 above 2-1/2
+✓ flanges (B16.5) › missing size is reported
+✓ bolting › heavy hex across flats: 5/8 → 1-1/16, 7/8 → 1-7/16, 1-1/4 → 2
+✓ bolting › tensile stress area: 3/4-10 UNC 0.334 in², 1-8 0.606 in², 1-1/4-8 1.000 in²
+✓ bolting › torque T = K·D·F: 7/8" at 50 ksi, K 0.17 → ≈ 285 ft·lb
+✓ bolting › cross pattern: 8 → 1,5,3,7,2,6,4,8; 12 → 1,7,4,10,2,8,5,11,3,9,6,12
+✓ bolting › every bolt appears exactly once (4–24)
+✓ gaskets (B16.20 spiral wound) › Class 150 1/2": winding 0.75 × 1.25, ring 1.88, inner ring 0.56
+✓ gaskets (B16.20 spiral wound) › centering ring OD: Class 300 4" 7.13, Class 600 4" 7.63, Class 150 24" 28.25
+✓ gaskets (B16.20 spiral wound) › centering ring is located by the bolts (ring OD ≤ BC − bolt dia)
+✓ gaskets (B16.20 spiral wound) › 3-1/2 not in source
+✓ fittings › B16.9 tees (mm source 25, 64, 143, 254, 432)
+✓ fittings › B16.9 reducers H (38.1 … 508 mm)
+✓ fittings › 180° returns: LR O = 2 × LR 90 radius
+✓ fittings › 3/4 LR return omitted (sources disagree)
+✓ fittings › stub end G equals the flange raised-face diameter
+✓ fittings › socket weld 3000 2": A 1.50, J 0.63, take-out A − (J − 1/16)
+✓ fittings › socket weld 6000 above 2" not available
+✓ fittings › NPT makeup = L1 + L3: 1" 0.6609, 2" 0.6969
+✓ fittings › 150# malleable 1" 90°: A 1.50, take-out ≈ 0.84
+✓ valves (B16.10) › Class 150 gate: 2" 7.00, 4" 9.00, 12" 14.00
+✓ valves (B16.10) › Class 300 gate 8" 16.50, 14" 30.00
+✓ valves (B16.10) › Class 600 2" 11.50
+✓ valves (B16.10) › Class 150 swing check 6" differs from globe (14.00 vs 16.00)
+✓ valves (B16.10) › values not in B16.10 return null
+✓ outlets, supports, pipe extras › Weldolet 2" branch A 1-1/2; on 6" run → 3.3125 + 1.5
+✓ outlets, supports, pipe extras › B31.1 span 4": water 14 ft, steam 17 ft
+✓ outlets, supports, pipe extras › volume: 6" Std, 20 ft → 30.0159 US gal, 4.0125 cu ft
+✓ outlets, supports, pipe extras › surface area π·D·L
+✓ outlets, supports, pipe extras › spacing uses the larger of pipe+insulation and half flange OD
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -149,4 +205,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-150 passed, 0 failed, 150 total
+206 passed, 0 failed, 206 total

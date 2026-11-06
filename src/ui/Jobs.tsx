@@ -173,7 +173,8 @@ function Help() {
         <h4>Not included / limits</h4>
         <ul>
           <li>No bundled dimension tables for brass pipe, cast-iron soil pipe, copper ACR tube or PVC Sch 120 — use manual OD and wall.</li>
-          <li>Automatic take-outs exist only for butt-weld steel / stainless / aluminum elbows (B16.9). Other fittings need a known take-out.</li>
+          <li>Automatic take-outs exist only for butt-weld steel / stainless / aluminum elbows (B16.9). Other fittings need a known take-out (the Data tab lists socket-weld and threaded take-outs).</li>
+          <li>Data tab: not included are ring numbers outside Classes 300–600, B16.47 and orifice flanges, flat gaskets, line blanks, weights, reducing-tee outlets and sockolet/threadolet heights. Each table names its source.</li>
           <li>Pressure loss: water only, straight pipe, no fittings or valves.</li>
           <li>Fitting-to-fitting solver models ideal elbows (tangent lengths); verify trimmed fittings against the actual part.</li>
         </ul>

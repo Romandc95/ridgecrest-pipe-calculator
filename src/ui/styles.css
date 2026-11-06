@@ -50,7 +50,7 @@ button { cursor: pointer; }
 .content { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; min-height: 0; }
 .tab-calc .content { overflow: hidden; }
 
-.tabs { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--line); background: var(--surface); padding-bottom: var(--safe-b); }
+.tabs { display: grid; grid-template-columns: repeat(6, 1fr); border-top: 1px solid var(--line); background: var(--surface); padding-bottom: var(--safe-b); }
 .tabs button { background: none; border: 0; padding: 7px 0 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--muted); font-size: 11px; font-weight: 600; min-height: 50px; }
 .tabs button.on { color: var(--accent); }
 
@@ -230,3 +230,17 @@ button { cursor: pointer; }
   .regs { display: none; }
 }
 @media (max-width: 360px) { .grid2 { grid-template-columns: 1fr; } .key .sec { font-size: 8.5px; } }
+
+/* ---------- data library ---------- */
+.chipgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.chipgrid button { border: 1px solid var(--line); background: var(--surface2); border-radius: 10px; padding: 10px 4px; font-size: 13.5px; font-weight: 650; color: var(--muted); }
+.chipgrid button.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.src { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+.tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: 10px; }
+.dtable { border-collapse: collapse; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dtable th, .dtable td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+.dtable thead th { position: sticky; top: 0; background: var(--surface2); font-family: var(--font); color: var(--muted); }
+.dtable tbody th { text-align: left; position: sticky; left: 0; background: var(--surface); }
+.dg-seq { fill: none; stroke: var(--accent); stroke-width: 1.2; opacity: .55; }
+.dg-bolt { fill: var(--surface2); stroke: var(--text); stroke-width: 1.5; }
+.dg-boltno { font-size: 11px; font-weight: 700; fill: var(--text); font-family: var(--font); }
