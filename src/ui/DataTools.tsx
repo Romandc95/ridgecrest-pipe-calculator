@@ -4,7 +4,7 @@ import { parseLength, parseMeasurement, tryParse } from '../engine/parse';
 import { formatFracIn, formatNumber } from '../engine/format';
 import { CalcError } from '../engine/units';
 import {
-  FLANGE_CLASSES, FlangeClass, flange, flangeSizes, FLANGE_SOURCE, STUD_SOURCE, RING_SOURCE, boltTorque, tighteningSequence, boltTPI,
+  FLANGE_CLASSES, FlangeClass, Flange, flange, flangeSizes, FLANGE_SOURCE, STUD_SOURCE, RING_SOURCE, boltTorque, tighteningSequence, boltTPI,
   spiralGasket, SW_GASKET_SOURCE, bwFitting, B169_FIT_SOURCE, socketWeld, B1611_SOURCE, threadedFitting, THREADED_KINDS, THREADED_LABEL,
   ThreadedKind, threadedSizes, NPT_SOURCE, B163_SOURCE, VALVE_CLASSES, VALVE_LABEL, ValveType, valveFaceToFace, VALVE_SOURCE, SIZES,
   WELDOLET_A, weldolet, OLET_SOURCE, SUPPORT_SPAN, SUPPORT_SOURCE, pipeVolume, pipeSurface, pipeSpacing, heavyHexAcrossFlats,
@@ -95,7 +95,7 @@ function FlangeView() {
   ] : [];
   return (
     <>
-      <FlangeDiagram />
+      {f && <FlangeDiagram f={f} type={x.type} fmt={(v) => formatFracIn(v, prefs)} />}
       <Card>
         <ClassSize p={p} />
         <Select label="Flange type" value={x.type} options={FTYPES} onChange={(v) => setX('type', v)} />
@@ -130,25 +130,107 @@ function FlangeTable({ cls }: { cls: FlangeClass }) {
   );
 }
 
-function FlangeDiagram() {
+/**
+ * To-scale flange drawing built from the selected B16.5 row: full cross-section on the left (hatched = cut
+ * material, cut through a bolt hole), face view on the right. Pipe OD/ID are ASME B36.10M standard weight.
+ */
+function FlangeDiagram({ f, type, fmt }: { f: Flange; type: string; fmt: (v: number) => string }) {
+  const A = steelOD(f.nps);
+  let pid: number;
+  try { pid = pipeProps('steel', 'Std', f.nps).id; } catch { pid = A * 0.88; }
+  const lap = type === 'LJ', blind = type === 'BL';
+  const rfH = lap ? 0 : f.rfHeight;
+  const Y = blind ? f.tf : type === 'WN' ? f.yWN : type === 'LJ' ? (f.yLJ ?? f.tf) : (f.ySO ?? f.yWN);
+  const made = !(type !== 'WN' && type !== 'BL' && type !== 'LJ' && f.ySO == null) && !(type === 'SW' && f.socketDepth == null);
+
+  // ---- section view geometry (inches), x along the axis from the raised-face front, r from centerline
+  const x1 = rfH, x2 = rfH + f.tf, x3 = rfH + Y;
+  const boreFace = type === 'WN' || type === 'SW' ? pid : A + 0.07; // SO/THD/LJ bores fit over the pipe
+  const top: Array<[number, number]> = [];
+  if (blind) {
+    top.push([0, 0], [0, f.rfDia / 2], [x1, f.rfDia / 2], [x1, f.od / 2], [x2, f.od / 2], [x2, 0]);
+  } else {
+    const rB = boreFace / 2;
+    if (lap) top.push([0, rB + 0.12], [0.12, rB]); else top.push([0, rB]);
+    if (!lap) top.push([0, f.rfDia / 2], [x1, f.rfDia / 2]);
+    top.push([x1, f.od / 2], [x2, f.od / 2]);
+    if (type === 'WN') {
+      const t = (A - pid) / 2, land = Math.min(0.0625, t * 0.3), bev = Math.max(0, (t - land) * Math.tan((37.5 * Math.PI) / 180));
+      top.push([x2, f.hubDia / 2], [x3 - bev, A / 2], [x3, pid / 2 + land], [x3, pid / 2]);
+    } else {
+      top.push([x2, f.hubDia / 2], [x3, f.hubDia / 2 - (type === 'SO' || type === 'SW' || type === 'THD' ? 0 : 0)]);
+      if (type === 'SW') { const D = f.socketDepth ?? 0.5; top.push([x3, (A + 0.07) / 2], [x3 - D, (A + 0.07) / 2], [x3 - D, pid / 2]); }
+      else top.push([x3, rB]);
+    }
+  }
+
+  // ---- fit into the left box
+  const L = x3, H = f.od;
+  const boxX = 44, boxW = 168, cy = 122, maxHalf = 96;
+  const s = Math.min(boxW / L, (2 * maxHalf) / H);
+  const ox = boxX + (boxW - L * s) / 2;
+  const X = (x: number) => ox + x * s, Yt = (r: number) => cy - r * s, Yb = (r: number) => cy + r * s;
+  const poly = (fy: (r: number) => number) => top.map(([x, r]) => `${X(x).toFixed(1)},${fy(r).toFixed(1)}`).join(' ');
+  const holeTop = [f.boltCircle / 2 - f.holeDia / 2, f.boltCircle / 2 + f.holeDia / 2];
+  const half = H / 2;
+
+  // ---- face view
+  const fx = 282, fy = 104, fR = 46, k = fR / half;
+  const holes = Array.from({ length: f.nBolts }, (_, i) => { const a = -Math.PI / 2 + Math.PI / f.nBolts + (i / f.nBolts) * 2 * Math.PI; return [fx + (f.boltCircle / 2) * k * Math.cos(a), fy + (f.boltCircle / 2) * k * Math.sin(a)]; });
+  const typeName = FTYPES.find((t) => t[0] === type)![1];
+
   return (
     <figure className="diagram">
-      <svg viewBox="0 0 340 192" role="img" aria-label="Weld neck flange section">
-        <defs><marker id="fa" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" className="dg-arrowhead" /></marker></defs>
-        {/* half section, axis horizontal at y=150 */}
-        <path className="dg-elbow-keep" d="M60,30 L60,150 L82,150 L82,112 L120,112 L170,138 L250,138 L250,150 L250,126 L170,126 L120,100 L82,100 L82,30 Z" />
-        <rect className="dg-elbow-keep" x="56" y="70" width="4" height="80" />
-        <line className="dg-ext" x1="20" y1="150" x2="320" y2="150" />
-        <line className="dg-cut" x1="70" y1="40" x2="70" y2="48" /><circle className="dg-node" cx="71" cy="44" r="3" />
-        <line className="dg-dim" x1="40" y1="30" x2="40" y2="150" markerStart="url(#fa)" markerEnd="url(#fa)" /><text className="dg-lbl" x="22" y="92">O/2</text>
-        <line className="dg-dim" x1="60" y1="20" x2="82" y2="20" markerStart="url(#fa)" markerEnd="url(#fa)" /><text className="dg-lbl" x="71" y="14" textAnchor="middle">tf</text>
-        <line className="dg-dim" x1="56" y1="168" x2="250" y2="168" markerStart="url(#fa)" markerEnd="url(#fa)" /><text className="dg-lbl" x="153" y="186" textAnchor="middle">Y (length through hub)</text>
-        <text className="dg-lbl sm" x="92" y="60">bolt hole on BC</text>
-        <text className="dg-lbl sm" x="122" y="96">hub X</text>
-        <text className="dg-lbl sm" x="258" y="132">weld end</text>
-        <text className="dg-lbl sm" x="34" y="80" textAnchor="end">RF</text><line className="dg-ext" x1="36" y1="76" x2="55" y2="76" />
+      <svg viewBox="0 0 340 262" role="img" aria-label={`${typeName} flange, Class ${f.cls}, NPS ${f.nps}, to scale`}>
+        <defs>
+          <marker id="fa" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" className="dg-arrowhead" /></marker>
+          <pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" className="dg-hatch" /></pattern>
+        </defs>
+        {/* section */}
+        <polygon className="dg-section" points={poly(Yt)} />
+        <polygon className="dg-section" points={poly(Yb)} />
+        {!blind && [Yt, Yb].map((fyy, i) => (
+          <g key={i}>
+            <rect className="dg-hole" x={X(x1)} y={Math.min(fyy(holeTop[0]), fyy(holeTop[1]))} width={(x2 - x1) * s} height={f.holeDia * s} />
+            <line className="dg-center" x1={X(x1) - 4} x2={X(x2) + 4} y1={fyy(f.boltCircle / 2)} y2={fyy(f.boltCircle / 2)} />
+          </g>
+        ))}
+        {blind && [Yt, Yb].map((fyy, i) => <rect key={i} className="dg-hole" x={X(x1)} y={Math.min(fyy(holeTop[0]), fyy(holeTop[1]))} width={(x2 - x1) * s} height={f.holeDia * s} />)}
+        {type === 'THD' && [Yt, Yb].map((fyy, i) => <line key={i} className="dg-thread" x1={X(0)} x2={X(x3)} y1={fyy(A / 2 + 0.035)} y2={fyy(A / 2 + 0.035)} />)}
+        <line className="dg-center" x1={X(0) - 8} x2={X(x3) + 8} y1={cy} y2={cy} />
+        {/* O */}
+        <line className="dg-ext" x1={X(x1) - 2} x2={boxX - 22} y1={Yt(half)} y2={Yt(half)} />
+        <line className="dg-ext" x1={X(x1) - 2} x2={boxX - 22} y1={Yb(half)} y2={Yb(half)} />
+        <line className="dg-dim" x1={boxX - 18} x2={boxX - 18} y1={Yt(half)} y2={Yb(half)} markerStart="url(#fa)" markerEnd="url(#fa)" />
+        <text className="dg-lbl sm" transform={`translate(${boxX - 24} ${cy}) rotate(-90)`} textAnchor="middle">O {fmt(f.od)}</text>
+        {/* tf */}
+        <line className="dg-dim" x1={X(x1)} x2={X(x2)} y1={Yt(half) - 9} y2={Yt(half) - 9} markerStart="url(#fa)" markerEnd="url(#fa)" />
+        <text className="dg-lbl sm" x={(X(x1) + X(x2)) / 2} y={Yt(half) - 14} textAnchor="middle">tf {fmt(f.tf)}</text>
+        {/* Y */}
+        {!blind && made && <>
+          <line className="dg-ext" x1={X(x3)} x2={X(x3)} y1={Yb(f.hubDia / 2) + 2} y2={Yb(half) + 18} />
+          <line className="dg-dim" x1={X(x1)} x2={X(x3)} y1={Yb(half) + 13} y2={Yb(half) + 13} markerStart="url(#fa)" markerEnd="url(#fa)" />
+          <text className="dg-lbl sm" x={(X(x1) + X(x3)) / 2} y={Yb(half) + 27} textAnchor="middle">Y {fmt(Y)}</text>
+        </>}
+        {/* callouts */}
+        {!lap && <><line className="dg-ext" x1={X(0) - 2} x2={X(0) - 12} y1={Yt(f.rfDia / 2 - 0.15)} y2={Yt(f.rfDia / 2 - 0.15)} /><text className="dg-lbl sm acc" x={X(0) - 14} y={Yt(f.rfDia / 2 - 0.15) + 4} textAnchor="end">RF</text></>}
+        {!blind && <text className="dg-lbl sm acc" x={X(x2) + 4} y={Yt(f.hubDia / 2) - 4}>X</text>}
+        {type === 'WN' && <text className="dg-lbl sm acc" x={X(x3) + 3} y={Yt(A / 2) + 4}>weld</text>}
+        {type === 'SW' && <text className="dg-lbl sm acc" x={X(x3) + 3} y={Yt(A / 2) + 4}>socket</text>}
+        {/* face view */}
+        <circle className="dg-face-o" cx={fx} cy={fy} r={fR} />
+        {!lap && <circle className="dg-face-rf" cx={fx} cy={fy} r={(f.rfDia / 2) * k} />}
+        <circle className="dg-center" cx={fx} cy={fy} r={(f.boltCircle / 2) * k} />
+        {holes.map(([hx, hy], i) => <circle key={i} className="dg-face-hole" cx={hx} cy={hy} r={Math.max(1.5, (f.holeDia / 2) * k)} />)}
+        {!blind && <circle className="dg-face-bore" cx={fx} cy={fy} r={(boreFace / 2) * k} />}
+        <line className="dg-center" x1={fx - fR - 5} x2={fx + fR + 5} y1={fy} y2={fy} />
+        <line className="dg-center" x1={fx} x2={fx} y1={fy - fR - 5} y2={fy + fR + 5} />
+        <text className="dg-lbl sm" x={fx} y={fy + fR + 16} textAnchor="middle">BC {fmt(f.boltCircle)}</text>
+        <text className="dg-lbl sm" x={fx} y={fy + fR + 29} textAnchor="middle">{f.nBolts} holes Ø{fmt(f.holeDia)}</text>
+        <text className="dg-lbl sm strong" x={boxX + boxW / 2} y={258} textAnchor="middle">SECTION</text>
+        <text className="dg-lbl sm strong" x={fx} y={fy - fR - 12} textAnchor="middle">FACE</text>
       </svg>
-      <figcaption>Weld neck flange, half section. O outside diameter, tf thickness (excluding raised face), R raised-face diameter, X hub diameter, Y length through hub, BC bolt circle.</figcaption>
+      <figcaption>{typeName}, Class {f.cls}, NPS {f.nps}, drawn to scale from the table values. Section is cut through two bolt holes (hatched = metal). {lap ? 'Lap joint flanges have no raised face; the stub end forms the gasket face.' : `Raised face ${fmt(f.rfHeight)} high, shown on the left; tf and Y exclude it.`} {type === 'WN' ? 'Bore shown for standard-weight pipe; it matches the pipe ordered.' : ''}{!made ? ' This type is not made in this class and size.' : ''}</figcaption>
     </figure>
   );
 }

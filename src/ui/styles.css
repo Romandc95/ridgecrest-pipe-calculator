@@ -244,3 +244,12 @@ button { cursor: pointer; }
 .dg-seq { fill: none; stroke: var(--accent); stroke-width: 1.2; opacity: .55; }
 .dg-bolt { fill: var(--surface2); stroke: var(--text); stroke-width: 1.5; }
 .dg-boltno { font-size: 11px; font-weight: 700; fill: var(--text); font-family: var(--font); }
+.dg-section { fill: url(#hatch); stroke: var(--text); stroke-width: 1.4; stroke-linejoin: round; }
+.dg-hatch { stroke: var(--pipe2); stroke-width: 1.1; }
+.dg-hole { fill: var(--surface); stroke: var(--text); stroke-width: 1; }
+.dg-center { fill: none; stroke: var(--muted); stroke-width: .8; stroke-dasharray: 10 3 2 3; }
+.dg-thread { stroke: var(--text); stroke-width: .8; stroke-dasharray: 2 2; }
+.dg-face-o { fill: color-mix(in srgb, var(--pipe2) 14%, transparent); stroke: var(--text); stroke-width: 1.4; }
+.dg-face-rf { fill: color-mix(in srgb, var(--pipe2) 24%, transparent); stroke: var(--text); stroke-width: 1; }
+.dg-face-hole { fill: var(--surface); stroke: var(--text); stroke-width: 1; }
+.dg-face-bore { fill: var(--surface); stroke: var(--text); stroke-width: 1.2; }
