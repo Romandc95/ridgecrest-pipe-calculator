@@ -10,3 +10,5 @@ export * from './hydraulics';
 export * from './fit2fit';
 export * from './calculator';
 export * from './refdata';
+export * from './shop';
+export * from './iso';

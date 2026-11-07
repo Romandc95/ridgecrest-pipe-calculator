@@ -50,8 +50,8 @@ button { cursor: pointer; }
 .content { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; min-height: 0; }
 .tab-calc .content { overflow: hidden; }
 
-.tabs { display: grid; grid-template-columns: repeat(6, 1fr); border-top: 1px solid var(--line); background: var(--surface); padding-bottom: var(--safe-b); }
-.tabs button { background: none; border: 0; padding: 7px 0 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--muted); font-size: 11px; font-weight: 600; min-height: 50px; }
+.tabs { display: grid; grid-template-columns: repeat(7, 1fr); border-top: 1px solid var(--line); background: var(--surface); padding-bottom: var(--safe-b); }
+.tabs button { background: none; border: 0; padding: 7px 0 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--muted); font-size: 10.5px; min-width: 0; font-weight: 600; min-height: 50px; }
 .tabs button.on { color: var(--accent); }
 
 /* ---------- calculator ---------- */
@@ -253,3 +253,48 @@ button { cursor: pointer; }
 .dg-face-rf { fill: color-mix(in srgb, var(--pipe2) 24%, transparent); stroke: var(--text); stroke-width: 1; }
 .dg-face-hole { fill: var(--surface); stroke: var(--text); stroke-width: 1; }
 .dg-face-bore { fill: var(--surface); stroke: var(--text); stroke-width: 1.2; }
+.chipgrid.four { grid-template-columns: repeat(4, 1fr); }
+.chipgrid.four button { font-size: 12.5px; padding: 9px 2px; }
+.dg-tplbg { fill: color-mix(in srgb, var(--pipe2) 6%, transparent); stroke: var(--line); }
+.dg-tplcurve { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linejoin: round; }
+
+/* ---------- ISO sketch ---------- */
+.isohead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.isoname { flex: 1; min-width: 0; font: 700 17px/1.2 inherit; font-family: inherit; color: var(--text); background: transparent; border: 0; border-bottom: 1px dashed var(--line); padding: 4px 0; }
+.isocanvas { position: relative; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; touch-action: none; }
+.isocanvas svg { display: block; width: 100%; height: auto; aspect-ratio: 360 / 300; max-height: 42vh; user-select: none; -webkit-user-select: none; }
+.isozoom { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px; }
+.isozoom .cbtn { min-width: 38px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface2); color: var(--text); font-weight: 700; font-size: 15px; padding: 0 8px; }
+.isogrid line { stroke: var(--line); stroke-width: .5; opacity: .45; }
+.isonorth line { stroke: var(--muted); stroke-width: 1.4; }
+.isonorth path { fill: var(--muted); }
+.isonorth text { font: 700 10px sans-serif; fill: var(--muted); }
+.iso-pipe { stroke: var(--text); stroke-width: 3; stroke-linecap: round; }
+.iso-pipe.sel { stroke: var(--accent); stroke-width: 4; }
+.iso-hit { stroke: transparent; stroke-width: 18; stroke-linecap: round; cursor: pointer; }
+.iso-sym { fill: var(--surface); stroke: var(--text); stroke-width: 1.4; }
+.iso-sym.thick { stroke-width: 2.6; }
+.iso-symfill { fill: var(--text); }
+.iso-weld { fill: var(--accent); }
+.iso-dim { font: 600 10px sans-serif; fill: var(--accent); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+.iso-note { font: 600 9px sans-serif; fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+.iso-node { font: 600 8px sans-serif; fill: var(--muted); }
+.iso-leader { stroke: var(--muted); stroke-width: .7; }
+.iso-nodehit { fill: transparent; stroke: none; cursor: pointer; }
+.iso-nodehit.cursor { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 3 2; }
+.iso-nodehit.sel { fill: color-mix(in srgb, var(--accent) 22%, transparent); stroke: var(--accent); stroke-width: 1.6; }
+.isotoggles { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.isotoggles .chip { display: inline-flex; align-items: center; gap: 5px; }
+.dirpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0; }
+.dirpad .btn.dir { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 4px; }
+.dirpad .arr { font-size: 20px; line-height: 1; color: var(--accent); }
+.dtable tr.bad td, .dtable tr.bad th { color: var(--bad); }
+.item.cur { border-color: var(--accent); }
+.tool.iso .card > .btn { flex: none; width: 100%; margin-top: 4px; }
+.tool.iso .dtable { width: 100%; }
+.tool.iso .dtable tbody th { text-align: left; }
+.dtable th small { display: block; font-size: 11px; font-weight: 500; }
+.tool.iso .dtable { font-size: 11.5px; }
+.tool.iso .dtable th, .tool.iso .dtable td { padding: 6px 4px; }
+.tool.iso .dtable tbody th { white-space: normal; }
+.tool.iso .dtable thead th:first-child { text-align: left; }

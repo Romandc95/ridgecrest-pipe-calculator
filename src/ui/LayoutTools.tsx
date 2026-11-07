@@ -1,5 +1,6 @@
 import React from 'react';
 import { Field, Results, Row, Msg, Formula, ToolActions, Segmented, Select, useTool, useFmt, Card, Grid, LEN_HINT } from './components';
+import { MiterTool, CopeTool, ExpansionTool } from './ShopTools';
 import { SimpleOffsetDiagram, RollingOffsetDiagram, CutbackDiagram, CombinationDiagram } from './diagrams';
 import { parseLength, parseAngle, parseMeasurement, tryParse } from '../engine/parse';
 import { solveSimpleOffset, solveRollingOffset, parallelCutback, combinationOffset, AXES, Axis } from '../engine/layout';
@@ -20,12 +21,19 @@ export function LayoutTools() {
   const [t, set] = useTool('layout', { tab: 'simple' });
   return (
     <div className="tool">
-      <Segmented value={t.tab} onChange={(v) => set('tab', v)} options={[['simple', 'Offset'], ['rolling', 'Rolling'], ['slope', 'Slope'], ['cutback', 'Cutback'], ['combo', 'Combo']]} />
+      <div className="chipgrid four" role="tablist">
+        {([['simple', 'Offset'], ['rolling', 'Rolling'], ['slope', 'Slope'], ['cutback', 'Cutback'], ['combo', 'Combo'], ['miter', 'Miter'], ['cope', 'Cope'], ['expansion', 'Expansion']] as const).map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={t.tab === k} className={t.tab === k ? 'on' : ''} onClick={() => set('tab', k)}>{l}</button>
+        ))}
+      </div>
       {t.tab === 'simple' && <SimpleOffset />}
       {t.tab === 'rolling' && <RollingOffset />}
       {t.tab === 'slope' && <SlopeTool />}
       {t.tab === 'cutback' && <CutbackTool />}
       {t.tab === 'combo' && <ComboTool />}
+      {t.tab === 'miter' && <MiterTool />}
+      {t.tab === 'cope' && <CopeTool />}
+      {t.tab === 'expansion' && <ExpansionTool />}
     </div>
   );
 }

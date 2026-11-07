@@ -161,6 +161,23 @@ function Help() {
         <div className="convgrid">{convRows.map((k) => <div key={k.k}><span>{k.aria}</span><b>{CONV_MAP[k.k]!.label}</b></div>)}</div>
       </Card>
       <Card>
+        <h4>ISO sketch</h4>
+        <ul>
+          <li>Type a center-to-center length, then tap a direction. On screen North points up-right, East down-right, Up straight up. Each run starts from the dashed circle.</li>
+          <li>Tap any point on the drawing to continue or branch from it — a branch makes a tee. Tap a pipe to change its length, put a valve or flange on it, or delete it. Use “Offset / rolling run” for runs that aren’t square to the grid.</li>
+          <li>The Cut list subtracts B16.9 long-radius elbow and tee take-outs for the size in Setup plus a root gap at every butt weld. Valves, flanges and reducers on a run are flagged for you to subtract.</li>
+          <li>Drawings are saved on this device (Library). Setup → Share drawing as image makes a PNG.</li>
+        </ul>
+      </Card>
+      <Card>
+        <h4>Shop layout (Layout tab)</h4>
+        <ul>
+          <li><b>Miter:</b> n welds give n−1 full gores and two half-gore ends; each cut is tilted B/(2n) from square. Wrap the template ordinates around the pipe from the heel.</li>
+          <li><b>Cope:</b> ordinates are cut-backs from the square end of the branch, starting at the heel (φ = 0, in line with the header axis).</li>
+          <li><b>Expansion:</b> ΔL = α · L · ΔT with mean coefficients; check your design code for allowable movement.</li>
+        </ul>
+      </Card>
+      <Card>
         <h4>Conventions</h4>
         <ul>
           <li>All layout dimensions are centerline. O = offset perpendicular to the run, A = run along it, L = center-to-center travel, θ = bend angle at each fitting.</li>

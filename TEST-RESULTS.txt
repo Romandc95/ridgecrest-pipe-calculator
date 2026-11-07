@@ -152,6 +152,22 @@
 ✓ outlets, supports, pipe extras › volume: 6" Std, 20 ft → 30.0159 US gal, 4.0125 cu ft
 ✓ outlets, supports, pipe extras › surface area π·D·L
 ✓ outlets, supports, pipe extras › spacing uses the larger of pipe+insulation and half flange OD
+✓ miter (segmented elbow) › 90° with 3 welds: cut angle 15°, gore = 2R·tan15°
+✓ miter (segmented elbow) › two-piece 90° miter: each side cut 45°, template ±OD/2
+✓ miter (segmented elbow) › lengths add up: 2 ends + gores = total centerline from tangent to tangent
+✓ miter (segmented elbow) › radius too tight for multi-weld is rejected
+✓ coping template › equal-size 90° tee: cut depth = branch radius; tips at the sides, deepest along the header
+✓ coping template › 2" on 6" at 90°: depth = R − √(R² − r²)
+✓ coping template › 45° lateral is deeper and asymmetric
+✓ coping template › branch larger than header rejected
+✓ thermal expansion › 100 ft carbon steel, 70→370 °F: 6.5e-6 × 1200 × 300 = 2.34"
+✓ thermal expansion › cooling gives negative change
+✓ ISO route › chain E 60, N 48, Up 36 → nodes and two 90° elbows
+✓ ISO route › cut list: 4" LR 90s take out 6", gap 1/8 at each weld
+✓ ISO route › 45° offset is detected and uses the B16.9 45° take-out
+✓ ISO route › branch from node 1 makes a tee with the tee take-out
+✓ ISO route › rolling run described
+✓ ISO route › iso projection: up is screen-up, north and east diverge
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -205,4 +221,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-206 passed, 0 failed, 206 total
+222 passed, 0 failed, 222 total

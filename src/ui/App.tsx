@@ -8,13 +8,15 @@ import { PipeTools } from './PipeTools';
 import { JobsView } from './Jobs';
 import { DataTools } from './DataTools';
 import { BrandLogo } from './brand';
+import { IsoSketch } from './IsoSketch';
 
-type Tab = 'calc' | 'layout' | 'fittings' | 'pipe' | 'data' | 'jobs';
+type Tab = 'calc' | 'layout' | 'fittings' | 'iso' | 'pipe' | 'data' | 'jobs';
 
 // tool id -> [main tab, sub-tab tool, sub-tab key value]
 const TOOL_ROUTE: Record<string, [Tab, string, string]> = {
   simple: ['layout', 'layout', 'simple'], rolling: ['layout', 'layout', 'rolling'], slope: ['layout', 'layout', 'slope'],
   cutback: ['layout', 'layout', 'cutback'], combo: ['layout', 'layout', 'combo'],
+  miter: ['layout', 'layout', 'miter'], cope: ['layout', 'layout', 'cope'], expansion: ['layout', 'layout', 'expansion'],
   takeout: ['fittings', 'fittings', 'takeout'], cutlen: ['fittings', 'fittings', 'cut'], trim: ['fittings', 'fittings', 'trim'], f2f: ['fittings', 'fittings', 'f2f'],
   dflange: ['data', 'data', 'flange'],
   pipedata: ['pipe', 'pipe', 'data'], flow: ['pipe', 'pipe', 'flow'], pfa: ['pipe', 'pipe', 'pfa'], loss: ['pipe', 'pipe', 'loss'], circle: ['pipe', 'pipe', 'circle'],
@@ -24,11 +26,12 @@ const ICONS: Record<Tab, React.ReactNode> = {
   calc: <svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2.5" /><path d="M8 7h8M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01" /></svg>,
   layout: <svg viewBox="0 0 24 24"><path d="M3 18h5l8-12h5" /><circle cx="8" cy="18" r="1.6" /><circle cx="16" cy="6" r="1.6" /></svg>,
   fittings: <svg viewBox="0 0 24 24"><path d="M4 20V13a9 9 0 0 1 9-9h7" /><path d="M9 20v-6a5 5 0 0 1 5-5h6" /></svg>,
+  iso: <svg viewBox="0 0 24 24"><path d="M4 16l6-3.5V6l6 3.5 4-2.3" /><path d="M10 12.5l6 3.5" /><circle cx="10" cy="12.5" r="1.4" /></svg>,
   pipe: <svg viewBox="0 0 24 24"><ellipse cx="7" cy="12" rx="3" ry="6" /><path d="M7 6h11a3 6 0 0 1 0 12H7" /></svg>,
   data: <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.6" /><path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6" /></svg>,
   jobs: <svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z" /><path d="M9 7V5h6v2M4 12h16" /></svg>,
 };
-const TAB_LABEL: Record<Tab, string> = { calc: 'Calc', layout: 'Layout', fittings: 'Fittings', pipe: 'Pipe', data: 'Data', jobs: 'Jobs' };
+const TAB_LABEL: Record<Tab, string> = { calc: 'Calc', layout: 'Layout', fittings: 'Fittings', iso: 'ISO', pipe: 'Pipe', data: 'Data', jobs: 'Jobs' };
 
 export function App() {
   const [tab, setTab] = usePersistent<Tab>('tab', 'calc');
@@ -87,6 +90,7 @@ export function App() {
           {tab === 'calc' && <Calculator onOpenPrefs={() => { setJobsSection('settings'); setTab('jobs'); }} />}
           {tab === 'layout' && <LayoutTools />}
           {tab === 'fittings' && <FittingTools />}
+          {tab === 'iso' && <IsoSketch />}
           {tab === 'pipe' && <PipeTools />}
           {tab === 'data' && <DataTools />}
           {tab === 'jobs' && <JobsView items={items} setItems={setItems} jobs={jobs} setJobs={setJobs} open={open} section={jobsSection} setSection={setJobsSection} />}
