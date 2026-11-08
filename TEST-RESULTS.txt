@@ -181,6 +181,8 @@
 ✓ ISO route › threaded valve: pipe gains thread makeup each side; cap end deducts cap E; your end take-off overrides
 ✓ ISO route › a 10 ft line with a flanged valve in the middle shows two spools, each named by what it measures to
 ✓ ISO route › a valve breaks the line like a tee: two lines measured to the valve faces, cut between them, and it can be merged back
+✓ ISO route › a reducer with a size changes the line size after it; take-outs follow the size
+✓ ISO route › a reducer at an elbow: the line in deducts the reducer + the smaller elbow; the line out is the small size
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -234,4 +236,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-235 passed, 0 failed, 235 total
+237 passed, 0 failed, 237 total

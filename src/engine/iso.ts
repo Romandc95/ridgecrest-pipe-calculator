@@ -73,6 +73,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'hose', label: 'Hose connection', kind: 'end', group: 'Ends', short: 'HC' },
   { id: 'gauge', label: 'Pressure gauge', kind: 'end', group: 'Ends', short: 'PI' },
   { id: 'thermowell', label: 'Thermowell', kind: 'end', group: 'Ends', short: 'TW' },
+  { id: 'reducer', label: 'Reducer (end)', kind: 'end', group: 'Ends' },
 ];
 export const CATALOG_GROUPS = ['Valves', 'Line', 'Elbows', 'Branches', 'Ends'];
 export const catalogItem = (id: string, kind?: ItemKind) => CATALOG.find((c) => c.id === id && (!kind || c.kind === kind));
@@ -91,7 +92,8 @@ export const CONN_ORDER: Conn[] = ['bw', 'sw', 'thd', 'solder', 'glue', 'flg'];
  * A fitting placed on a line, at fraction t (0–1) of the way along it.
  * len: your length (face-to-face / end-to-end), overriding the standard one. at: distance from the start of the line to its center.
  */
-export interface LineItem { id: string; type: string; t: number; conn?: Conn; len?: number; at?: number }
+export interface LineItem { id: string; type: string; t: number; conn?: Conn; len?: number; at?: number; /** reducer: the size it reduces (or swages) to */ size?: string }
+export const isReducer = (type: string) => type === 'reducer' || type === 'eccreducer' || type === 'swage';
 
 /** `move`: an invisible jump that starts a new, separate line at another point (no pipe, no cut). */
 export interface Run { id: string; from: number; dx: number; dy: number; dz: number; inline: Inline; label?: string; meas?: Vec3; sketch?: boolean; items?: LineItem[]; move?: boolean }
@@ -120,7 +122,10 @@ export interface IsoDrawing {
 /** The inline fitting at a point, if that point is still a straight joint. */
 export const inlineAt = (d: IsoDrawing, node: number): LineItem | null => {
   const it = d.inl?.[node];
-  return it && nodeKind(d, node).kind === 'straight' ? it : null;
+  if (!it) return null;
+  const k = nodeKind(d, node).kind;
+  // a reducer can also sit on the end of a line, or be welded straight onto the elbow where the line turns
+  return k === 'straight' || (isReducer(it.type) && (k === 'end' || k === 'start-end' || k === 'elbow')) ? it : null;
 };
 export const connAt = (d: IsoDrawing, node: number): Conn => d.nodeConn?.[node] ?? d.conn ?? 'bw';
 
@@ -227,7 +232,21 @@ export interface CutRow {
 }
 
 /** Take-out at one end of a run, using ASME B16.9 fittings for the drawing's NPS and the fitting chosen at that point. */
-function takeoutAt(d: IsoDrawing, node: number, run: number, note: string[]): { to: number; weld: boolean } {
+function takeoutAt(d0: IsoDrawing, node: number, run: number, note: string[], sizes?: string[]): { to: number; weld: boolean } {
+  const d: IsoDrawing = sizes ? { ...d0, nps: sizes[run] ?? d0.nps } : d0;
+  const red = d0.inl?.[node];
+  if (red && isReducer(red.type) && run === node - 1 && nodeKind(d0, node).kind === 'elbow') {
+    // reducer welded onto the elbow: the line in loses the reducer and the (smaller) elbow's take-off
+    const up: IsoDrawing = { ...d0, nps: sizes?.[node - 1] ?? d0.nps };
+    const H = itemLength(up, red).len;
+    const inl = { ...(d0.inl ?? {}) }; delete inl[node];
+    const sz2 = sizes ? sizes.slice() : d0.runs.map(() => d0.nps); sz2[run] = red.size ?? up.nps;
+    const el = takeoutAt({ ...d0, inl }, node, run, note, sz2);
+    if (H === null) { note.push('enter the reducer length (tap it)'); return { to: NaN, weld: true }; }
+    note.push(`reducer ${up.nps}"×${red.size ?? '?'}" (${frac(H)}) welded to the elbow`);
+    return { to: el.to + H + d0.gap, weld: true };
+  }
+  const dUp: IsoDrawing = sizes ? { ...d0, nps: sizes[node - 1] ?? d0.nps } : d0; // an inline fitting is the size of the line coming into it
   const k = nodeKind(d, node);
   const e = B169[d.nps];
   const fit = d.fits?.[node];
@@ -244,7 +263,7 @@ function takeoutAt(d: IsoDrawing, node: number, run: number, note: string[]): { 
     const it = inlineAt(d, node);
     if (it) {
       // the line runs to the fitting's center; the pipe stops at its face / end, adjusted for the joint
-      const L = itemLength(d, it), al = joinAllowance(d, it);
+      const L = itemLength(dUp, it), al = joinAllowance(dUp, it);
       const name = (INLINE_LABEL[it.type] ?? it.type).toLowerCase();
       if (L.len === null) { note.push(`enter the ${name} length (tap it)`); return { to: NaN, weld: false }; }
       if (!note.some((n) => n.startsWith(name + ':'))) note.push(`${name}: ${L.src}${al.note ? '; ' + al.note : ''}`);
@@ -306,6 +325,13 @@ function takeoutAt(d: IsoDrawing, node: number, run: number, note: string[]): { 
     default: {
       // run ends: a cap, weld-neck flange, nozzle or field weld is a butt weld; threaded / flanged items are not
       const end = d.ends[node] ?? 'open';
+      const it = inlineAt(d0, node);
+      if (it) { // reducer on the end of a line: dimensioned to its small end
+        const L = itemLength(d, it);
+        if (L.len === null) { note.push('enter the reducer length (tap it)'); return { to: NaN, weld: false }; }
+        note.push(`${(INLINE_LABEL[it.type] ?? it.type).toLowerCase()} at the end: ${L.src}`);
+        return { to: L.len, weld: (it.conn ?? 'bw') === 'bw' };
+      }
       const e2 = endTakeoff(d, node);
       if (e2 && e2.len !== null) note.push(`${END_LABEL[end].toLowerCase()} at the end: ${e2.src}`);
       return { to: e2?.len ?? 0, weld: conn === 'bw' && ['weld', 'cap', 'flange', 'blind', 'nozzle'].includes(end) };
@@ -315,10 +341,11 @@ function takeoutAt(d: IsoDrawing, node: number, run: number, note: string[]): { 
 
 /** Cut list: center-to-center travel less fitting take-outs and a root gap at every butt weld. */
 export function cutList(d: IsoDrawing): CutRow[] {
+  const sizes = runSizes(d);
   return d.runs.map((r, i) => {
     if (r.move) return { run: i, travel: 0, to1: 0, to2: 0, gaps: 0, cut: 0, note: [], ok: true, skip: true };
     const note: string[] = [];
-    const a = takeoutAt(d, r.from, i, note), b = takeoutAt(d, i + 1, i, note);
+    const a = takeoutAt(d, r.from, i, note, sizes), b = takeoutAt(d, i + 1, i, note, sizes);
     if (!isMeasured(r)) return { run: i, travel: NaN, to1: a.to, to2: b.to, gaps: 0, cut: NaN, note: ['no dimension yet'], ok: false };
     const travel = runLength(r);
     const gaps = (a.weld ? d.gap : 0) + (b.weld ? d.gap : 0);
@@ -367,6 +394,10 @@ export function itemLength(d: IsoDrawing, it: LineItem): { len: number | null; s
   if (it.type === 'flange' || it.type === 'orifice') {
     const f = safe(() => flange(cls, d.nps));
     if (f) return { len: 2 * f.yWN + gk, src: `2 × WN flange ${frac(f.yWN)} + gasket ${frac(gk)} = ${frac(2 * f.yWN + gk)} (Class ${cls})${it.type === 'orifice' ? ' — check the orifice flange' : ''}` };
+  }
+  if (isReducer(it.type) && it.type !== 'swage') {
+    const h = bwFitting(d.nps).reducerH;
+    if (h != null) return { len: h, src: `B16.9 reducer H ${frac(h)}` };
   }
   if (conn === 'flg' && VALVE_TYPE[it.type]) {
     const v = safe(() => valveFaceToFace(cls, VALVE_TYPE[it.type], d.nps));
@@ -457,11 +488,36 @@ export function stemDir(v: Vec3): Vec3 {
   return [s[0] / sl, s[1] / sl, s[2] / sl];
 }
 
+/**
+ * Pipe size of every line: the drawing's size, changed downstream of a reducer with a size set, and on the branch of a
+ * reducing tee / olet with a branch size set.
+ */
+export function runSizes(d: IsoDrawing): string[] {
+  const sz: string[] = [];
+  for (const i of runOrder(d)) {
+    const r = d.runs[i], n = r.from;
+    const into = n - 1;
+    if (r.move || n === 0 || into < 0 || d.runs[into]?.move) { sz[i] = d.nps; continue; }
+    const up = sz[into] ?? d.nps;
+    const it = d.inl?.[n];
+    if (it && isReducer(it.type) && it.size) { sz[i] = it.size; continue; }
+    const fit = d.fits?.[n], bs = d.fitSize?.[n];
+    if (bs && fit && ['redtee', 'weldolet', 'sockolet', 'threadolet', 'stubin', 'lateral'].includes(fit)) {
+      const legs = nodeLegs(d, n), me = legs.find((l) => l.run === i);
+      const header = !!me && legs.some((l) => l !== me && dot(l.dir, me.dir) < -0.9999);
+      if (!header) { sz[i] = bs; continue; }
+    }
+    sz[i] = up;
+  }
+  for (let i = 0; i < d.runs.length; i++) if (!sz[i]) sz[i] = d.nps;
+  return sz;
+}
+
 /** How much of a line's center-to-center length is inside inline fittings at its ends (half of each fitting's length). */
 export function faceAdj(d: IsoDrawing, i: number): number {
   const r = d.runs[i];
   let a = 0;
-  for (const n of [r.from, i + 1]) { const it = inlineAt(d, n); if (it) a += (itemLength(d, it).len ?? 0) / 2; }
+  for (const n of [r.from, i + 1]) { const it = inlineAt(d, n); if (it && nodeKind(d, n).kind === 'straight') a += (itemLength(d, it).len ?? 0) / 2; } // only a fitting sitting in a straight run splits the length at its center
   return a;
 }
 /** The length shown for a line: to the faces / ends of inline fittings, center elsewhere. */

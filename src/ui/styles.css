@@ -455,3 +455,6 @@ button { cursor: pointer; }
 .spoolrow .sname { font-weight: 700; color: var(--muted); }
 .spoolin { height: 38px; border-radius: 9px; border: 1.5px solid var(--line); background: var(--surface2); padding: 0 10px; font: 600 15px var(--mono); color: var(--text); min-width: 0; }
 .spoolin:focus { border-color: var(--accent); outline: none; }
+.isostage text.iso-dim.tap { pointer-events: auto; cursor: pointer; }
+.menubtns.two { grid-template-columns: 1fr 1fr; }
+.itemmenu .linkbtn { color: var(--muted); align-self: flex-start; }

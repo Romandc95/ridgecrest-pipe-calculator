@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { miter, cope, thermalExpansion } from '../src/engine/shop';
-import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef } from '../src/engine/iso';
+import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef, runSizes } from '../src/engine/iso';
 import { flange, valveFaceToFace, nptMakeup } from '../src/engine/refdata';
 
 describe('miter (segmented elbow)', () => {
@@ -208,5 +208,24 @@ describe('ISO route', () => {
     expect(m.runs.map((r) => Math.round(runLength(r))).sort((a, b) => a - b)).toEqual([48, 120]);
     expect(nodePositions(m).some((p) => p[0] === 120 && p[1] === 48)).toBe(true); expect(m.inl).toEqual({});
     expect(cutList(m).every((c) => !c.note.some((n) => n.includes('gate')))).toBe(true);
+  });
+  it('a reducer with a size changes the line size after it; take-outs follow the size', () => {
+    const d = base(); d.runs = [{ ...run(0, 60, 0, 0), sketch: true, meas: [60, 0, 0] }, { ...run(1, 48, 0, 0), sketch: true, meas: [48, 0, 0] }, run(2, 0, 36, 0)];
+    d.inl = { 1: { id: 'r', type: 'reducer', t: 0.5, size: '2' } };
+    expect(runSizes(d)).toEqual(['4', '2', '2']);
+    const c = cutList(d);
+    expect(c[1].to2).toBe(3); // 2" LR elbow at the far end of the 2" line
+    expect(c[0].to2).toBeCloseTo(4 / 2 + 0.125, 9); // half a 4" B16.9 reducer (H = 4") + root gap
+    // reducing tee branch takes the branch size
+    const t2 = base(); t2.runs = [run(0, 60, 0, 0), run(1, 60, 0, 0), run(1, 0, 0, 36)]; t2.fits = { 1: 'redtee' }; t2.fitSize = { 1: '2' };
+    expect(runSizes(t2)).toEqual(['4', '4', '2']);
+  });
+  it('a reducer at an elbow: the line in deducts the reducer + the smaller elbow; the line out is the small size', () => {
+    const d = base(); d.runs = [{ ...run(0, 60, 0, 0) }, { ...run(1, 0, 48, 0) }];
+    d.inl = { 1: { id: 'r', type: 'reducer', t: 0.5, size: '2' } };
+    expect(runSizes(d)).toEqual(['4', '2']);
+    const c = cutList(d);
+    expect(c[0].to2).toBeCloseTo(3 + 4 + 0.125, 9);  // 2" LR elbow 3 + 4" reducer H 4 + weld gap between them
+    expect(c[1].to1).toBe(3);                          // 2" LR elbow on the line out
   });
 });

@@ -6,7 +6,7 @@ import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
@@ -16,7 +16,7 @@ const npsVal = (n: string) => npsNumber(n) ?? 0;
 
 type Prefs = ReturnType<typeof useApp>['settings']['prefs'];
 interface IsoStore { drawings: IsoDrawing[]; current: string | null }
-type Sel = { kind: 'node'; id: number } | { kind: 'run'; id: number } | { kind: 'item'; run: number; id: string } | null;
+type Sel = { kind: 'node'; id: number } | { kind: 'run'; id: number } | { kind: 'item'; run: number; id: string } | { kind: 'dim'; run: number } | null;
 type Mode = 'draw' | 'orbit' | 'pan';
 type Plane = 'EN' | 'EU' | 'NU';
 interface Opts { dims: boolean; welds: boolean; labels: boolean; scaled: boolean; view: View; mode: Mode; plane: Plane; conn: Conn }
@@ -67,6 +67,8 @@ export function IsoSketch() {
   const apiFull = useRef(false);
   const [armed, setArmed] = useState<string | null>(null); // catalog key "kind:id" waiting to be placed
   const canvasApi = useRef<CanvasApi | null>(null);
+  const [more, setMore] = useState(false); // show the full point / line panel under the drawing
+  useEffect(() => setMore(false), [JSON.stringify(sel)]);
   const history = useRef<{ id: string; snaps: IsoDrawing[]; redo: IsoDrawing[]; last: number; key: string }>({ id: '', snaps: [], redo: [], last: 0, key: '' });
   const [, setHistTick] = useState(0);
 
@@ -131,11 +133,14 @@ export function IsoSketch() {
     const target: Sel = target0?.kind === 'item' ? { kind: 'run', id: target0.run } : target0;
     if (!item || !target) return false;
     if (item.kind === 'branch') return placeBranch(item, target, t);
+    if (item.kind === 'end' && item.id === 'reducer') return place('line:reducer', target, t);
     if (item.kind === 'line') {
       const newIt = { id: uid(), type: item.id, t: 0.5, conn: opts.conn };
       if (target.kind === 'node') {
-        // on an existing straight joint: the fitting sits right there
-        if (nodeKind(d, target.id).kind !== 'straight' || inlineAt(d, target.id)) { toast(`Drop the ${item.label.toLowerCase()} on a straight line`); return false; }
+        // on an existing straight joint: the fitting sits right there; a reducer can also go on the end of a line
+        const nk = nodeKind(d, target.id).kind;
+        const endOk = isReducer(item.id) && (nk === 'end' || nk === 'start-end') && target.id > 0;
+        if ((nk !== 'straight' && !endOk) || inlineAt(d, target.id)) { toast(isReducer(item.id) ? 'Drop the reducer on a line or a line end' : `Drop the ${item.label.toLowerCase()} on a straight line`); return false; }
         update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [target.id]: newIt } }));
         setSel({ kind: 'node', id: target.id });
       } else {
@@ -252,6 +257,75 @@ export function IsoSketch() {
     setSel({ kind: 'item', run: toRun, id });
     toast('Moved');
   };
+  const branchRunOf = (x: IsoDrawing, n: number) => {
+    const legs = nodeLegs(x, n);
+    const b = legs.find((l) => !legs.some((m) => m !== l && dot3(l.dir, m.dir) < -0.9999));
+    return b && x.runs[b.run].from === n ? b.run : -1;
+  };
+  /** Move a valve / inline fitting to another line (tapped at t): join its line back, break the new one. */
+  const moveInline = (n: number, targetRun: number, t: number) => update((x) => {
+    const it = x.inl?.[n]; if (!it) return x;
+    const tgtId = x.runs[targetRun]?.id; if (!tgtId || x.runs[targetRun].move) return x;
+    let y: IsoDrawing, tgt = tgtId, tJ = t;
+    const sd = sidesOf(x, n);
+    if (sd && nodeKind(x, n).kind === 'straight') {
+      const A = x.runs[sd[0]], B = x.runs[sd[1]];
+      const la = Math.hypot(A.dx, A.dy, A.dz), lb = Math.hypot(B.dx, B.dy, B.dz);
+      if (tgtId === A.id) tJ = (t * la) / (la + lb); else if (tgtId === B.id) { tJ = (la + t * lb) / (la + lb); tgt = A.id; }
+      y = mergeAt(x, n);
+    } else { const inl = { ...(x.inl ?? {}) }; delete inl[n]; y = { ...x, inl }; }
+    const k = y.runs.findIndex((r) => r.id === tgt); if (k < 0) return x;
+    { // room for two dimensions on a short sketched line (sketch only)
+      const q = y.runs[k]; const sl = Math.hypot(q.dx, q.dy, q.dz), want = GRID * 6;
+      if (q.sketch && sl > 0 && sl < want) { const g2 = want / sl; y = { ...y, runs: y.runs.map((z, j) => (j === k ? { ...z, dx: z.dx * g2, dy: z.dy * g2, dz: z.dz * g2 } : z)) }; }
+    }
+    const r = y.runs[k];
+    let tt = snapSplitT(r, tJ);
+    if (isMeasured(r)) { const L = runLength(r); tt = Math.max(1, Math.min(L - 1, Math.round(tJ * L))) / L; }
+    const sp = splitRun(y, k, tt, uid());
+    return { ...sp.d, inl: { ...(sp.d.inl ?? {}), [sp.node]: it } };
+  });
+  /** Move a tee (its branch) to another line: break that line, hang the branch there, join the old header back. */
+  const moveTee = (n: number, targetRun: number, t: number): boolean => {
+    const b = branchRunOf(d, n);
+    if (b < 0) { toast('This tee is drawn from its branch — redraw it to move it'); return false; }
+    if (targetRun === b || d.runs[targetRun]?.move) { toast('Tap the line the tee should go on'); return false; }
+    update((x) => {
+      const hId = x.runs[n - 1]?.id;
+      const r = x.runs[targetRun];
+      let tt = snapSplitT(r, t);
+      if (isMeasured(r)) { const L = runLength(r); tt = Math.max(1, Math.min(L - 1, Math.round(t * L))) / L; }
+      const sp = splitRun(x, targetRun, tt, uid());
+      const M = sp.node;
+      let y: IsoDrawing = { ...sp.d, runs: sp.d.runs.map((q, k) => (k === b ? { ...q, from: M } : q)),
+        fits: { ...(sp.d.fits ?? {}), ...(x.fits?.[n] ? { [M]: x.fits[n] } : {}) }, fitSize: { ...(sp.d.fitSize ?? {}), ...(x.fitSize?.[n] ? { [M]: x.fitSize[n] } : {}) },
+        nodeConn: { ...(sp.d.nodeConn ?? {}), ...(x.nodeConn?.[n] ? { [M]: x.nodeConn[n] } : {}) } };
+      const hi = y.runs.findIndex((q) => q.id === hId);
+      if (hi >= 0 && nodeKind(y, hi + 1).kind === 'straight') y = mergeAt(y, hi + 1);
+      return y;
+    });
+    return true;
+  };
+  /** Delete a tee: remove its branch and join the header back into one line. */
+  const deleteTee = (n: number) => {
+    const b = branchRunOf(d, n);
+    if (b < 0) { toast('This tee is drawn from its branch — delete the lines instead'); return; }
+    update((x) => {
+      const hId = x.runs[n - 1]?.id;
+      let y = deleteSubtree(x, b);
+      const hi = y.runs.findIndex((q) => q.id === hId);
+      if (hi >= 0 && nodeKind(y, hi + 1).kind === 'straight') y = mergeAt(y, hi + 1);
+      return y;
+    });
+    setSel(null);
+  };
+  const moveEnd = (n: number, m: number) => update((x) => {
+    const ends = { ...x.ends }, nc = { ...(x.nodeConn ?? {}) }, el = { ...(x.endLen ?? {}) };
+    ends[m] = ends[n]; ends[n] = 'open';
+    if (nc[n]) { nc[m] = nc[n]; delete nc[n]; }
+    if (el[n] != null) { el[m] = el[n]; delete el[n]; }
+    return { ...x, ends, nodeConn: nc, endLen: el };
+  });
   /** New start point: an invisible jump from the current point to where the paper was tapped. */
   const startAt = (v: Vec3 | null) => {
     setArmed(null);
@@ -262,6 +336,19 @@ export function IsoSketch() {
   };
   const onTap = (t: Sel, at?: number) => {
     if (armed === 'start') { if (t?.kind === 'node') { setArmed(null); setCursor(t.id); setSel(t); toast(`Drawing from point ${t.id}`); } return; }
+    if (armed?.startsWith('mv:')) {
+      const n = Number(armed.slice(3));
+      setArmed(null);
+      const pk = pointKind(d, n);
+      const tr = t?.kind === 'run' ? t.id : t?.kind === 'item' ? t.run : t?.kind === 'dim' ? t.run : null;
+      if (pk === 'inline') { if (tr !== null) { moveInline(n, tr, at ?? 0.5); toast('Moved'); } else toast('Tap a line to move it there'); }
+      else if (pk === 'tee') { if (tr !== null) { if (moveTee(n, tr, at ?? 0.5)) toast('Tee moved'); } else toast('Tap a line to move the tee there'); }
+      else if (pk === 'end') {
+        const nk = t?.kind === 'node' ? nodeKind(d, t.id).kind : null;
+        if (t?.kind === 'node' && (nk === 'end' || nk === 'start-end') && t.id !== n) { moveEnd(n, t.id); toast('Moved'); } else toast('Tap the end of a line to move it there');
+      }
+      return;
+    }
     if (armed?.startsWith('move:')) {
       const [, fr, iid] = armed.split(':');
       setArmed(null);
@@ -271,7 +358,7 @@ export function IsoSketch() {
     }
     if (armed) { if (t) { if (place(armed, t, at)) setArmed(null); } else setArmed(null); return; }
     setSel(t);
-    if (t?.kind === 'node') setCursor(t.id);
+    if (t?.kind === 'node' && !inlineAt(d, t.id) && nodeKind(d, t.id).kind !== 'elbow') setCursor(t.id);
     if (t?.kind === 'run') setCursor(t.id + 1);
   };
   const itemSel = sel?.kind === 'item' && d.runs[sel.run] && runItems(d.runs[sel.run]).some((q) => q.id === sel.id) ? sel : null;
@@ -303,6 +390,7 @@ export function IsoSketch() {
   const editor = selRun !== null
     ? <RunEditor key={d.runs[selRun].id} d={d} i={selRun} prefs={prefs} cut={cuts[selRun]} update={update} onClose={() => setSel(null)}
         onDelete={() => { update((x) => deleteSubtree(x, selRun)); setSel(null); setCursor(d.runs[selRun].from); }} />
+    : selNode !== null && pointKind(d, selNode) && !more ? null
     : selNode !== null ? (inlineAt(d, selNode) ? <InlineEditor key={'i' + selNode} d={d} node={selNode} update={update} onClose={() => setSel(null)} prefs={prefs} /> : <NodeEditor key={selNode} d={d} node={selNode} update={update} onClose={() => setSel(null)} prefs={prefs} />) : null;
 
   const tools = (
@@ -313,21 +401,26 @@ export function IsoSketch() {
 
   const stage = (
     <IsoCanvas d={d} disp={disp} opts={opts} prefs={prefs} cursor={cur} sel={sel} rot={rot} fitTick={fitTick} armed={armed} apiRef={canvasApi} onPick={startAt}
-      onInlDrag={(node, t) => update((x) => {
-        const sd = sidesOf(x, node); if (!sd) return x;
-        const A = x.runs[sd[0]], B = x.runs[sd[1]];
-        const sA: Vec3 = [A.dx + B.dx, A.dy + B.dy, A.dz + B.dz];
-        const both = isMeasured(A) && isMeasured(B);
-        const tot = both ? add(runVec(A), runVec(B)) : null;
-        let tt = t;
-        if (tot) { const L = len3(tot); tt = Math.max(1, Math.min(L - 1, Math.round(t * L))) / L; } // whole inches
-        const part = (v: Vec3, k: number): Vec3 => [v[0] * k, v[1] * k, v[2] * k];
-        const nA = part(sA, tt), nB = part(sA, 1 - tt);
-        return { ...x, runs: x.runs.map((q, k) => k === sd[0] ? { ...q, dx: nA[0], dy: nA[1], dz: nA[2], ...(tot ? { meas: part(tot, tt) } : {}) }
-          : k === sd[1] ? { ...q, dx: nB[0], dy: nB[1], dz: nB[2], ...(tot ? { meas: part(tot, 1 - tt) } : {}) } : q) };
-      }, 'slide' + node)}
+      onInlDrag={() => {}}
       onItemDrag={(run, id, t) => setItem(run, id, (q) => (q.id === id ? { ...q, t, at: undefined } : q), 'drag' + id)}
-      menu={itemSel ? { run: itemSel.run, t: runItems(d.runs[itemSel.run]).find((q) => q.id === itemSel.id)!.t,
+      menu={selNode !== null && pointKind(d, selNode) && !more ? { at: disp.P[selNode], node: <PointMenu key={'pm' + selNode} d={d} n={selNode} prefs={prefs}
+          act={{
+            close: () => setSel(null), more: () => setMore(true),
+            joint: (c) => inlineAt(d, selNode) ? update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], conn: c } } })) : update((x) => ({ ...x, nodeConn: { ...(x.nodeConn ?? {}), [selNode]: c } })),
+            change: (id) => { const pk = pointKind(d, selNode); update((x) => pk === 'inline' ? { ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], type: id } } } : pk === 'end' ? { ...x, ends: { ...x.ends, [selNode]: id } } : { ...x, fits: { ...(x.fits ?? {}), [selNode]: id } }); },
+            len: (v) => inlineAt(d, selNode) ? update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], len: v } } }), 'plen' + selNode)
+              : update((x) => { const e = { ...(x.endLen ?? {}) }; if (v == null) delete e[selNode]; else e[selNode] = v; return { ...x, endLen: e }; }, 'plen' + selNode),
+            size: (z) => inlineAt(d, selNode) ? update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], size: z } } }))
+              : update((x) => { const f = { ...(x.fitSize ?? {}) }; if (z) f[selNode] = z; else delete f[selNode]; return { ...x, fitSize: f }; }),
+            move: () => { setArmed('mv:' + selNode); setSel(null); },
+            del: () => { const pk = pointKind(d, selNode);
+              if (pk === 'inline') { update((x) => inlineAt(x, selNode) && nodeKind(x, selNode).kind === 'straight' ? mergeAt(x, selNode) : { ...x, inl: Object.fromEntries(Object.entries(x.inl ?? {}).filter(([k]) => Number(k) !== selNode)) }); setSel(null); }
+              else if (pk === 'tee') deleteTee(selNode);
+              else if (pk === 'elbow') { update((x) => { const f = { ...(x.fits ?? {}) }; delete f[selNode]; return { ...x, fits: f }; }); setSel(null); }
+              else { update((x) => ({ ...x, ends: { ...x.ends, [selNode]: 'open' } })); setSel(null); } },
+          }} /> }
+        : sel?.kind === 'dim' && d.runs[sel.run] ? { at: add(disp.P[d.runs[sel.run].from], mul(disp.vecs[sel.run], 0.5)), node: <LengthPop key={'lp' + d.runs[sel.run].id} d={d} i={sel.run} prefs={prefs} update={update} onClose={() => setSel(null)} onMore={() => setSel({ kind: 'run', id: sel.run })} /> }
+        : itemSel ? { at: add(disp.P[d.runs[itemSel.run].from], mul(disp.vecs[itemSel.run], runItems(d.runs[itemSel.run]).find((q) => q.id === itemSel.id)!.t)),
         node: <ItemMenu key={itemSel.id} d={d} prefs={prefs} item={runItems(d.runs[itemSel.run]).find((q) => q.id === itemSel.id)!} onClose={() => setSel(null)}
           onLen={(v) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, len: v } : q), 'len' + itemSel.id)}
           onAt={(v) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, at: v } : q), 'at' + itemSel.id)}
@@ -379,6 +472,119 @@ export function IsoSketch() {
       {panel === 'cut' && <CutPanel d={d} cuts={cuts} prefs={prefs} onShare={async (t) => { const m = await shareText(t); if (m) toast(m); }} />}
       {panel === 'setup' && <SetupPanel d={d} disp={disp} opts={opts} prefs={prefs} update={update} toast={toast} />}
       {panel === 'library' && <Library store={store} setStore={setStore} onOpen={(id) => { setStore((s) => ({ ...s, current: id })); setSel(null); setCursor(0); setFitTick((t) => t + 1); }} />}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ point menu (tap a valve, tee, elbow or end fitting)
+type PKind = 'inline' | 'tee' | 'elbow' | 'end';
+function pointKind(d: IsoDrawing, n: number): PKind | null {
+  if (inlineAt(d, n)) return 'inline';
+  const k = nodeKind(d, n).kind;
+  if (k === 'tee' || k === 'cross') return 'tee';
+  if (k === 'elbow') return 'elbow';
+  if ((k === 'end' || k === 'start-end') && d.ends[n] && d.ends[n] !== 'open') return 'end';
+  return null;
+}
+const SIZED = ['redtee', 'weldolet', 'sockolet', 'threadolet', 'stubin', 'lateral'];
+interface PointActs { close: () => void; more: () => void; joint: (c: Conn) => void; change: (id: string) => void; len: (v: number | undefined) => void; size: (s: string | undefined) => void; move: () => void; del: () => void }
+function PointMenu({ d, n, prefs, act }: { d: IsoDrawing; n: number; prefs: Prefs; act: PointActs }) {
+  const [pane, setPane] = useState<'main' | 'joint' | 'change' | 'len' | 'size'>('main');
+  const [armedDel, setArmedDel] = useState(false);
+  const pk = pointKind(d, n)!;
+  const it = inlineAt(d, n);
+  const sizes = runSizes(d);
+  const lineSize = sizes[n - 1] ?? d.nps;
+  const cur = pk === 'inline' ? it!.type : pk === 'end' ? d.ends[n] : pk === 'elbow' ? d.fits?.[n] ?? 'lr' : d.fits?.[n] ?? 'tee';
+  const kind = pk === 'inline' ? 'line' : pk === 'end' ? 'end' : pk === 'elbow' ? 'elbow' : 'branch';
+  const c = catalogItem(cur, kind as CatalogItem['kind']);
+  const conn = pk === 'inline' ? it!.conn ?? 'bw' : connAt(d, n);
+  const hasSize = (pk === 'inline' && isReducer(it!.type)) || (pk === 'tee' && SIZED.includes(cur));
+  const curSize = pk === 'inline' ? it!.size : d.fitSize?.[n];
+  const hasLen = pk === 'inline' || pk === 'end';
+  const std = pk === 'inline' ? itemLength({ ...d, nps: lineSize }, { ...it!, len: undefined }) : endTakeoff({ ...d, endLen: {} }, n);
+  const own = pk === 'inline' ? it!.len : d.endLen?.[n];
+  const [lenT, setLenT] = useState(own != null ? formatFracIn(own, prefs) : '');
+  const canMove = pk !== 'elbow';
+  const delLabel = pk === 'tee' ? 'Delete tee + branch' : pk === 'elbow' ? 'Reset to LR elbow' : pk === 'end' ? 'Remove (open end)' : 'Delete, join line';
+  const sizeOpts = Object.keys(B169).filter((z) => z !== lineSize && (pk === 'inline' || npsVal(z) < npsVal(lineSize)));
+  return (
+    <div className="itemmenu-in">
+      <div className="row-between"><b>{c && <PaletteIcon item={c} />}{c?.label ?? cur}<span className="muted small"> · {CONN_LABEL[conn]}{hasSize && curSize ? ` · ${lineSize}"×${curSize}"` : ''}</span></b><button className="chip" aria-label="Close" onClick={act.close}>✕</button></div>
+      {pane === 'main' && (
+        <>
+          <div className="menubtns">
+            <button className="btn" onClick={() => setPane('joint')}><JointIcon conn={conn} /> Joint</button>
+            {canMove && <button className="btn" onClick={act.move}>✥ Move</button>}
+            <button className="btn" onClick={() => setPane('change')}>⇄ Change</button>
+            {hasLen && <button className="btn" onClick={() => setPane('len')}>↔ Length</button>}
+            {hasSize && <button className="btn" onClick={() => setPane('size')}>⌀ Size</button>}
+            {armedDel ? <button className="btn danger" onClick={act.del}>Sure?</button> : <button className="btn danger" onClick={() => setArmedDel(true)}>✕ Delete</button>}
+          </div>
+          {armedDel && <p className="fhint">Tap Sure? to {delLabel.toLowerCase()}.</p>}
+          <button className="linkbtn small" onClick={act.more}>More options & notes…</button>
+        </>
+      )}
+      {pane === 'joint' && (
+        <>
+          <div className="chiprow">{CONN_ORDER.map((k) => <button key={k} className={'chip conn' + (k === conn ? ' on' : '')} onClick={() => { act.joint(k); setPane('main'); }}><JointIcon conn={k} />{CONN_LABEL[k]}</button>)}</div>
+          <button className="chip" onClick={() => setPane('main')}>‹ Back</button>
+        </>
+      )}
+      {pane === 'change' && (
+        <>
+          <div className="menugrid">
+            {CATALOG.filter((x) => x.kind === kind && !(kind === 'end' && x.id === 'reducer')).map((x) => (
+              <button key={x.id} className={'palitem' + (x.id === cur ? ' on' : '')} onClick={() => { act.change(x.id); setPane('main'); }}><PaletteIcon item={x} /><span>{x.label}</span></button>
+            ))}
+          </div>
+          <button className="chip" onClick={() => setPane('main')}>‹ Back</button>
+        </>
+      )}
+      {pane === 'len' && (
+        <div className="menufields">
+          <Field label={pk === 'inline' ? `Length (${conn === 'flg' ? 'face to face' : 'end to end'})` : 'End take-off'} value={lenT} parse={parseLength}
+            placeholder={std && std.len != null ? formatFracIn(std.len, prefs) : 'enter length'}
+            onChange={(v) => { setLenT(v); const r = tryParse(parseLength, v); if (!v.trim()) act.len(undefined); else if (r && r.ok && r.v >= 0) act.len(r.v); }} />
+          <p className="fhint">{own != null ? 'Your length — clear it to use the standard one.' : std && std.len != null ? std.src : 'No standard length — enter your manufacturer’s.'}</p>
+          <button className="chip" onClick={() => setPane('main')}>‹ Back</button>
+        </div>
+      )}
+      {pane === 'size' && (
+        <div className="menufields">
+          <Select label={`${pk === 'inline' ? 'Reduces' : 'Branch'} to (line is ${lineSize}")`} value={curSize ?? ''} options={[['', 'Not set'], ...sizeOpts.map((z) => [z, `${lineSize}" × ${z}"`] as [string, string])]} onChange={(v) => act.size(v || undefined)} />
+          <p className="fhint">The {pk === 'inline' ? 'lines after the reducer' : 'branch'} change to this size — their fittings and take-offs follow.</p>
+          <button className="chip" onClick={() => setPane('main')}>‹ Back</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Tap a measurement on the drawing: type the new length right there. */
+function LengthPop({ d, i, prefs, update, onClose, onMore }: { d: IsoDrawing; i: number; prefs: Prefs; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void; onClose: () => void; onMore: () => void }) {
+  const r = d.runs[i];
+  const sv = sketchVec(r);
+  const axes = [0, 1, 2].filter((k) => nz(sv[k]));
+  const adj = faceAdj(d, i);
+  const ref = runRef(d, i);
+  const [txt, setTxt] = useState(isMeasured(r) ? formatFtIn(shownLength(d, i), prefs) : '');
+  const [err, setErr] = useState<string | null>(null);
+  const set = (v: string) => {
+    setTxt(v); setErr(null);
+    const p = tryParse(parseLength, v);
+    if (!p) return;
+    if (!p.ok || !(p.v > 0)) { setErr(p.ok ? 'Enter a length' : p.err); return; }
+    const base = isMeasured(r) ? runVec(r) : sv; const L = len3(base) || 1;
+    const m = mul(base, (p.v + adj) / L);
+    update((x) => ({ ...x, runs: x.runs.map((q, k) => (k === i ? { ...q, meas: m, sketch: true } : q)) }), 'dimpop' + r.id);
+  };
+  return (
+    <div className="itemmenu-in">
+      <div className="row-between"><b>Line {i + 1} · {describeRun(r)}</b><button className="chip" aria-label="Close" onClick={onClose}>✕</button></div>
+      <Field label={`${axes.length > 1 ? 'Travel' : 'Length'} (${ref})`} value={txt} onChange={set} parse={parseLength} placeholder="e.g. 4' 6" />
+      {err && <p className="fhint">{err}</p>}
+      <div className="menubtns two"><button className="btn primary" onClick={onClose}>Done</button><button className="btn" onClick={onMore}>More…</button></div>
     </div>
   );
 }
@@ -588,7 +794,7 @@ export interface CanvasApi { hitAt: (clientX: number, clientY: number) => { sel:
 function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
   armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>; onPick: (v: Vec3 | null) => void;
-  onItemDrag: (run: number, id: string, t: number) => void; onInlDrag: (node: number, t: number) => void; menu: { run: number; t: number; node: React.ReactNode } | null;
+  onItemDrag: (run: number, id: string, t: number) => void; onInlDrag: (node: number, t: number) => void; menu: { at: Vec3; node: React.ReactNode } | null;
   startOn: boolean; onStartBtn: () => void; onNotice: (m: string) => void;
   onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number, split?: { run: number; t: number }) => void; children?: React.ReactNode;
 }) {
@@ -689,9 +895,10 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     return Math.max(0.12, Math.min(0.88, ((loc.x - a[0]) * dx + (loc.y - a[1]) * dy) / L2));
   };
   const targetOf = (el: Element | null): Sel | 'compass' | 'none' => {
-    const t = el?.closest('[data-item],[data-node],[data-run],[data-compass]');
+    const t = el?.closest('[data-item],[data-dim],[data-node],[data-run],[data-compass]');
     if (!t) return 'none';
     if (t.hasAttribute('data-compass')) return 'compass';
+    if (t.hasAttribute('data-dim')) return { kind: 'dim', run: Number(t.getAttribute('data-dim')) };
     if (t.hasAttribute('data-item')) return { kind: 'item', run: Number(t.getAttribute('data-run')), id: t.getAttribute('data-item')! };
     return t.hasAttribute('data-node') ? { kind: 'node', id: Number(t.getAttribute('data-node')) } : { kind: 'run', id: Number(t.getAttribute('data-run')) };
   };
@@ -702,7 +909,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       if (!el || !svg.current?.contains(el)) return null;
       const t = targetOf(el);
       if (t === 'none' || t === 'compass' || !t) return null;
-      const runIdx = t.kind === 'run' ? t.id : t.kind === 'item' ? t.run : -1;
+      const runIdx = t.kind === 'run' ? t.id : t.kind === 'item' || t.kind === 'dim' ? t.run : -1;
       return { sel: t, t: runIdx >= 0 ? runT(runIdx, toLocal({ clientX: cx, clientY: cy })) : 0.5 };
     },
   };
@@ -720,8 +927,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     const ps = [...ptrs.current.values()];
     const target = ps.length > 1 ? 'none' : targetOf(e.target as Element);
     let drawFrom: number | null = null;
-    const itemDrag = ps.length === 1 && !armed && target !== 'none' && target !== 'compass' && target.kind === 'item';
-    const inlDrag = ps.length === 1 && !armed && target !== 'none' && target !== 'compass' && target.kind === 'node' && !!inlineAt(d, target.id) ? target.id : null;
+    const itemDrag = false; // fittings don't slide — move them from their menu
+    const inlDrag: number | null = null;
     let split: { run: number; t: number; origin: Vec3 } | undefined;
     let blocked = false;
     if (ps.length === 1 && opts.mode === 'draw' && !armed && target !== 'compass' && !itemDrag) {
@@ -737,7 +944,9 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         split = { run: target.id, t: tt, origin: add(P[r.from], mul(disp.vecs[target.id], tt)) };
         drawFrom = r.from;
       } else drawFrom = cursor;
-      if (drawFrom !== null && !split && (nodeKind(d, drawFrom).kind === 'elbow' || inlineAt(d, drawFrom))) { drawFrom = null; blocked = true; } // no lines off a turn or a valve
+      const inlF = drawFrom !== null ? inlineAt(d, drawFrom) : null;
+      const endRed = !!inlF && isReducer(inlF.type) && nodeKind(d, drawFrom!).kind !== 'straight';
+      if (drawFrom !== null && !split && (nodeKind(d, drawFrom).kind === 'elbow' || (inlF && !endRed))) { drawFrom = null; blocked = true; } // no lines off a turn or a valve (a reducer on an end is fine)
     }
     const mid = ps.length === 2 ? { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 } : loc;
     st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom: inlDrag !== null ? null : drawFrom, itemDrag, split, blocked: inlDrag !== null ? false : blocked, inlDrag,
@@ -809,7 +1018,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     }
     if (s.target === 'compass') { onView({ az: stepAz(view.az, 1), el: view.el }); return; }
     if (armed === 'start' && (s.target === 'none' || s.target.kind !== 'node')) { onPick(pickPoint(loc)); return; }
-    if (s.target !== 'none' && s.target) { onTap(s.target, s.target.kind === 'run' ? runT(s.target.id, loc) : s.target.kind === 'item' ? runT(s.target.run, loc) : undefined); return; }
+    if (s.target !== 'none' && s.target) { onTap(s.target, s.target.kind === 'run' ? runT(s.target.id, loc) : s.target.kind === 'item' || s.target.kind === 'dim' ? runT(s.target.run, loc) : undefined); return; }
     onTap(null);
   };
   const onWheel = (e: React.WheelEvent) => {
@@ -858,8 +1067,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         <svg viewBox="0 0 24 24" width="20" height="20"><path d="M11 21.5c-.3 0-.6-.1-.8-.4C7.6 18 4.5 14.3 4.5 10.7a6.5 6.5 0 0 1 9.7-5.7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /><path d="M17.3 10.4c.1.1.2.2.2.3 0 3.6-3.1 7.3-5.7 10.4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /><circle cx="11" cy="10.7" r="1.9" fill="currentColor" /><path d="M18 2.5v6M15 5.5h6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>
       </button>
       {menu && (() => {
-        const r = d.runs[menu.run]; const a = T3(P[r.from]), b = T3(P[menu.run + 1]);
-        const x = a[0] + (b[0] - a[0]) * menu.t, y = a[1] + (b[1] - a[1]) * menu.t;
+        const [x, y] = T3(menu.at);
         const left = Math.max(6, Math.min(W - 236, x - 115));
         const roomBelow = H - (y + 18) - 6, roomAbove = y - 18 - 6;
         const style: React.CSSProperties = roomBelow >= roomAbove
@@ -985,7 +1193,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
   const under: React.ReactNode[] = [];
   const els: React.ReactNode[] = [];
   const unit = (a: [number, number], b: [number, number]) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [dx / L, dy / L, L] as const; };
-  const label = (key: string, a: [number, number], b: [number, number], text: string, cls: string, off = 11) => {
+  const sizes = runSizes(d);
+  const label = (key: string, a: [number, number], b: [number, number], text: string, cls: string, off = 11, dim?: number) => {
     const [ux, uy, L] = unit(a, b);
     if (L < 12) return null;
     let nx = -uy, ny = ux;
@@ -993,7 +1202,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     const lx = (a[0] + b[0]) / 2 + nx * off, ly = (a[1] + b[1]) / 2 + ny * off;
     let ang = (Math.atan2(uy, ux) * 180) / Math.PI;
     if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
-    return <text key={key} className={cls} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" transform={`rotate(${ang.toFixed(1)} ${lx.toFixed(1)} ${ly.toFixed(1)})`}>{text}</text>;
+    return <text key={key} className={cls + (dim != null && !exportMode ? ' tap' : '')} data-dim={dim != null && !exportMode ? dim : undefined} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" transform={`rotate(${ang.toFixed(1)} ${lx.toFixed(1)} ${ly.toFixed(1)})`}>{text}</text>;
   };
 
   d.runs.forEach((r, i) => {
@@ -1078,12 +1287,15 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         const lb = label('d' + i, a, b, `${formatFtIn(runLength(r), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`, 'iso-dimsub', -13);
         if (lb) els.push(lb);
       } else if (measured) {
-        const txt = `${formatFtIn(shownLength(d, i), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`;
-        const lb = label('d' + i, a, b, txt, 'iso-dim', items.length ? 20 : 11);
+        const txt = `${formatFtIn(shownLength(d, i), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}${sizes[i] !== d.nps ? ` · ${sizes[i]}"` : ''}`;
+        const lb = label('d' + i, a, b, txt, 'iso-dim', items.length ? 20 : 11, i);
         if (lb) els.push(lb);
+      } else if (!exportMode && L > 22 && sizes[i] !== d.nps) {
+        const lb = label('sz' + i, a, b, `${sizes[i]}"`, 'iso-dim', 13, i); if (lb) els.push(lb);
+        els.push(<g key={'q' + i} data-dim={i}><circle className="iso-qbg" cx={(a[0] + b[0]) / 2} cy={(a[1] + b[1]) / 2} r={7} /><text className="iso-q" x={(a[0] + b[0]) / 2} y={(a[1] + b[1]) / 2 + 3.5} textAnchor="middle">?</text></g>);
       } else if (!exportMode && L > 22) {
         const off = items.length ? 16 : 0;
-        els.push(<g key={'q' + i} data-run={i}><circle className="iso-qbg" cx={m[0] + nx * off} cy={m[1] + ny * off} r={7} /><text className="iso-q" x={m[0] + nx * off} y={m[1] + ny * off + 3.5} textAnchor="middle">?</text></g>);
+        els.push(<g key={'q' + i} data-dim={i}><circle className="iso-qbg" cx={m[0] + nx * off} cy={m[1] + ny * off} r={7} /><text className="iso-q" x={m[0] + nx * off} y={m[1] + ny * off + 3.5} textAnchor="middle">?</text></g>);
       }
     }
     if (opts.labels) els.push(<text key={'rl' + i} className="iso-node" x={m[0] - nx * 12} y={m[1] - ny * 12 + 3} textAnchor="middle">L{i + 1}</text>);
@@ -1104,6 +1316,15 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       });
       const fs = d.fitSize?.[n];
       els.push(...nodeSymbol(fit, k.kind, p, legScreen, 'ns' + n, undefined, fs ? (fit === 'redtee' ? `${d.nps}"×${fs}"` : `${fs}"`) : undefined));
+      const er = k.kind === 'elbow' ? inlineAt(d, n) : null;
+      const li = legs.findIndex((l) => l.run === n - 1);
+      if (er && li >= 0) {
+        // reducer welded onto the elbow, drawn on the line coming in
+        const ui = legScreen[li]; const c: [number, number] = [p[0] + ui[0] * 15, p[1] + ui[1] * 15];
+        if (sel?.kind === 'node' && sel.id === n && !exportMode) els.push(<circle key={'ih' + n} className="iso-itemsel" cx={c[0]} cy={c[1]} r={12} />);
+        els.push(...lineSymbol(er.type, c, [-ui[0], -ui[1]], 6, 'er' + n));
+        if (er.size && opts.dims) els.push(<text key={'ers' + n} className="iso-fit" x={c[0] - ui[1] * 14} y={c[1] + ui[0] * 14 + 3} textAnchor="middle">{`${sizes[n - 1] ?? d.nps}"×${er.size}"`}</text>);
+      }
       if (k.kind === 'elbow' && Math.abs(k.angle - 90) > 0.05) els.push(<text key={'ea' + n} className="iso-note" x={p[0] + 7} y={p[1] + 15}>{formatNumber(k.angle, 1)}°</text>);
     } else if (k.kind === 'straight') {
       const it = inlineAt(d, n);
@@ -1118,6 +1339,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         const isSelN = sel?.kind === 'node' && sel.id === n;
         if (isSelN && !exportMode) els.push(<circle key={'ih' + n} className="iso-itemsel" cx={p[0]} cy={p[1]} r={sz * 1.9} />);
         els.push(<g key={'inl' + n} className="iso-item">{lineSymbol(it.type, p, u, sz, 'inl' + n, stemS)}</g>);
+        if (isReducer(it.type) && it.size && opts.dims) els.push(<text key={'rs' + n} className="iso-fit" x={p[0] + (stemS?.[0] ?? 0) * 16} y={p[1] + (stemS?.[1] ?? -1) * 16 + 3} textAnchor="middle">{`${sizes[n - 1] ?? d.nps}"×${it.size}"`}</text>);
         if (opts.welds && !['spool', 'flange', 'orifice', 'spectacle', 'union', 'coupling', 'dielectric', 'swage'].includes(it.type)) {
           const off = sz * 1.15 + 4;
           for (const sgn of [-1, 1]) els.push(...jointMark(it.conn ?? 'bw', [p[0] + u[0] * off * sgn, p[1] + u[1] * off * sgn], u, `ij${n}${sgn}`));
@@ -1125,7 +1347,14 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       } else if (opts.welds) els.push(...jointMark(connAt(d, n), p, legScreen[0] ?? [1, 0], 'sw' + n));
     } else {
       const endT = d.ends[n] ?? 'open';
-      els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode));
+      const er = inlineAt(d, n);
+      if (er && legScreen[0]) {
+        // reducer on the end of a line
+        if (sel?.kind === 'node' && sel.id === n && !exportMode) els.push(<circle key={'ih' + n} className="iso-itemsel" cx={p[0] - legScreen[0][0] * 7} cy={p[1] - legScreen[0][1] * 7} r={12} />);
+        els.push(...endSymbol(er.type === 'eccreducer' ? 'eccreducer' : 'reducer', p, legScreen[0], 'er' + n));
+        if (er.size && opts.dims) els.push(<text key={'ers' + n} className="iso-fit" x={p[0] - legScreen[0][0] * 22} y={p[1] - legScreen[0][1] * 22 + 3} textAnchor="middle">{`${sizes[n - 1] ?? d.nps}"×${er.size}"`}</text>);
+        if (opts.welds) els.push(...jointMark(er.conn ?? 'bw', p, legScreen[0], 'erj' + n));
+      } else els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode));
       if (opts.welds && !['open', 'weld', 'flange', 'blind', 'nozzle'].includes(endT) && legScreen[0]) els.push(...jointMark(connAt(d, n), [p[0] + legScreen[0][0] * 3, p[1] + legScreen[0][1] * 3], legScreen[0], 'ej' + n));
     }
     if (!exportMode) {

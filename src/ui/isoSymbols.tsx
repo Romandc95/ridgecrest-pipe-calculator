@@ -202,6 +202,9 @@ export function endSymbol(type: string, p: V2, u: V2, key: string, exportMode?: 
     case 'hose': for (const t of [0, 3]) out.push(<line key={key + t} className="iso-sym" {...seg(X(t, s * 0.8), X(t, -s * 0.8))} />); txt('HC', 10, 0); break;
     case 'gauge': { out.push(<line key={key + 's'} className="iso-sym" {...seg(X(0, 0), X(s * 1.3, 0))} />); const c = X(s * 2.1, 0); out.push(<circle key={key} className="iso-symball" cx={c[0]} cy={c[1]} r={s * 0.8} />); out.push(<line key={key + 'n'} className="iso-sym" {...seg(c, X(s * 2.4, s * 0.45))} />); break; }
     case 'thermowell': out.push(<polygon key={key} className="iso-sym" points={`${P(0, -2.5)} ${P(s * 1.6, -2.5)} ${P(s * 1.6, 2.5)} ${P(0, 2.5)}`} />); txt('TW', s * 2.8, 0); break;
+    case 'reducer': case 'eccreducer':
+      out.push(<polygon key={key} className="iso-sym" points={type === 'reducer' ? `${P(0, -s)} ${P(s * 2, -s * 0.5)} ${P(s * 2, s * 0.5)} ${P(0, s)}` : `${P(0, -s)} ${P(s * 2, -s)} ${P(s * 2, 0)} ${P(0, s)}`} />);
+      break;
     case 'relief': case 'vent': case 'drain': {
       out.push(...lineSymbol('gate', X(s, 0), o, s * 0.8, key + 'v').filter((_, j) => j === 0));
       if (type === 'relief') { const pts = [0, 1, 2, 3, 4].map((j) => P(s + (j % 2 ? 2.5 : -2.5), s * 0.6 + j * 2.2)).join(' '); out.push(<polyline key={key + 'z'} className="iso-sym nofill" points={pts} />); txt('PSV', s * 3.2, 0); }
