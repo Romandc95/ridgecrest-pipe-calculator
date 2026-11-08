@@ -1289,15 +1289,52 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
   const els: React.ReactNode[] = [];
   const unit = (a: [number, number], b: [number, number]) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [dx / L, dy / L, L] as const; };
   const sizes = runSizes(d);
+  // dimension text: sized to fit its line, and moved to a free spot so no two measurements overlap each other or a pipe
+  type LSeg = [number, number, number, number, number]; // x1 y1 x2 y2 half-thickness
+  const segSeg = (p: LSeg, q: LSeg) => {
+    const pd = (x: number, y: number, g: LSeg) => { const dx = g[2] - g[0], dy = g[3] - g[1], l2 = dx * dx + dy * dy || 1e-9; const t = Math.max(0, Math.min(1, ((x - g[0]) * dx + (y - g[1]) * dy) / l2)); return Math.hypot(x - g[0] - t * dx, y - g[1] - t * dy); };
+    const cross = (a: number[], b: number[], c: number[]) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    const A = [p[0], p[1]], B = [p[2], p[3]], C = [q[0], q[1]], D = [q[2], q[3]];
+    if (Math.sign(cross(A, B, C)) !== Math.sign(cross(A, B, D)) && Math.sign(cross(C, D, A)) !== Math.sign(cross(C, D, B))) return 0;
+    return Math.min(pd(p[0], p[1], q), pd(p[2], p[3], q), pd(q[0], q[1], p), pd(q[2], q[3], p));
+  };
+  const pipeSegs: LSeg[] = [];
+  d.runs.forEach((r, i) => { if (r.move) return; const a = S[r.from], b = S[i + 1]; if (a && b) pipeSegs.push([a[0], a[1], b[0], b[1], 1.5]); });
+  const placed: LSeg[] = [];
+  const BASE: Record<string, number> = { 'iso-dim': 10.5, 'iso-legdim': 9, 'iso-dimsub': 9 };
   const label = (key: string, a: [number, number], b: [number, number], text: string, cls: string, off = 11, dim?: number) => {
     const [ux, uy, L] = unit(a, b);
-    if (L < 12) return null;
+    if (L < 8) return null;
     let nx = -uy, ny = ux;
     if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; } // keep labels above / left of the line
-    const lx = (a[0] + b[0]) / 2 + nx * off, ly = (a[1] + b[1]) / 2 + ny * off;
+    const base = (BASE[cls.split(' ')[0]] ?? 10) - (cls.includes(' seg') ? 0.5 : 0);
+    const cw = 0.56; // average character width of the bold font, in ems
+    const fs = Math.max(5, Math.min(base, (L - 4) / (text.length * cw)));
+    const half = (text.length * cw * fs) / 2;
+    const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    const k = fs / base, o0 = Math.sign(off) * Math.max(fs * 0.85 + 2, Math.abs(off) * k);
+    const cands = [o0, -o0, o0 * 1.8, -o0 * 1.8, o0 * 2.6, -o0 * 2.6];
+    let best = { o: o0, along: 0, score: Infinity };
+    for (const o of cands) for (const along of [0, L * 0.22, -L * 0.22]) {
+      if (Math.abs(along) + half > L / 2 + half * 0.6 && along !== 0) continue;
+      const cx = mx + nx * o + ux * along, cy = my + ny * o + uy * along;
+      const me: LSeg = [cx - ux * half, cy - uy * half, cx + ux * half, cy + uy * half, fs * 0.5];
+      let score = Math.abs(o - o0) * 0.01 + Math.abs(along) * 0.005;
+      for (const q of placed) { const dd = segSeg(me, q) - me[4] - q[4] - 1; if (dd < 0) score += 10 - dd; }
+      for (const q of pipeSegs) { const dd = segSeg(me, q) - me[4] - q[4] - 0.5; if (dd < 0) score += 5 - dd; }
+      if (score < best.score) best = { o, along, score };
+      if (score < 0.2) break;
+    }
+    const lx = mx + nx * best.o + ux * best.along, ly = my + ny * best.o + uy * best.along;
+    placed.push([lx - ux * half, ly - uy * half, lx + ux * half, ly + uy * half, fs * 0.5]);
     let ang = (Math.atan2(uy, ux) * 180) / Math.PI;
     if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
-    return <text key={key} className={cls + (dim != null && !exportMode ? ' tap' : '')} data-dim={dim != null && !exportMode ? dim : undefined} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" transform={`rotate(${ang.toFixed(1)} ${lx.toFixed(1)} ${ly.toFixed(1)})`}>{text}</text>;
+    const lead = Math.abs(best.o) > Math.abs(o0) * 1.5 || best.along !== 0;
+    return <g key={key}>
+      {lead && <line className="iso-dimlead" x1={mx} y1={my} x2={lx - nx * fs * 0.55 * Math.sign(best.o)} y2={ly - ny * fs * 0.55 * Math.sign(best.o)} />}
+      <text className={cls + (dim != null && !exportMode ? ' tap' : '')} data-dim={dim != null && !exportMode ? dim : undefined} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
+        style={{ fontSize: `${fs.toFixed(2)}px`, strokeWidth: `${(fs * 0.32).toFixed(2)}px` }} transform={`rotate(${ang.toFixed(1)} ${lx.toFixed(1)} ${ly.toFixed(1)})`}>{text}</text>
+    </g>;
   };
 
   d.runs.forEach((r, i) => {
@@ -1474,14 +1511,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     d.runs.forEach((r, i) => {
       if (r.move) return; const a = S[r.from], b = S[i + 1]; if (!a || !b) return;
       segs.push([a[0], a[1], b[0], b[1], 7]);
-      if (opts.dims && isMeasured(r)) {
-        // dimension text sits beside the middle of the line
-        const [ux, uy, L] = unit(a, b); if (L < 12) return;
-        let nx = -uy, ny = ux; if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; }
-        const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, hw = Math.min(L / 2, 42);
-        for (const o of [12, 20, -14]) segs.push([mx + nx * o - ux * hw, my + ny * o - uy * hw, mx + nx * o + ux * hw, my + ny * o + uy * hw, 8]);
-      }
     });
+    placed.forEach((q) => segs.push([q[0], q[1], q[2], q[3], q[4] + 5]));
     const segDist = (x: number, y: number, g: Seg) => {
       const dx = g[2] - g[0], dy = g[3] - g[1], L2 = dx * dx + dy * dy || 1;
       const t = Math.max(0, Math.min(1, ((x - g[0]) * dx + (y - g[1]) * dy) / L2));
@@ -1866,7 +1897,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
     </Card>
   );
 }
-const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:700 10px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}.iso-legdim{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textbox{fill:none;stroke:none}`;
+const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:700 10px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}.iso-legdim{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-dimlead{stroke:#0a4f4a;stroke-width:.5;stroke-dasharray:1.5 1.5}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textbox{fill:none;stroke:none}`;
 
 async function shareImage(d: IsoDrawing, markup: string, W: number, H: number, scale = 3): Promise<string> {
   const svg = markup.replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);
@@ -2041,7 +2072,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
       {two
         ? <>{svgTable('cut1', DX, cutY, DW / 2 - 6, cutH, 'CUT LIST', cutCols, cutRows.slice(0, half))}{svgTable('cut2', DX + DW / 2 + 6, cutY, DW / 2 - 6, cutH, `CUT LIST (cont.) · TOTAL ${formatFtIn(total, prefs)}`, cutCols, cutRows.slice(half))}</>
         : svgTable('cut', DX, cutY, DW, cutH, `CUT LIST · TOTAL PIPE ${formatFtIn(total, prefs)}`, cutCols, cutRows)}
-      {svgTable('mat', RX, DY, RW, matH, 'MATERIAL', [{ h: 'Item', w: 0.42 }, { h: 'Size', w: 0.17 }, { h: 'Spec', w: 0.27 }, { h: 'Qty', w: 0.14, r: true }], mat.length ? mat : [['No material yet']])}
+      {svgTable('mat', RX, DY, RW, matH, 'MATERIAL', [{ h: 'Item', w: 0.38 }, { h: 'Size', w: 0.16 }, { h: 'Spec', w: 0.25 }, { h: 'Qty', w: 0.21, r: true }], mat.length ? mat : [['No material yet']])}
       {weldRows.length > 0 && svgTable('weld', RX, weldY, RW, weldH, `WELD LOG · ${shop} SHOP / ${field} FIELD`, [{ h: 'Weld', w: 0.13 }, { h: 'Type', w: 0.11 }, { h: 'S/F', w: 0.13 }, { h: 'Stencil', w: 0.2 }, { h: 'Notes', w: 0.43 }], weldRows)}
       <g>
         <rect x={RX} y={tbY} width={RW} height={TB} fill="#fff" stroke="#111" strokeWidth={2} />

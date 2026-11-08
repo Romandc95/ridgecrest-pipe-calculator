@@ -526,3 +526,4 @@ button { cursor: pointer; }
 .isosheet .iso-dim.seg { font-size: 10px; }
 .sheetwrap > .sheetbar { position: static; justify-content: flex-end; padding: 6px 8px; background: var(--surface); opacity: 1; }
 @media (max-width: 700px) { .sheetwrap .sheetbox { aspect-ratio: auto; height: 58vh; } }
+.iso-dimlead { stroke: var(--accent); stroke-width: .5; stroke-dasharray: 1.5 1.5; pointer-events: none; }
