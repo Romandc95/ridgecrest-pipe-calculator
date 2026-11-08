@@ -535,7 +535,8 @@ button { cursor: pointer; }
   .tool.iso { padding: 12px 16px 24px; }
   .isomain { display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 30vw, 430px); gap: 14px; align-items: start; }
   .isomain-l { display: block; position: sticky; top: 0; }
-  .isomain-r { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .isomain-r { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-height: calc(100dvh - 205px); min-height: 420px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; scrollbar-width: thin; }
+  .isostage, .sheetbox { overscroll-behavior: contain; }
   .isomain .isostage { height: calc(100dvh - 205px); min-height: 420px; }
   .app.tab-iso .sheetwrap .sheetbox { aspect-ratio: auto; height: min(calc((100vw - 60px) * 0.647), calc(100dvh - 300px)); min-height: 400px; }
   .app.tab-iso .sheetopt, .app.tab-iso .sheetacts { max-width: 720px; }

@@ -1139,11 +1139,19 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     if (s.target !== 'none' && s.target) { onTap(s.target, s.target.kind === 'run' ? runT(s.target.id, loc) : s.target.kind === 'item' || s.target.kind === 'dim' ? runT(s.target.run, loc) : undefined); return; }
     onTap(null);
   };
-  const onWheel = (e: React.WheelEvent) => {
-    const p = toLocal(e); const k = Math.exp(-e.deltaY * 0.0015);
-    const ns = Math.max(0.02, Math.min(400, cam.s * k)), kk = ns / cam.s;
-    setCam({ s: ns, tx: p.x - (p.x - cam.tx) * kk, ty: p.y - (p.y - cam.ty) * kk });
+  const onWheel = (e: WheelEvent) => {
+    const p = toLocal(e); const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    const k = Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)); // ctrlKey = trackpad pinch
+    setCam((c) => { const ns = Math.max(0.02, Math.min(400, c.s * k)), kk = ns / c.s; return { s: ns, tx: p.x - (p.x - c.tx) * kk, ty: p.y - (p.y - c.ty) * kk }; });
   };
+  // the mouse wheel over the drawing zooms it and never scrolls the page (needs a non-passive listener)
+  const wheelRef = useRef(onWheel); wheelRef.current = onWheel;
+  useEffect(() => {
+    const el = svg.current; if (!el) return;
+    const f = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); wheelRef.current(e); };
+    el.addEventListener('wheel', f, { passive: false });
+    return () => el.removeEventListener('wheel', f);
+  }, []);
   const zoom = (k: number) => setCam((c) => ({ s: c.s * k, tx: W / 2 - (W / 2 - c.tx) * k, ty: H / 2 - (H / 2 - c.ty) * k }));
   const gridFrom = ghost ? ghost.from : cursor;
   const AX = ['E', 'N', 'Up'], AXN = ['W', 'S', 'Dn'];
@@ -1156,7 +1164,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         <span className="dot" />{MODE_LABEL[opts.mode]}
       </button>
       <svg ref={svg} viewBox={`0 0 ${W} ${H}`} width={W} height={H} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-        onWheel={onWheel} role="img" aria-label={`Isometric sketch ${d.name}`}>
+        role="img" aria-label={`Isometric sketch ${d.name}`}>
         <HatchDefs />
         <IsoPaper W={W} H={H} T3={T3} g={g} />
         {opts.mode === 'draw' && !armed && <PlaneGrid W={W} H={H} T3={T3} o={ghost?.origin ?? P[gridFrom] ?? [0, 0, 0]} g={g} />}
@@ -2385,7 +2393,14 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
       else lastTap.current = { t: now, x: p.x, y: p.y };
     }
   };
-  const onWheel = (e: React.WheelEvent) => zoomAt(Math.exp(-e.deltaY * 0.0015), local(e));
+  const wheelRef = useRef<(e: WheelEvent) => void>(() => {});
+  wheelRef.current = (e: WheelEvent) => { const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1); zoomAt(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), local(e)); };
+  useEffect(() => {
+    const el = box.current; if (!el) return;
+    const f = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); wheelRef.current(e); };
+    el.addEventListener('wheel', f, { passive: false });
+    return () => el.removeEventListener('wheel', f);
+  }, [full]);
   const markup = () => (ref.current ? ref.current.outerHTML.replace(/viewBox="[^"]*"/, `viewBox="0 0 ${SW} ${SH}"`).replace('<svg ', `<svg width="${SW}" height="${SH}" `) : '');
   const print = () => {
     const f = document.createElement('iframe');
@@ -2409,7 +2424,7 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
     </div>
   );
   const sheet = (
-    <div className="sheetbox" ref={box} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
+    <div className="sheetbox" ref={box} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
       <SheetSvg d={d} opts={opts} prefs={prefs} svgRef={ref} welds={showWelds} vb={vbStr} />
       {full && zoomBar}
     </div>
