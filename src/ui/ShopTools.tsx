@@ -35,7 +35,8 @@ const odOf = (inp: Record<string, string>, k: string) => {
 };
 
 /** Unrolled cut line around the pipe: x = distance around the OD, y = cut-back from the reference line. */
-function TemplatePlot({ pts, circ, yLabel, ref, signed }: { pts: Array<{ arc: number; y: number; deg: number }>; circ: number; yLabel: string; ref: string; signed?: boolean }) {
+// (the reference-line label is called `baseline`: `ref` is reserved by React and crashed the Miter / Cope tabs on React 18)
+function TemplatePlot({ pts, circ, yLabel, baseline, signed }: { pts: Array<{ arc: number; y: number; deg: number }>; circ: number; yLabel: string; baseline: string; signed?: boolean }) {
   const { settings } = useApp();
   const W = 340, H = 170, pl = 30, pr = 12, pt = 18, pb = 34;
   const ys = pts.map((p) => p.y);
@@ -49,7 +50,7 @@ function TemplatePlot({ pts, circ, yLabel, ref, signed }: { pts: Array<{ arc: nu
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Unrolled cut template">
         <rect x={pl} y={pt} width={W - pl - pr} height={H - pt - pb} className="dg-tplbg" />
         <line className="dg-dim" x1={pl} x2={W - pr} y1={Y(signed ? 0 : 0)} y2={Y(signed ? 0 : 0)} />
-        <text className="dg-lbl sm" x={pl} y={pt - 5}>{ref}</text>
+        <text className="dg-lbl sm" x={pl} y={pt - 5}>{baseline}</text>
         {pts.map((p, i) => <line key={i} className="dg-ext" x1={X(p.arc)} x2={X(p.arc)} y1={pt} y2={H - pb} />)}
         <path className="dg-tplcurve" d={d} />
         {pts.map((p, i) => <circle key={i} className="dg-node" cx={X(p.arc)} cy={Y(p.y)} r={2.5} />)}
@@ -118,7 +119,7 @@ export function MiterTool() {
         ] : []),
         { label: 'Template: heel to throat difference', value: f.len(2 * (m.od / 2) * Math.tan((m.cutAngle * Math.PI) / 180)) },
       ]} />}
-      {m && <TemplatePlot pts={m.template.map((p) => ({ arc: p.arc, y: p.offset, deg: p.deg }))} circ={Math.PI * m.od} yLabel="± from square line" ref="square reference line (center of cut)" signed />}
+      {m && <TemplatePlot pts={m.template.map((p) => ({ arc: p.arc, y: p.offset, deg: p.deg }))} circ={Math.PI * m.od} yLabel="± from square line" baseline="square reference line (center of cut)" signed />}
       {m && <Card><h4>Cut ordinates (+ toward the heel side, − toward the throat)</h4><Ordinates rows={m.template.map((p, i) => ({ n: i + 1, deg: p.deg, arc: p.arc, y: p.offset }))} /></Card>}
       <Formula>
         <ul>
@@ -161,7 +162,7 @@ export function CopeTool() {
         { label: 'Depth of cut (tips to deepest point)', value: f.len(c.depth), sub: f.dec(c.depth), strong: true },
         { label: 'Branch circumference', value: f.len(c.circumference), sub: `${inp.div} spaces of ${f.len(c.circumference / Number(inp.div))}` },
       ]} />}
-      {c && <TemplatePlot pts={c.points.map((p) => ({ arc: p.arc, y: p.cutback, deg: p.deg }))} circ={c.circumference} yLabel="cut back" ref="square end of branch" />}
+      {c && <TemplatePlot pts={c.points.map((p) => ({ arc: p.arc, y: p.cutback, deg: p.deg }))} circ={c.circumference} yLabel="cut back" baseline="square end of branch" />}
       {c && <Card><h4>Cut-back ordinates from the square end</h4><Ordinates rows={c.points.map((p, i) => ({ n: i + 1, deg: p.deg, arc: p.arc, y: p.cutback }))} />
         <p className="fhint">Line 1 (0°) lies in the plane of the header axis{r.ok && r.v.a < 90 ? ', on the heel (obtuse) side; 180° is the crotch' : ''}. 90° and 270° are the sides.</p></Card>}
       <Formula>
