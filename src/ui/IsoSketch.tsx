@@ -21,6 +21,7 @@ import {
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
   FlangeType, FLANGE_TYPE_LABEL, itemFt, endFtAt, effFt, flangeFit, isFlangePair, LineItem,
 } from '../engine/iso';
+import { PAPERS, paperById, printSheet, saveBlob, sheetJpeg, sheetPdf } from './sheetExport';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
 import { B169, npsNumber } from '../engine/fittings';
 import { NPS_SORTED } from '../engine/fittings';
@@ -2685,15 +2686,21 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
     return () => el.removeEventListener('wheel', f);
   }, [full]);
   const markup = () => (ref.current ? ref.current.outerHTML.replace(/viewBox="[^"]*"/, `viewBox="0 0 ${SW} ${SH}"`).replace('<svg ', `<svg width="${SW}" height="${SH}" `) : '');
-  const print = () => {
-    const f = document.createElement('iframe');
-    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-    document.body.appendChild(f);
-    const doc = f.contentDocument; if (!doc) return;
-    doc.open();
-    doc.write(`<!doctype html><html><head><title>${d.name.replace(/</g, '')}</title><style>@page{size:17in 11in;margin:0}html,body{margin:0}svg{width:17in;height:11in;display:block}</style></head><body>${markup()}</body></html>`);
-    doc.close();
-    setTimeout(() => { try { f.contentWindow?.focus(); f.contentWindow?.print(); } catch { toast('Printing is not available here'); } setTimeout(() => f.remove(), 2000); }, 300);
+  const exportSvg = () => markup().replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);
+  const [out, setOut] = useState<null | 'print' | 'save'>(null);
+  const [paper, setPaper] = usePersistent<string>('isopaper', 'tabloid');
+  const [fmt, setFmt] = usePersistent<'pdf' | 'jpg'>('isosavefmt', 'pdf');
+  const [busy, setBusy] = useState(false);
+  const fileBase = (d.name.replace(/[^\w-]+/g, '_') || 'iso') + (d.info?.jobNo ? '_' + d.info.jobNo.replace(/[^\w-]+/g, '_') : '');
+  const doPrint = () => { setOut(null); setTimeout(() => { if (!printSheet(exportSvg(), SW, SH, paperById(paper), d.name)) toast('Printing is not available here — use Save → PDF and print that'); }, 50); };
+  const doSave = async () => {
+    setBusy(true);
+    try {
+      const blob = fmt === 'jpg' ? await sheetJpeg(exportSvg(), SW, SH) : await sheetPdf(exportSvg(), SW, SH, paperById(paper), d.name);
+      const m = await saveBlob(blob, `${fileBase}${fmt === 'pdf' ? '_' + paperById(paper).id : ''}.${fmt === 'jpg' ? 'jpg' : 'pdf'}`);
+      setOut(null); if (m) toast(m);
+    } catch (e) { toast((e as Error).message || 'Could not save'); }
+    setBusy(false);
   };
   const share = () => shareImage(d, markup(), SW, SH, 2).then((m) => m && toast(m));
   const mid = { x: size.w / 2, y: size.h / 2 };
@@ -2720,9 +2727,38 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
         <Segmented small value={showWelds ? 'on' : 'off'} onChange={(v) => setShowWelds(v === 'on')} options={[['on', 'Weld map on'], ['off', 'Weld map off']]} />
       </div>
       <div className="chiprow sheetacts">
-        <button className="btn primary" onClick={share}>Share as image</button>
-        <button className="btn" onClick={print}>Print 11×17</button>
+        <button className="btn primary" onClick={() => setOut('print')}>🖨 Print…</button>
+        <button className="btn primary" onClick={() => setOut('save')}>💾 Save…</button>
+        <button className="btn" onClick={share}>Share as image</button>
       </div>
+      {out && (
+        <IsoModal title={out === 'print' ? 'Print drawing' : 'Save drawing'} onClose={() => setOut(null)}>
+          {out === 'save' && (
+            <div className="sheetopt">
+              <span className="flabel">Save as</span>
+              <Segmented value={fmt} onChange={(v) => setFmt(v as 'pdf' | 'jpg')} options={[['pdf', 'PDF'], ['jpg', 'JPEG image']]} />
+            </div>
+          )}
+          {(out === 'print' || fmt === 'pdf') && (
+            <div className="papergrid" role="radiogroup" aria-label="Paper size">
+              <span className="flabel">Paper size</span>
+              {PAPERS.map((p) => (
+                <button key={p.id} role="radio" aria-checked={paper === p.id} className={'chip' + (paper === p.id ? ' on' : '')} onClick={() => setPaper(p.id)}>{p.label}</button>
+              ))}
+            </div>
+          )}
+          <p className="fhint">{out === 'print'
+            ? 'Landscape, drawing scaled to fit with ¼" margins. Your printer dialog opens next — pick the printer there and check its paper matches. If nothing opens, use Save → PDF and print the PDF.'
+            : fmt === 'pdf' ? 'A one-page PDF at this paper size (landscape, scaled to fit, about 200 dpi) — opens and prints anywhere.' : 'A full 11×17 sheet image (3400 × 2200 px).'}
+            {showWelds ? ' Weld map is on.' : ' Weld map is off.'}</p>
+          <div className="chiprow sheetacts">
+            {out === 'print'
+              ? <button className="btn primary" onClick={doPrint}>Print</button>
+              : <button className="btn primary" disabled={busy} onClick={doSave}>{busy ? 'Making file…' : `Save ${fmt === 'pdf' ? 'PDF' : 'JPEG'}`}</button>}
+            <button className="btn" onClick={() => setOut(null)}>Cancel</button>
+          </div>
+        </IsoModal>
+      )}
       <p className="fhint">Pinch to zoom and drag to move around the sheet; double-tap to zoom in there (double-tap again for the whole sheet). Weld map off hides the weld numbers and the weld log, for a clean drawing to view, share or print. Completed drawings are locked — ✎ Edit (top) reopens it.</p>
     </>
   );

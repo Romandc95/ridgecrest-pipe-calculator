@@ -622,3 +622,7 @@ button { cursor: pointer; }
 .crashcard h3 { margin: 0 0 6px; }
 .crashcard .crashmsg { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid var(--bad); border-radius: 8px; padding: 8px; margin: 8px 0; }
 .cardh { margin: 0 0 4px; font-size: 17px; }
+
+.papergrid { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.papergrid .flabel { width: 100%; }
+.isomodal-card .sheetopt .flabel { display: block; margin-bottom: 4px; }
