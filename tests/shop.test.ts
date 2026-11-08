@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { miter, cope, thermalExpansion } from '../src/engine/shop';
-import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef, runSizes, weldList, materials, setOffsetAngle, offsetAt } from '../src/engine/iso';
+import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef, runSizes, weldList, materials, setOffsetAngle, offsetAt, specFor } from '../src/engine/iso';
 import { flange, valveFaceToFace, nptMakeup } from '../src/engine/refdata';
 
 describe('miter (segmented elbow)', () => {
@@ -277,5 +277,18 @@ describe('ISO offset angle', () => {
     const at2 = setOffsetAngle(d, 2, 60)!; // tapping the other elbow edits the same offset
     expect(Math.abs(at2.runs[1].meas![0] - 12 / Math.tan(Math.PI / 3)) < 1e-9).toBe(true);
     expect(setOffsetAngle(d, 1, 90)).toBe(null);
+  });
+});
+
+describe('ISO per-size settings', () => {
+  const run = (from: number, v: [number, number, number], id: string): Run => ({ id, from, dx: v[0] / 4, dy: v[1] / 4, dz: v[2] / 4, inline: 'none', sketch: true, meas: v });
+  it('the size after a reducer uses its own gap, class and schedule; unset = main', () => {
+    const d: IsoDrawing = { ...newDrawing('t', 'x'), nps: '4', gap: 0.125, runs: [run(0, [60, 0, 0], 'a'), run(1, [60, 0, 0], 'b'), run(2, [0, 60, 0], 'c')], inl: { 1: { id: 'r', type: 'reducer', t: 0.5, size: '2' } } };
+    expect(specFor(d, '2').gap).toBe(0.125);
+    const before = cutList(d)[2].cut;
+    d.sizeSpec = { '2': { gap: 0.0625, sch: '80', cls: 300 } };
+    expect(Math.abs(cutList(d)[2].cut - before - 0.0625) < 1e-9).toBe(true); // one butt weld at the elbow end of line 3 (the other end is open)
+    expect(materials(d).find((m) => m.item === 'Pipe' && m.size === '2')!.spec).toBe('Sch 80');
+    expect(materials(d).find((m) => m.item === 'Pipe' && m.size === '4')!.spec).toBe('Sch 40');
   });
 });

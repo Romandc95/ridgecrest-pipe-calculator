@@ -103,6 +103,10 @@ export interface IsoNote { id: string; node: number; text: string }
 export interface IsoDrawing {
   id: string; name: string; created: number; updated: number;
   nps: string; gap: number; // nominal size for take-outs, butt-weld root gap
+  /** Pipe schedule of the main size (default 40). */
+  sch?: string;
+  /** Settings for the other pipe sizes on the drawing (after reducers / reducing branches); unset = same as the main size. */
+  sizeSpec?: Record<string, SizeSpec>;
   runs: Run[]; ends: Record<number, EndType>; notes: IsoNote[];
   /** Fitting chosen at an elbow or branch point (default: LR elbow / straight tee). */
   fits?: Record<number, string>;
@@ -127,6 +131,25 @@ export interface IsoDrawing {
   /** Finished: saved and locked (shown as the 11×17 sheet). */
   done?: boolean;
   doneAt?: number;
+}
+/** Per-size settings: joint, flange class, weld gap, gasket and schedule. */
+export interface SizeSpec { conn?: Conn; cls?: number; gap?: number; gasket?: number; sch?: string }
+export interface SizeSettings { conn: Conn; cls: number; gap: number; gasket: number; sch: string }
+/** The settings that apply to a pipe size on this drawing. */
+export function specFor(d: IsoDrawing, size: string): SizeSettings {
+  const own = size === d.nps ? {} : d.sizeSpec?.[size] ?? {};
+  return { conn: own.conn ?? d.conn ?? 'bw', cls: own.cls ?? d.cls ?? 150, gap: own.gap ?? d.gap, gasket: own.gasket ?? d.gasket ?? 0.125, sch: own.sch ?? d.sch ?? '40' };
+}
+/** The drawing as seen from one pipe size: take-outs, joints and allowances use that size's settings. */
+export function sized(d: IsoDrawing, size: string | undefined): IsoDrawing {
+  if (!size || size === d.nps) return d;
+  const sp = specFor(d, size);
+  return { ...d, nps: size, conn: sp.conn, cls: sp.cls as IsoDrawing['cls'], gap: sp.gap, gasket: sp.gasket, sch: sp.sch };
+}
+/** Pipe sizes on the drawing, main size first. */
+export function drawingSizes(d: IsoDrawing): string[] {
+  const sz = runSizes(d).filter((_, i) => !d.runs[i]?.move);
+  return [d.nps, ...[...new Set(sz)].filter((z) => z !== d.nps)];
 }
 export interface DrawingInfo { customer?: string; site?: string; jobNo?: string; system?: string }
 export interface WeldInfo { stencil?: string; field?: boolean; notes?: string }
@@ -246,7 +269,7 @@ export interface CutRow {
 
 /** Take-out at one end of a run, using ASME B16.9 fittings for the drawing's NPS and the fitting chosen at that point. */
 function takeoutAt(d0: IsoDrawing, node: number, run: number, note: string[], sizes?: string[]): { to: number; weld: boolean } {
-  const d: IsoDrawing = sizes ? { ...d0, nps: sizes[run] ?? d0.nps } : d0;
+  const d: IsoDrawing = sizes ? sized(d0, sizes[run] ?? d0.nps) : d0;
   const red = d0.inl?.[node];
   if (red && isReducer(red.type) && run === node - 1 && nodeKind(d0, node).kind === 'elbow') {
     // reducer welded onto the elbow: the line in loses the reducer and the (smaller) elbow's take-off
@@ -257,7 +280,7 @@ function takeoutAt(d0: IsoDrawing, node: number, run: number, note: string[], si
     const el = takeoutAt({ ...d0, inl }, node, run, note, sz2);
     if (H === null) { note.push('enter the reducer length (tap it)'); return { to: NaN, weld: true }; }
     note.push(`reducer ${up.nps}"×${red.size ?? '?'}" (${frac(H)}) welded to the elbow`);
-    return { to: el.to + H + d0.gap, weld: true };
+    return { to: el.to + H + d.gap, weld: true };
   }
   const dUp: IsoDrawing = sizes ? { ...d0, nps: sizes[node - 1] ?? d0.nps } : d0; // an inline fitting is the size of the line coming into it
   const k = nodeKind(d, node);
@@ -353,12 +376,13 @@ function takeoutAt(d0: IsoDrawing, node: number, run: number, note: string[], si
 }
 
 /** Cut list: center-to-center travel less fitting take-outs and a root gap at every butt weld. */
-export function cutList(d: IsoDrawing): CutRow[] {
-  const sizes = runSizes(d);
-  return d.runs.map((r, i) => {
+export function cutList(d0: IsoDrawing): CutRow[] {
+  const sizes = runSizes(d0);
+  return d0.runs.map((r, i) => {
     if (r.move) return { run: i, travel: 0, to1: 0, to2: 0, gaps: 0, cut: 0, note: [], ok: true, skip: true };
     const note: string[] = [];
-    const a = takeoutAt(d, r.from, i, note, sizes), b = takeoutAt(d, i + 1, i, note, sizes);
+    const a = takeoutAt(d0, r.from, i, note, sizes), b = takeoutAt(d0, i + 1, i, note, sizes);
+    const d = sized(d0, sizes[i]);
     if (!isMeasured(r)) return { run: i, travel: NaN, to1: a.to, to2: b.to, gaps: 0, cut: NaN, note: ['no dimension yet'], ok: false };
     const travel = runLength(r);
     const gaps = (a.weld ? d.gap : 0) + (b.weld ? d.gap : 0);
@@ -616,15 +640,28 @@ const weldType = (c: Conn): Conn => (c === 'flg' ? 'bw' : c);
  * Every weld on the drawing, in a stable order (by point, then line). A weld's key is the line's id + which end of it,
  * so weld records survive edits elsewhere on the drawing.
  */
+/** Size of the fitting at a point: the pipe coming in (the smaller side when a reducer sits at an elbow). */
+export function nodeSize(d: IsoDrawing, sizes: string[], n: number): string {
+  const legs = nodeLegs(d, n);
+  const into = n > 0 && !d.runs[n - 1]?.move && legs.some((l) => l.run === n - 1) ? n - 1 : -1;
+  const red = inlineAt(d, n);
+  if (red && into >= 0 && nodeKind(d, n).kind === 'elbow' && red.size) return red.size;
+  if (into >= 0) return sizes[into] ?? d.nps;
+  return legs.length ? sizes[legs[0].run] ?? d.nps : d.nps;
+}
+/** Joint at a point, using the default joint for the pipe size there. */
+export const connAtSized = (d: IsoDrawing, sizes: string[], n: number): Conn => d.nodeConn?.[n] ?? specFor(d, nodeSize(d, sizes, n)).conn;
+
 export function weldList(d: IsoDrawing): Weld[] {
   const out: Weld[] = [];
+  const sizes = runSizes(d);
   const side = (n: number, ri: number): 'a' | 'b' => (d.runs[ri].from === n ? 'a' : 'b');
   const push = (n: number, ri: number, conn: Conn, where: Weld['where'], suffix = '') => out.push({ key: `${d.runs[ri].id}:${side(n, ri)}${suffix}`, node: n, run: ri, side: side(n, ri), conn: weldType(conn), where });
   for (let n = 0; n <= d.runs.length; n++) {
     const k = nodeKind(d, n).kind;
     const legs = nodeLegs(d, n);
     if (!legs.length) continue;
-    const conn = connAt(d, n);
+    const conn = connAtSized(d, sizes, n);
     if (k === 'elbow' || k === 'tee' || k === 'cross') {
       const fit = d.fits?.[n];
       const red = inlineAt(d, n);
@@ -670,21 +707,22 @@ export function materials(d: IsoDrawing): MaterialRow[] {
     return rows.get(k)!;
   };
   const addAt = (node: number, item: string, size: string, spec: string, qty = 1) => { const r = add(item, size, spec, qty); (r.nodes ??= []).push(node); };
-  const cls = d.cls ?? 150;
-  const flanged = (size: string, n: number) => { add('WN flange', size, `Class ${cls} RF`, n); };
-  const joint = (size: string) => { add('Gasket', size, `Class ${cls}`); add('Stud bolt set', size, `Class ${cls}`); };
+  const clsOf = (z: string) => specFor(d, z).cls;
+  const flanged = (size: string, n: number) => { add('WN flange', size, `Class ${clsOf(size)} RF`, n); };
+  const joint = (size: string) => { add('Gasket', size, `Class ${clsOf(size)}`); add('Stud bolt set', size, `Class ${clsOf(size)}`); };
   // pipe: cut lengths by size (rounded up to the inch)
   const cuts = cutList(d);
   const pipe: Record<string, number> = {};
   cuts.forEach((c) => { if (c.skip) return; const v = c.pieces ? c.pieces.reduce((t, q) => t + (q.ok ? q.cut : 0), 0) : c.ok ? c.cut : 0; pipe[sizes[c.run]] = (pipe[sizes[c.run]] ?? 0) + v; });
-  Object.entries(pipe).forEach(([z, v]) => { if (v > 0) add('Pipe', z, '', Math.ceil(v) / 12, 'ft'); });
+  Object.entries(pipe).forEach(([z, v]) => { if (v > 0) add('Pipe', z, `Sch ${specFor(d, z).sch}`, Math.ceil(v) / 12, 'ft'); });
   for (let n = 0; n <= d.runs.length; n++) {
     const k = nodeKind(d, n);
     const legs = nodeLegs(d, n); if (!legs.length) continue;
     const z = sizes[legs[0].run] ?? d.nps;
-    const conn = CONN_LABEL[connAt(d, n)];
+    const cn = connAtSized(d, sizes, n);
+    const conn = CONN_LABEL[cn];
     const fit = d.fits?.[n];
-    if ((k.kind === 'elbow' || k.kind === 'tee' || k.kind === 'cross') && connAt(d, n) === 'flg' && !['weldolet', 'sockolet', 'threadolet', 'stubin'].includes(fit ?? '')) {
+    if ((k.kind === 'elbow' || k.kind === 'tee' || k.kind === 'cross') && cn === 'flg' && !['weldolet', 'sockolet', 'threadolet', 'stubin'].includes(fit ?? '')) {
       legs.forEach((l) => { const lz = sizes[l.run] ?? z; flanged(lz, 1); joint(lz); }); // flanged fitting: a WN flange on each pipe end
     }
     if (k.kind === 'elbow') {
@@ -703,7 +741,7 @@ export function materials(d: IsoDrawing): MaterialRow[] {
       if (it) {
         const iz = sizes[n - 1] ?? z;
         const nm = INLINE_LABEL[it.type] ?? it.type;
-        if (it.type === 'flange' || it.type === 'orifice') { addAt(n, 'WN flange', iz, `Class ${cls} RF`, 2); joint(iz); }
+        if (it.type === 'flange' || it.type === 'orifice') { addAt(n, 'WN flange', iz, `Class ${clsOf(iz)} RF`, 2); joint(iz); }
         else if (it.type !== 'spool') {
           addAt(n, nm, isReducer(it.type) && it.size ? `${iz}×${it.size}` : iz, CONN_LABEL[it.conn ?? 'bw']);
           if ((it.conn ?? 'bw') === 'flg') { flanged(iz, 2); joint(iz); joint(iz); }
@@ -713,9 +751,9 @@ export function materials(d: IsoDrawing): MaterialRow[] {
       const end = d.ends[n] ?? 'open';
       const red = inlineAt(d, n);
       if (red) addAt(n, red.type === 'eccreducer' ? 'Ecc. reducer' : 'Conc. reducer', `${z}×${red.size ?? '?'}`, CONN_LABEL[red.conn ?? 'bw']);
-      else if (end === 'flange') { addAt(n, 'WN flange', z, `Class ${cls} RF`); joint(z); }
-      else if (end === 'blind') { flanged(z, 1); addAt(n, 'Blind flange', z, `Class ${cls} RF`); joint(z); }
-      else if (end === 'nozzle') { if (connAt(d, n) === 'flg') { flanged(z, 1); joint(z); } }
+      else if (end === 'flange') { addAt(n, 'WN flange', z, `Class ${clsOf(z)} RF`); joint(z); }
+      else if (end === 'blind') { flanged(z, 1); addAt(n, 'Blind flange', z, `Class ${clsOf(z)} RF`); joint(z); }
+      else if (end === 'nozzle') { if (cn === 'flg') { flanged(z, 1); joint(z); } }
       else if (!['open', 'weld'].includes(end)) addAt(n, END_LABEL[end] ?? end, z, conn);
     }
   }

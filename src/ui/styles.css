@@ -556,3 +556,4 @@ button { cursor: pointer; }
 .modebadge .dot { width: 7px; height: 7px; border-radius: 50%; background: #111; opacity: .7; }
 .isostage.armed .modebadge { display: none; }
 .isofull .modebadge { top: max(10px, env(safe-area-inset-top)); }
+.sizecard { border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--surface2); }

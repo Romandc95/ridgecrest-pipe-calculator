@@ -6,12 +6,13 @@ import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
 import { B169, npsNumber } from '../engine/fittings';
 import { FLANGE_CLASSES, FlangeClass } from '../engine/refdata';
+import { pipeProps, DATASETS, Material } from '../engine/pipedata';
 const npsVal = (n: string) => npsNumber(n) ?? 0;
 /** A reducer that gets bigger going downstream (an expander) — drawn the other way round. */
 const expands = (up: string | undefined, down: string | undefined) => !!up && !!down && npsVal(down) > npsVal(up);
@@ -574,7 +575,7 @@ function PointMenu({ d, n, prefs, act }: { d: IsoDrawing; n: number; prefs: Pref
   const cur = pk === 'inline' ? it!.type : pk === 'end' ? d.ends[n] : pk === 'elbow' ? d.fits?.[n] ?? 'lr' : d.fits?.[n] ?? 'tee';
   const kind = pk === 'inline' ? 'line' : pk === 'end' ? 'end' : pk === 'elbow' ? 'elbow' : 'branch';
   const c = catalogItem(cur, kind as CatalogItem['kind']);
-  const conn = pk === 'inline' ? it!.conn ?? 'bw' : connAt(d, n);
+  const conn = pk === 'inline' ? it!.conn ?? 'bw' : connAtSized(d, runSizes(d), n);
   const hasSize = (pk === 'inline' && isReducer(it!.type)) || (pk === 'tee' && SIZED.includes(cur));
   const curSize = pk === 'inline' ? it!.size : d.fitSize?.[n];
   const hasLen = pk === 'inline' || pk === 'end';
@@ -827,7 +828,7 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
   const presetOn = VIEW_PRESETS.find((p) => Math.abs(normAz(p.v.az - opts.view.az)) < 0.5 && Math.abs(p.v.el - opts.view.el) < 0.5)?.id ?? '';
   return (
     <Card className={'isotools' + (compact ? ' compact' : '')}>
-      <Segmented small value={opts.mode} onChange={(m) => setOpts({ mode: m as Mode })} options={[['draw', '✎ Draw'], ['orbit', '⟳ Rotate 3D'], ['pan', '✥ Move']]} />
+      <Segmented small value={opts.mode} onChange={(m) => setOpts({ mode: m as Mode })} options={[['draw', '✎ Draw'], ['pan', '✥ Move'], ['orbit', '⟳ 3D']]} />
       {opts.mode === 'draw' && (
         <>
           <p className="fhint">Drag from a point to draw a line — it follows the 30° / 150° / vertical paper lines. Start on any point except a turn (or the middle of a line) to branch off it; from empty space it continues from point {cur}{isBranch ? ', making a tee' : ''}. Use the offset tab on the drawing for angled runs. Tap a line or point to edit it. Two fingers: pinch to zoom, slide to move. Spin arrows (or the compass) turn the drawing.</p>
@@ -1492,7 +1493,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     if (k.kind === 'elbow' || k.kind === 'tee' || k.kind === 'cross') {
       const fit = d.fits?.[n];
       if (opts.welds) legScreen.forEach(([ux, uy], j) => {
-        const jm = legJoint(fit, legScreen, j, connAt(d, n));
+        const jm = legJoint(fit, legScreen, j, connAtSized(d, sizes, n));
         if (jm) els.push(...jointMark(jm.conn, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy], `w${n}-${j}`));
       });
       const fs = d.fitSize?.[n];
@@ -1530,7 +1531,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
           const off = sz * 1.15 + 4;
           for (const sgn of [-1, 1]) els.push(...jointMark(it.conn ?? 'bw', [p[0] + u[0] * off * sgn, p[1] + u[1] * off * sgn], u, `ij${n}${sgn}`));
         }
-      } else if (opts.welds) els.push(...jointMark(connAt(d, n), p, legScreen[0] ?? [1, 0], 'sw' + n));
+      } else if (opts.welds) els.push(...jointMark(connAtSized(d, sizes, n), p, legScreen[0] ?? [1, 0], 'sw' + n));
     } else {
       const endT = d.ends[n] ?? 'open';
       const er = inlineAt(d, n);
@@ -1544,10 +1545,10 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         } else els.push(...endSymbol(er.type === 'eccreducer' ? 'eccreducer' : 'reducer', p, legScreen[0], 'er' + n));
         if (er.size && opts.dims) callouts.push({ key: 'ers' + n, text: `${sizes[n - 1] ?? d.nps}"×${er.size}"`, at: [p[0] - legScreen[0][0] * 7, p[1] - legScreen[0][1] * 7], dir: [-legScreen[0][0], -legScreen[0][1]], dist: 16 });
         if (opts.welds) els.push(...jointMark(er.conn ?? 'bw', p, legScreen[0], 'erj' + n));
-      } else els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode, connAt(d, n)));
+      } else els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode, connAtSized(d, sizes, n)));
       // the joint between the pipe and the end fitting, shown with the chosen connection's mark
       // (a flange end shows how the flange is joined to the pipe: weld dot = weld neck, tick = threaded …; the nozzle draws its own)
-      const ec = connAt(d, n);
+      const ec = connAtSized(d, sizes, n);
       if (opts.welds && legScreen[0] && !['open', 'weld', 'nozzle'].includes(endT) && !(['flange', 'blind'].includes(endT) && ec === 'flg'))
         els.push(...jointMark(ec, [p[0] + legScreen[0][0] * (['flange', 'blind'].includes(endT) ? 6 : 3), p[1] + legScreen[0][1] * (['flange', 'blind'].includes(endT) ? 6 : 3)], legScreen[0], 'ej' + n));
     }
@@ -1885,7 +1886,7 @@ function NodeEditor({ d, node, update, onClose, prefs }: { d: IsoDrawing; node: 
           onChange={(v) => update((x) => { const fs = { ...(x.fitSize ?? {}) }; if (v) fs[node] = v; else delete fs[node]; return { ...x, fitSize: fs }; })} />
       )}
       {k.kind !== 'multi' && !(k.kind === 'start-end' && !nodeLegs(d, node).length) && (
-        <Select label="Joint here" value={connAt(d, node)} options={CONN_ORDER.map((c) => [c, CONN_LABEL[c]])} onChange={(v) => update((x) => ({ ...x, nodeConn: { ...(x.nodeConn ?? {}), [node]: v as Conn } }))} />
+        <Select label="Joint here" value={connAtSized(d, runSizes(d), node)} options={CONN_ORDER.map((c) => [c, CONN_LABEL[c]])} onChange={(v) => update((x) => ({ ...x, nodeConn: { ...(x.nodeConn ?? {}), [node]: v as Conn } }))} />
       )}
       {(k.kind === 'end' || k.kind === 'start-end') && (
         <Select label="End" value={d.ends[node] ?? 'open'} options={(Object.keys(END_LABEL) as EndType[]).map((x) => [x, END_LABEL[x]])} onChange={(v) => update((x) => ({ ...x, ends: { ...x.ends, [node]: v as EndType } }))} />
@@ -1976,10 +1977,36 @@ function Library({ store, setStore, onOpen }: { store: IsoStore; setStore: (f: (
   );
 }
 
+const SCHEDULES = ['5S', '10S', '10', '20', '30', '40S', '40', 'Std', '60', '80S', '80', 'XS', '100', '120', '140', '160', 'XXS', 'K', 'L', 'M', 'DWV', 'SDR 21', 'SDR 26'];
+function SizeSettingsCard({ d, size, prefs, update }: { d: IsoDrawing; size: string; prefs: Prefs; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void }) {
+  const main = size === d.nps;
+  const sp = specFor(d, size);
+  const own = main ? null : d.sizeSpec?.[size];
+  const set = (p: SizeSpec, mk?: string) => update((x) => (main
+    ? { ...x, ...(p.conn ? { conn: p.conn } : {}), ...(p.cls ? { cls: p.cls as IsoDrawing['cls'] } : {}), ...(p.gap !== undefined ? { gap: p.gap } : {}), ...(p.gasket !== undefined ? { gasket: p.gasket } : {}), ...(p.sch ? { sch: p.sch } : {}) }
+    : { ...x, sizeSpec: { ...(x.sizeSpec ?? {}), [size]: { ...(x.sizeSpec?.[size] ?? {}), ...p } } }), mk);
+  const [gap, setGap] = useState(formatFracIn(sp.gap, prefs));
+  const [gk, setGk] = useState(formatFracIn(sp.gasket, prefs));
+  const sch = SCHEDULES.includes(sp.sch) ? SCHEDULES : [sp.sch, ...SCHEDULES];
+  const wall = (() => { for (const m of ['steel', 'stainless', 'copper', 'plastic'] as Material[]) { if (!DATASETS[m]?.types.includes(sp.sch)) continue; try { return pipeProps(m, sp.sch, size); } catch { return null; } } return null; })();
+  return (
+    <div className="sizecard">
+      <div className="row-between"><b>{size}" pipe{main ? ' · main size' : ''}</b>
+        {!main && own && Object.keys(own).length > 0 && <button className="linkbtn" onClick={() => update((x) => { const ss = { ...(x.sizeSpec ?? {}) }; delete ss[size]; return { ...x, sizeSpec: ss }; })}>Same as main</button>}
+      </div>
+      <Grid>
+        <Select label="Schedule" value={sp.sch} options={sch.map((c) => [c, /^[A-Z]/.test(c) && !['Std', 'XS', 'XXS'].includes(c) ? c : `Sch ${c}`])} onChange={(v) => set({ sch: v })} />
+        <Select label="Joint" value={sp.conn} options={CONN_ORDER.map((c) => [c, CONN_LABEL[c]])} onChange={(v) => set({ conn: v as Conn })} />
+        <Select label="Flange class" value={String(sp.cls)} options={FLANGE_CLASSES.map((c) => [String(c), `Class ${c}`])} onChange={(v) => set({ cls: Number(v) })} />
+        <Field label="Gasket" value={gk} parse={parseLength} onChange={(v) => { setGk(v); const r = tryParse(parseLength, v); if (r && r.ok && r.v >= 0 && r.v < 1) set({ gasket: r.v }, 'gk' + size); }} />
+        <Field label="Weld gap" value={gap} parse={parseLength} onChange={(v) => { setGap(v); const r = tryParse(parseLength, v); if (r && r.ok && r.v >= 0 && r.v < 1) set({ gap: r.v }, 'gap' + size); }} />
+      </Grid>
+      {wall && <p className="fhint">{size}" Sch {sp.sch}: OD {formatNumber(wall.od, 3)}", wall {formatNumber(wall.wall, 3)}", ID {formatNumber(wall.id, 3)}"</p>}
+    </div>
+  );
+}
+
 function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; disp: { P: Vec3[]; vecs: Vec3[] }; opts: Opts; prefs: Prefs; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void; toast: (m: string) => void }) {
-  const [gap, setGap] = useState(formatFracIn(d.gap, prefs));
-  const [gk, setGk] = useState(formatFracIn(d.gasket ?? 0.125, prefs));
-  useEffect(() => setGap(formatFracIn(d.gap, prefs)), [d.id]);
   const svgRef = useRef<SVGSVGElement>(null);
   const W = 480, H = 340;
   const pts = disp.P.map((p) => project(p, opts.view));
@@ -1990,13 +2017,10 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
   return (
     <Card>
       <Grid>
-        <Select label="Pipe size (for take-outs)" value={d.nps} options={Object.keys(B169).map((n) => [n, `${n}" NPS`])} onChange={(v) => update((x) => ({ ...x, nps: v }))} />
-        <Select label="Default joint (elbows, tees, couplings)" value={d.conn ?? 'bw'} options={CONN_ORDER.map((c) => [c, CONN_LABEL[c]])} onChange={(v) => update((x) => ({ ...x, conn: v as Conn }))} />
-        <Select label="Flange class (flanged valves, flanges)" value={String(d.cls ?? 150)} options={FLANGE_CLASSES.map((c) => [String(c), `Class ${c}`])} onChange={(v) => update((x) => ({ ...x, cls: Number(v) as FlangeClass }))} />
-        <Field label="Gasket thickness" value={gk} parse={parseLength} onChange={(v) => { setGk(v); const r = tryParse(parseLength, v); if (r && r.ok && r.v >= 0 && r.v < 1) update((x) => ({ ...x, gasket: r.v }), 'gasket'); }} />
-        <Field label="Butt-weld root gap" value={gap} parse={parseLength} hint="used at every butt weld in the cut list"
-          onChange={(v) => { setGap(v); const r = tryParse(parseLength, v); if (r && r.ok && r.v >= 0 && r.v < 1) update((x) => ({ ...x, gap: r.v })); }} />
+        <Select label="Main pipe size" value={d.nps} options={Object.keys(B169).map((n) => [n, `${n}" NPS`])} onChange={(v) => update((x) => ({ ...x, nps: v }))} />
       </Grid>
+      <p className="fhint">Each pipe size on the drawing has its own schedule, joint, flange class, gasket and weld gap. A size after a reducer starts with the main size's settings until you change them.</p>
+      {drawingSizes(d).map((z) => <SizeSettingsCard key={d.id + ':' + z} d={d} size={z} prefs={prefs} update={update} />)}
       <p className="fhint">Take-outs use ASME B16.9 long-radius elbows (90°, 45°, other angles cut from a 90°) and straight tees for the selected size. The image uses the current view.</p>
       <button className="btn primary" onClick={() => svgRef.current && shareImage(d, svgRef.current.outerHTML, W, H).then((m) => m && toast(m))}>Share drawing as image</button>
       <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" width={W * 3} height={H * 3} viewBox={`0 0 ${W} ${H}`} style={{ display: 'none' }}>
@@ -2132,7 +2156,7 @@ function sheetData(d: IsoDrawing, prefs: Prefs) {
   const spools: Array<{ run: number; t: number; letter: string }> = [];
   let li = 0;
   cuts.forEach((c) => {
-    const what = `L${c.run + 1} ${describeRun(d.runs[c.run])} · ${sizes[c.run]}"`;
+    const what = `L${c.run + 1} ${describeRun(d.runs[c.run])} · ${sizes[c.run]}" Sch ${specFor(d, sizes[c.run]).sch}`;
     if (c.pieces && !Number.isNaN(c.travel)) {
       const segs = runSegments(d, c.run), tr = runLength(d.runs[c.run]) || 1;
       c.pieces.forEach((q, k) => {
@@ -2216,7 +2240,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
   // right column: material, weld log, title block
   const info = d.info ?? {};
   const tbRows: Array<[string, string]> = [['DRAWING', d.name], ['CUSTOMER', info.customer ?? ''], ['JOB #', info.jobNo ?? ''], ['JOB SITE', info.site ?? ''], ['SYSTEM', info.system ?? ''],
-    ['SIZE', `${d.nps}" NPS · Class ${d.cls ?? 150} · ${CONN_LABEL[d.conn ?? 'bw']}`], ['DATE', date], ['STATUS', `COMPLETE · ${d.runs.filter((r) => !r.move).length} lines · ${wl.length} welds${showWelds ? '' : ' (map off)'}`]];
+    ...drawingSizes(d).map((z, i): [string, string] => { const sp = specFor(d, z); return [i ? '' : 'PIPE', `${z}" Sch ${sp.sch} · Class ${sp.cls} · ${CONN_LABEL[sp.conn]} · gap ${formatFracIn(sp.gap, prefs)}`]; }), ['DATE', date], ['STATUS', `COMPLETE · ${d.runs.filter((r) => !r.move).length} lines · ${wl.length} welds${showWelds ? '' : ' (map off)'}`]];
   const RH = 25, TB = 44 + tbRows.length * RH + 6, tbY = SH - M - 10 - TB;
   const matH = Math.min(tbY - DY - 10 - (weldRows.length ? 150 : 0), 34 + (mat.length + 1) * 24 + 4);
   const weldY = DY + matH + 12, weldH = tbY - 12 - weldY;
@@ -2249,10 +2273,11 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
         <rect x={RX} y={tbY} width={RW} height={44} fill="#1f3b3a" />
         <text x={RX + 14} y={tbY + 30} style={{ font: '900 23px sans-serif', fill: '#fff', letterSpacing: '1.5px' }}>RIDGECREST INDUSTRIES</text>
         {tbRows.map(([k, v], i) => (
-          <g key={k}>
+          <g key={k + i}>
             <line x1={RX} x2={RX + RW} y1={tbY + 44 + i * RH} y2={tbY + 44 + i * RH} stroke="#ccd" />
             <text x={RX + 12} y={tbY + 61 + i * RH} style={{ font: '800 11px sans-serif', fill: '#666' }}>{k}</text>
-            <text x={RX + 98} y={tbY + 61 + i * RH} style={{ font: `${i === 0 ? 800 : 600} ${i === 0 ? 16 : 13.5}px sans-serif`, fill: k === 'STATUS' ? '#1f7f3a' : '#111' }}>{v.length > 46 ? v.slice(0, 45) + '…' : v || '—'}</text>
+            {(() => { const base = i === 0 ? 16 : 13.5, avail = RW - 108, fs = Math.max(8, Math.min(base, avail / (Math.max(1, v.length) * 0.56))); const max = Math.floor(avail / (fs * 0.56));
+              return <text x={RX + 98} y={tbY + 61 + i * RH} style={{ font: `${i === 0 ? 800 : 600} ${fs}px sans-serif`, fill: k === 'STATUS' ? '#1f7f3a' : '#111' }}>{v.length > max ? v.slice(0, max - 1) + '…' : v || '—'}</text>; })()}
           </g>
         ))}
       </g>
