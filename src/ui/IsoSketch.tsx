@@ -1082,7 +1082,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   // pointer handling. Draw mode: drag from a point (or anywhere, from the current point) to draw a line.
   // Rotate mode: drag turns the view. Move mode: drag pans. Two fingers always pan / zoom. Taps select.
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
-  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean; itemDrag?: boolean; split?: { run: number; t: number; origin: Vec3 }; newStart?: Vec3; blocked?: boolean; inlDrag?: number | null; textDrag?: { id: string; node: number; dx: number; dy: number } | null } | null>(null);
+  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean; itemDrag?: boolean; split?: { run: number; t: number; origin: Vec3 }; newStart?: Vec3; blocked?: boolean; inlDrag?: number | null; textDrag?: { id: string; node: number; dx: number; dy: number } | null; pan?: boolean } | null>(null);
   const gestureTurn = useRef(false); // a two-finger twist moves the camera itself; skip the re-centring below
   const CMP = { x: 40, y: 40 };
   /** A line drawn to land on an existing point (or onto a line) ties into it there. */
@@ -1107,6 +1107,17 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     return null;
   };
   const onDown = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse' && e.button === 1) {
+      // mouse wheel button held down: move the view (like Move mode), whatever mode you're in
+      e.preventDefault();
+      try { svg.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      const loc0 = toLocal(e);
+      ptrs.current.set(e.pointerId, loc0);
+      st.current = { cam, view, mid: loc0, dist: 0, moved: true, target: 'none', cAng: 0, drawFrom: null, pan: true };
+      setGhost(null);
+      return;
+    }
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     try { svg.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     const loc = toLocal(e);
     ptrs.current.set(e.pointerId, loc);
@@ -1195,7 +1206,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       setGhost(v && v !== 'edge' ? { from: s.drawFrom, v, origin: s.split?.origin } : null);
     } else if (s.blocked) {
       // started on a turn: nothing to draw
-    } else if (opts.mode === 'orbit') {
+    } else if (opts.mode === 'orbit' && !s.pan) {
       onView({ az: normAz(s.view.az - dx * 0.45), el: clampEl(s.view.el + dy * 0.45) });
     } else {
       setCam({ ...s.cam, tx: s.cam.tx + dx, ty: s.cam.ty + dy });
@@ -1237,8 +1248,11 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   useEffect(() => {
     const el = svg.current; if (!el) return;
     const f = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); wheelRef.current(e); };
+    const noAuto = (e: MouseEvent) => { if (e.button === 1) e.preventDefault(); }; // no browser auto-scroll on a wheel-button press
     el.addEventListener('wheel', f, { passive: false });
-    return () => el.removeEventListener('wheel', f);
+    el.addEventListener('mousedown', noAuto);
+    el.addEventListener('auxclick', noAuto);
+    return () => { el.removeEventListener('wheel', f); el.removeEventListener('mousedown', noAuto); el.removeEventListener('auxclick', noAuto); };
   }, []);
   const zoom = (k: number) => setCam((c) => ({ s: c.s * k, tx: W / 2 - (W / 2 - c.tx) * k, ty: H / 2 - (H / 2 - c.ty) * k }));
   const gridFrom = ghost ? ghost.from : cursor;
