@@ -163,7 +163,7 @@ function Help() {
       <Card>
         <h4>ISO sketch</h4>
         <ul>
-          <li><b>Draw:</b> in Draw mode press on a point and drag — the line stays on the iso paper (30°, 150° or vertical), snaps to whole squares and is placed when you let go (drag from empty space to continue from the dashed-circle point). Or type a length (optional) and tap a direction button.</li>
+          <li><b>Draw:</b> in Draw mode press on a point and drag — the line stays on the iso paper (30°, 150° or vertical), snaps to whole squares and is placed when you let go (drag from empty space to continue from the dashed-circle point). Start a drag on or near any existing point — a turn, tee or end — to run a new line off it; start on the middle of a line to branch off right there (the line splits into a tee at the nearest grid square). Or type a length (optional) and tap a direction button.</li>
           <li><b>Add offset</b> builds an angled run from the current point: pick the heading, the fitting angle (11¼, 22½, 30, 45, 60 or any), which way it offsets and, for a rolling offset, which way it rolls. Enter the amounts to get the travel and setback, or leave them empty to sketch it and dimension it later.</li>
           <li><b>Two fingers</b> (any mode): pinch to zoom, slide to move. A twist turns the drawing to the next compass direction (90°) the way you twist — once per touch. Tapping the compass does the same.</li>
           <li><b>New start point</b> (pin-with-plus button on the drawing, under Home): tap it, then tap the paper where a separate line should start (or tap an existing point to draw from there). A faint dotted link marks it; no pipe is drawn or cut for it.</li>

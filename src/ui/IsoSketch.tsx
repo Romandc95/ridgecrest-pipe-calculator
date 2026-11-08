@@ -26,6 +26,13 @@ const PLANES: Record<Plane, { n: Vec3; a: Vec3; b: Vec3; label: string }> = {
   NU: { n: [1, 0, 0], a: [0, 1, 0], b: [0, 0, 1], label: 'N–S wall' },
 };
 const GRID = 12; // one grid square = 12 drawing units (1 ft when drawn to scale)
+/** Fraction along a run where a split lands: on a whole grid square of the drawn line, never at its ends. */
+const snapSplitT = (r: Run, t: number) => {
+  const L = Math.hypot(r.dx, r.dy, r.dz);
+  if (L < GRID * 2) return 0.5;
+  const n = Math.max(1, Math.min(Math.floor((L - 1e-6) / GRID), Math.round((t * L) / GRID)));
+  return (n * GRID) / L;
+};
 const AXIS_NAMES: Array<[string, string]> = [['East', 'West'], ['North', 'South'], ['Up', 'Down']];
 const DIR_ORDER = ['W', 'U', 'N', 'S', 'D', 'E'] as const;
 const DIR_SHORT: Record<string, string> = { N: 'N', S: 'S', E: 'E', W: 'W', U: 'Up', D: 'Down' };
@@ -101,9 +108,16 @@ export function IsoSketch() {
     if (p && p.ok && p.v > 0) addRun({ dx: v[0] * p.v, dy: v[1] * p.v, dz: v[2] * p.v, inline: 'none', sketch: true, meas: mul(v, p.v) });
     else addRun({ dx: v[0] * GRID * 2, dy: v[1] * GRID * 2, dz: v[2] * GRID * 2, inline: 'none', sketch: true });
   };
-  const drawTo = (vec: Vec3 | null, from: number) => {
+  const drawTo = (vec: Vec3 | null, from: number, split?: { run: number; t: number }) => {
     if (!vec) { toast('This drawing plane is edge-on in this view — turn the view or pick another plane'); return; }
     const s = mul(vec, 1 / (disp.k || 1));
+    if (split) {
+      // branch off the middle of a line: split it there (a tee) and run the new line from the split
+      const end = d.runs.length + 2;
+      update((x) => { const sp = splitRun(x, split.run, split.t, uid()); return { ...sp.d, runs: [...sp.d.runs, { id: uid(), from: sp.node, dx: s[0], dy: s[1], dz: s[2], inline: 'none', sketch: true }] }; });
+      setCursor(end); setSel(null);
+      return;
+    }
     addRun({ dx: s[0], dy: s[1], dz: s[2], inline: 'none', sketch: true }, Math.min(from, d.runs.length));
   };
   /** Put a catalog item on a line or point. Returns false (with a message) if it doesn't fit there. */
@@ -175,9 +189,8 @@ export function IsoSketch() {
     if (target?.kind === 'run') {
       const r = d.runs[target.id];
       if (r.move) { toast('That dotted link is not a pipe'); return false; }
-      const sv = sketchVec(r), L = len3(sv);
-      let tt = 0.5;
-      if (L >= GRID * 2) { const n = Math.max(1, Math.min(Math.floor((L - 1e-6) / GRID), Math.round((t * L) / GRID))); tt = (n * GRID) / L; }
+      const sv = sketchVec(r);
+      const tt = snapSplitT(r, t);
       const node = d.runs.length + 1;
       update((x) => { const sp = splitRun(x, target.id, tt, uid()); return stub(sp.d, sp.node, perpTo(sv)); });
       setCursor(node + 1); setSel({ kind: 'node', id: node });
@@ -481,7 +494,7 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
       <Segmented small value={opts.mode} onChange={(m) => setOpts({ mode: m as Mode })} options={[['draw', '✎ Draw'], ['orbit', '⟳ Rotate 3D'], ['pan', '✥ Move']]} />
       {opts.mode === 'draw' && (
         <>
-          <p className="fhint">Drag from a point to draw a line — it follows the 30° / 150° / vertical paper lines (drag from empty space starts at point {cur}{isBranch ? ', making a tee' : ''}). Use Add offset for angled runs. Tap a line or point to edit it. Two fingers: pinch to zoom, slide to move, twist to turn 90°.</p>
+          <p className="fhint">Drag from a point to draw a line — it follows the 30° / 150° / vertical paper lines Start on any point (or the middle of a line) to branch off it; from empty space it continues from point {cur}{isBranch ? ', making a tee' : ''}. Use Add offset for angled runs. Tap a line or point to edit it. Two fingers: pinch to zoom, slide to move, twist to turn 90°.</p>
         </>
       )}
       {opts.mode === 'orbit' && <p className="fhint">Drag the drawing to tilt and turn it in 3D. Tap the compass (or twist two fingers) to turn to the next compass direction.</p>}
@@ -522,7 +535,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>; onPick: (v: Vec3 | null) => void;
   onItemDrag: (run: number, id: string, t: number) => void; menu: { run: number; t: number; node: React.ReactNode } | null;
   startOn: boolean; onStartBtn: () => void;
-  onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number) => void; children?: React.ReactNode;
+  onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number, split?: { run: number; t: number }) => void; children?: React.ReactNode;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const svg = useRef<SVGSVGElement>(null);
@@ -532,7 +545,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   const P = disp.P;
   const [cam, setCam] = useState<Cam>({ s: 2, tx: 180, ty: 150 });
   const camRef = useRef(cam); camRef.current = cam;
-  const [ghost, setGhost] = useState<{ from: number; v: Vec3 } | null>(null);
+  const [ghost, setGhost] = useState<{ from: number; v: Vec3; origin?: Vec3 } | null>(null);
   const homing = useRef(false);
 
   useEffect(() => {
@@ -588,8 +601,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   };
   const g = GRID * (disp.k || 1);
   /** Drag snapping: the line follows whichever paper direction (E–W, N–S or vertical) is closest to the drag, in whole grid squares. */
-  const snap = (pt: { x: number; y: number }, from: number): Vec3 | null | 'edge' => {
-    const o = P[from] ?? [0, 0, 0];
+  const snap = (pt: { x: number; y: number }, from: number, origin?: Vec3): Vec3 | null | 'edge' => {
+    const o = origin ?? P[from] ?? [0, 0, 0];
     const p0 = T3(o);
     const dx = pt.x - p0[0], dy = pt.y - p0[1];
     let best: { ax: Vec3; t: number; perp: number } | null = null;
@@ -642,7 +655,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   // pointer handling. Draw mode: drag from a point (or anywhere, from the current point) to draw a line.
   // Rotate mode: drag turns the view. Move mode: drag pans. Two fingers always pan / zoom. Taps select.
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
-  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean; itemDrag?: boolean } | null>(null);
+  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean; itemDrag?: boolean; split?: { run: number; t: number; origin: Vec3 } } | null>(null);
   const gestureTurn = useRef(false); // a two-finger twist moves the camera itself; skip the re-centring below
   const CMP = { x: 40, y: 40 };
   const onDown = (e: React.PointerEvent) => {
@@ -653,15 +666,23 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     const target = ps.length > 1 ? 'none' : targetOf(e.target as Element);
     let drawFrom: number | null = null;
     const itemDrag = ps.length === 1 && !armed && target !== 'none' && target !== 'compass' && target.kind === 'item';
+    let split: { run: number; t: number; origin: Vec3 } | undefined;
     if (ps.length === 1 && opts.mode === 'draw' && !armed && target !== 'compass' && !itemDrag) {
+      // the nearest point within a fingertip of the touch wins (turns, tees, ends), so a slightly-off touch still starts there
+      let near = -1, nd = 30;
+      P.forEach((p, n) => { if (n > d.runs.length) return; const q = T3(p); const dd = Math.hypot(loc.x - q[0], loc.y - q[1]); if (dd < nd) { nd = dd; near = n; } });
       if (target !== 'none' && target.kind === 'node') drawFrom = target.id;
-      else if (target !== 'none' && target.kind === 'run') {
-        const r = d.runs[target.id]; const a = T3(P[r.from]), b = T3(P[target.id + 1]);
-        drawFrom = Math.hypot(loc.x - a[0], loc.y - a[1]) < Math.hypot(loc.x - b[0], loc.y - b[1]) ? r.from : target.id + 1;
+      else if (near >= 0) drawFrom = near;
+      else if (target !== 'none' && target.kind === 'run' && !d.runs[target.id].move) {
+        // touched the middle of a line: branch off it right there
+        const r = d.runs[target.id];
+        const tt = snapSplitT(r, runT(target.id, loc));
+        split = { run: target.id, t: tt, origin: add(P[r.from], mul(disp.vecs[target.id], tt)) };
+        drawFrom = r.from;
       } else drawFrom = cursor;
     }
     const mid = ps.length === 2 ? { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 } : loc;
-    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom, itemDrag,
+    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom, itemDrag, split,
       ang: ps.length === 2 ? Math.atan2(ps[1].y - ps[0].y, ps[1].x - ps[0].x) : undefined, twist: false };
     setGhost(null);
   };
@@ -705,8 +726,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     } else if (s.itemDrag && s.target !== 'none' && s.target !== 'compass' && s.target?.kind === 'item') {
       onItemDrag(s.target.run, s.target.id, runT(s.target.run, loc)); // slide the fitting along its line
     } else if (s.drawFrom !== null) {
-      const v = snap(loc, s.drawFrom);
-      setGhost(v && v !== 'edge' ? { from: s.drawFrom, v } : null);
+      const v = snap(loc, s.drawFrom, s.split?.origin);
+      setGhost(v && v !== 'edge' ? { from: s.drawFrom, v, origin: s.split?.origin } : null);
     } else if (opts.mode === 'orbit') {
       onView({ az: normAz(s.view.az - dx * 0.45), el: clampEl(s.view.el + dy * 0.45) });
     } else {
@@ -724,8 +745,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     if (!s || cancelled) return;
     if (s.moved) {
       if (s.drawFrom !== null && s.target !== 'compass' && s.dist === 0) {
-        const v = snap(loc, s.drawFrom);
-        if (v === 'edge') onDraw(null, s.drawFrom); else if (v) onDraw(v, s.drawFrom);
+        const v = snap(loc, s.drawFrom, s.split?.origin);
+        if (v === 'edge') onDraw(null, s.drawFrom); else if (v) onDraw(v, s.drawFrom, s.split ? { run: s.split.run, t: s.split.t } : undefined);
       }
       return;
     }
@@ -749,10 +770,11 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         onWheel={onWheel} role="img" aria-label={`Isometric sketch ${d.name}`}>
         <HatchDefs />
         <IsoPaper W={W} H={H} T3={T3} g={g} />
-        {opts.mode === 'draw' && !armed && <PlaneGrid W={W} H={H} T3={T3} o={P[gridFrom] ?? [0, 0, 0]} g={g} />}
+        {opts.mode === 'draw' && !armed && <PlaneGrid W={W} H={H} T3={T3} o={ghost?.origin ?? P[gridFrom] ?? [0, 0, 0]} g={g} />}
         <IsoArt d={d} disp={disp} T3={T3} sel={sel} cursor={cursor} opts={opts} prefs={prefs} />
         {ghost && (() => {
-          const a = T3(P[ghost.from]), b = T3(add(P[ghost.from], ghost.v));
+          const o3 = ghost.origin ?? P[ghost.from];
+          const a = T3(o3), b = T3(add(o3, ghost.v));
           const txt = [0, 1, 2].filter((k) => nz(ghost.v[k])).map((k) => `${Math.round(Math.abs(ghost.v[k]) / g)} ${ghost.v[k] > 0 ? AX[k] : AXN[k]}`).join(' · ');
           return (
             <g className="iso-ghostg">
@@ -1007,7 +1029,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     }
     if (!exportMode) {
       const isCursor = n === cursor, isSel = sel?.kind === 'node' && sel.id === n;
-      els.push(<circle key={'hn' + n} data-node={n} cx={p[0]} cy={p[1]} r={13} className={'iso-nodehit' + (isCursor ? ' cursor' : '') + (isSel ? ' sel' : '')} />);
+      els.push(<circle key={'hn' + n} data-node={n} cx={p[0]} cy={p[1]} r={13} className={"iso-nodehit" + (isCursor ? ' cursor' : '') + (isSel ? ' sel' : '')} />);
     }
     if (opts.labels) els.push(<text key={'nl' + n} className="iso-node" x={p[0] + 8} y={p[1] - 8}>{n}</text>);
   }
