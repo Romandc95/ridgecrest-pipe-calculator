@@ -1287,12 +1287,9 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         const lb = label('d' + i, a, b, `${formatFtIn(runLength(r), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`, 'iso-dimsub', -13);
         if (lb) els.push(lb);
       } else if (measured) {
-        const txt = `${formatFtIn(shownLength(d, i), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}${sizes[i] !== d.nps ? ` · ${sizes[i]}"` : ''}`;
+        const txt = `${formatFtIn(shownLength(d, i), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`;
         const lb = label('d' + i, a, b, txt, 'iso-dim', items.length ? 20 : 11, i);
         if (lb) els.push(lb);
-      } else if (!exportMode && L > 22 && sizes[i] !== d.nps) {
-        const lb = label('sz' + i, a, b, `${sizes[i]}"`, 'iso-dim', 13, i); if (lb) els.push(lb);
-        els.push(<g key={'q' + i} data-dim={i}><circle className="iso-qbg" cx={(a[0] + b[0]) / 2} cy={(a[1] + b[1]) / 2} r={7} /><text className="iso-q" x={(a[0] + b[0]) / 2} y={(a[1] + b[1]) / 2 + 3.5} textAnchor="middle">?</text></g>);
       } else if (!exportMode && L > 22) {
         const off = items.length ? 16 : 0;
         els.push(<g key={'q' + i} data-dim={i}><circle className="iso-qbg" cx={m[0] + nx * off} cy={m[1] + ny * off} r={7} /><text className="iso-q" x={m[0] + nx * off} y={m[1] + ny * off + 3.5} textAnchor="middle">?</text></g>);
@@ -1595,12 +1592,14 @@ function NodeEditor({ d, node, update, onClose, prefs }: { d: IsoDrawing; node: 
 // ------------------------------------------------------------------ panels
 function CutPanel({ d, cuts, prefs, onShare }: { d: IsoDrawing; cuts: ReturnType<typeof cutList>; prefs: Prefs; onShare: (t: string) => void }) {
   cuts = cuts.filter((c) => !c.skip);
+  const sizes = runSizes(d);
+  const sz = (i: number) => (sizes[i] !== d.nps ? ` · ${sizes[i]}"` : '');
   if (!cuts.length) return <Card><p className="lead">Draw some lines to see the cut list.</p></Card>;
   const total = cuts.reduce((s, c) => s + (c.pieces ? c.pieces.reduce((t, q) => t + (q.ok ? q.cut : 0), 0) : c.ok ? c.cut : 0), 0);
   const L = (i: number) => String.fromCharCode(97 + i);
   const missing = cuts.filter((c) => Number.isNaN(c.travel)).length;
   const text = [`${d.name} — ${d.nps}" pipe, gap ${formatFracIn(d.gap, prefs)}`,
-    ...cuts.map((c) => `Line ${c.run + 1} ${describeRun(d.runs[c.run])}: ${Number.isNaN(c.travel) ? 'NO DIMENSION' : `${runRef(d, c.run)} ${formatFtIn(shownLength(d, c.run), prefs)}, ${c.pieces ? c.pieces.map((q, k) => `${c.run + 1}${L(k)} ${q.from}→${q.to} CUT ${Number.isNaN(q.cut) ? '?' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE'}`).join(', ') : `CUT ${c.ok ? formatFtIn(c.cut, prefs) : 'IMPOSSIBLE'}`}`}${c.note.length && !Number.isNaN(c.travel) ? ' (' + c.note.join('; ') + ')' : ''}`),
+    ...cuts.map((c) => `Line ${c.run + 1} ${describeRun(d.runs[c.run])}${sz(c.run)}: ${Number.isNaN(c.travel) ? 'NO DIMENSION' : `${runRef(d, c.run)} ${formatFtIn(shownLength(d, c.run), prefs)}, ${c.pieces ? c.pieces.map((q, k) => `${c.run + 1}${L(k)} ${q.from}→${q.to} CUT ${Number.isNaN(q.cut) ? '?' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE'}`).join(', ') : `CUT ${c.ok ? formatFtIn(c.cut, prefs) : 'IMPOSSIBLE'}`}`}${c.note.length && !Number.isNaN(c.travel) ? ' (' + c.note.join('; ') + ')' : ''}`),
     `Total pipe ${formatFtIn(total, prefs)}${missing ? ` (+ ${missing} undimensioned)` : ''}`].join('\n');
   return (
     <Card>
@@ -1609,22 +1608,29 @@ function CutPanel({ d, cuts, prefs, onShare }: { d: IsoDrawing; cuts: ReturnType
         <table className="dtable">
           <thead><tr><th>Line</th><th>Length</th><th>Deduct</th><th>Cut</th></tr></thead>
           <tbody>{cuts.map((c) => Number.isNaN(c.travel) ? (
-            <tr key={c.run} className="todo"><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}</small></th><td colSpan={3}>needs dimension</td></tr>
+            <tr key={c.run} className="todo"><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}{sz(c.run)}</small></th><td colSpan={3}>needs dimension</td></tr>
           ) : (
             c.pieces ? (
               <React.Fragment key={c.run}>
-                <tr><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}</small></th><td>{formatFtIn(c.travel, prefs)} {runRef(d, c.run)}</td><td colSpan={2} className="muted">{c.pieces.length} spools</td></tr>
+                <tr><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}{sz(c.run)}</small></th><td>{formatFtIn(c.travel, prefs)} {runRef(d, c.run)}</td><td colSpan={2} className="muted">{c.pieces.length} spools</td></tr>
                 {c.pieces.map((q, k) => (
                   <tr key={k} className={'piece' + (Number.isNaN(q.cut) ? ' todo' : q.ok ? '' : ' bad')}><th>{c.run + 1}{L(k)}<small> {q.from} → {q.to}</small></th><td colSpan={2}></td><td><b>{Number.isNaN(q.cut) ? 'need length' : q.ok ? formatFtIn(q.cut, prefs) : 'impossible'}</b></td></tr>
                 ))}
               </React.Fragment>
             ) : (
-            <tr key={c.run} className={c.ok ? '' : 'bad'}><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}</small></th><td>{formatFtIn(shownLength(d, c.run), prefs)} {runRef(d, c.run)}</td><td>{c.ok ? formatFracIn(shownLength(d, c.run) - c.cut, prefs) : ''}</td><td><b>{c.ok ? formatFtIn(c.cut, prefs) : Number.isNaN(c.cut) ? 'need length' : 'impossible'}</b></td></tr>
+            <tr key={c.run} className={c.ok ? '' : 'bad'}><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}{sz(c.run)}</small></th><td>{formatFtIn(shownLength(d, c.run), prefs)} {runRef(d, c.run)}</td><td>{c.ok ? formatFracIn(shownLength(d, c.run) - c.cut, prefs) : ''}</td><td><b>{c.ok ? formatFtIn(c.cut, prefs) : Number.isNaN(c.cut) ? 'need length' : 'impossible'}</b></td></tr>
             )
           ))}</tbody>
         </table>
       </div>
       {cuts.some((c) => c.note.length && !Number.isNaN(c.travel)) && <ul className="fhint">{cuts.filter((c) => c.note.length && !Number.isNaN(c.travel)).map((c) => <li key={c.run}>Line {c.run + 1}: {c.note.join('; ')}</li>)}</ul>}
+      {(() => {
+        // pipe to order, by size, when the drawing has more than one size
+        const by: Record<string, number> = {};
+        cuts.forEach((c) => { const v = c.pieces ? c.pieces.reduce((t, q) => t + (q.ok ? q.cut : 0), 0) : c.ok ? c.cut : 0; by[sizes[c.run]] = (by[sizes[c.run]] ?? 0) + v; });
+        const ks = Object.keys(by);
+        return ks.length > 1 ? <p className="bysize">{ks.map((k) => <span key={k}><b>{k}"</b> {formatFtIn(by[k], prefs)}</span>)}</p> : null;
+      })()}
       <p><b>Total pipe: {formatFtIn(total, prefs)}</b>{missing ? <span className="muted"> · {missing} line{missing > 1 ? 's' : ''} still need a dimension</span> : null}</p>
       <p className="fhint">Deduct = what comes off the length shown: fitting take-outs, root gaps, flanges and gaskets (or what threads / sockets add back).</p>
       <Msg kind="info">Each length says what it measures to: C = fitting center, F = flange face, E = pipe or fitting end. Take-outs use ASME B16.9 butt-weld fittings in {d.nps}" (long-radius elbows and straight tees unless you picked another fitting at a point). Valves and fittings on a line split it into spools: each is cut between the fitting faces, less its length (B16.10 for flanged valves at the flange class in Setup, or your length) and adjusted for the joint — root gap, WN flange + gasket, thread makeup or socket engagement. Tap a fitting to enter your manufacturer's length.</Msg>

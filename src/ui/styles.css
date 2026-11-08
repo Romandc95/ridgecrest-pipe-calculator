@@ -458,3 +458,4 @@ button { cursor: pointer; }
 .isostage text.iso-dim.tap { pointer-events: auto; cursor: pointer; }
 .menubtns.two { grid-template-columns: 1fr 1fr; }
 .itemmenu .linkbtn { color: var(--muted); align-self: flex-start; }
+.bysize { display: flex; gap: 14px; flex-wrap: wrap; margin: 0; font-family: var(--mono); font-size: 14px; }
