@@ -397,3 +397,6 @@ button { cursor: pointer; }
 .isogrid2 line.ax { stroke: color-mix(in srgb, var(--accent) 55%, transparent); stroke-width: 1.1; }
 .ibtn.isoundo { position: absolute; left: 8px; bottom: 8px; gap: 5px; }
 .ibtn:disabled { opacity: .4; }
+/* sideways full screen on a phone held upright: the drawing's left edge is the top of the phone (status bar / notch)
+   and its right edge is the bottom (home bar), so pad those by the iPhone safe areas */
+.isofull.rot { padding: 0 env(safe-area-inset-bottom, 0px) 0 env(safe-area-inset-top, 0px); box-sizing: border-box; }
