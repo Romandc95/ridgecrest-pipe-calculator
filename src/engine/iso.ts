@@ -114,7 +114,14 @@ export interface IsoDrawing {
   gasket?: number;
   /** Your take-off for the fitting at a line end (cap, flange, valve …), overriding the standard one. */
   endLen?: Record<number, number>;
+  /** A valve / inline fitting sitting at a point where the line was broken (the point is a straight joint between two lines). */
+  inl?: Record<number, LineItem>;
 }
+/** The inline fitting at a point, if that point is still a straight joint. */
+export const inlineAt = (d: IsoDrawing, node: number): LineItem | null => {
+  const it = d.inl?.[node];
+  return it && nodeKind(d, node).kind === 'straight' ? it : null;
+};
 export const connAt = (d: IsoDrawing, node: number): Conn => d.nodeConn?.[node] ?? d.conn ?? 'bw';
 
 export type Vec3 = [number, number, number];
@@ -233,7 +240,18 @@ function takeoutAt(d: IsoDrawing, node: number, run: number, note: string[]): { 
       : `${CONN_LABEL[conn].toLowerCase()} ${what}: subtract center-to-end, add socket depth (Fittings tab)`);
     return { to: 0, weld: false };
   }
-  if (conn !== 'bw' && k.kind === 'straight') return { to: 0, weld: false };
+  if (k.kind === 'straight') {
+    const it = inlineAt(d, node);
+    if (it) {
+      // the line runs to the fitting's center; the pipe stops at its face / end, adjusted for the joint
+      const L = itemLength(d, it), al = joinAllowance(d, it);
+      const name = (INLINE_LABEL[it.type] ?? it.type).toLowerCase();
+      if (L.len === null) { note.push(`enter the ${name} length (tap it)`); return { to: NaN, weld: false }; }
+      if (!note.some((n) => n.startsWith(name + ':'))) note.push(`${name}: ${L.src}${al.note ? '; ' + al.note : ''}`);
+      return { to: L.len / 2 - al.v, weld: false };
+    }
+    if (conn !== 'bw') return { to: 0, weld: false };
+  }
   switch (k.kind) {
     case 'elbow': {
       const ang = k.angle;
@@ -364,7 +382,7 @@ export type Ref = 'C' | 'F' | 'E';
 export function nodeRef(d: IsoDrawing, node: number): Ref {
   const k = nodeKind(d, node).kind;
   if (k === 'elbow' || k === 'tee' || k === 'cross' || k === 'multi') return 'C';
-  if (k === 'straight') return 'E';
+  if (k === 'straight') { const it = inlineAt(d, node); return it ? itemRef(it) : 'E'; }
   const end = d.ends[node] ?? 'open';
   return end === 'flange' || end === 'blind' || end === 'nozzle' ? 'F' : 'E';
 }
@@ -439,6 +457,45 @@ export function stemDir(v: Vec3): Vec3 {
   return [s[0] / sl, s[1] / sl, s[2] / sl];
 }
 
+/** How much of a line's center-to-center length is inside inline fittings at its ends (half of each fitting's length). */
+export function faceAdj(d: IsoDrawing, i: number): number {
+  const r = d.runs[i];
+  let a = 0;
+  for (const n of [r.from, i + 1]) { const it = inlineAt(d, n); if (it) a += (itemLength(d, it).len ?? 0) / 2; }
+  return a;
+}
+/** The length shown for a line: to the faces / ends of inline fittings, center elsewhere. */
+export const shownLength = (d: IsoDrawing, i: number) => runLength(d.runs[i]) - faceAdj(d, i);
+
+/** The two lines either side of a straight point: [into it, out of it]. */
+export function sidesOf(d: IsoDrawing, node: number): [number, number] | null {
+  const a = node - 1, b = d.runs.findIndex((r) => r.from === node && !r.move);
+  return a >= 0 && b >= 0 && !d.runs[a].move ? [a, b] : null;
+}
+
+/** Join the two lines at a straight point back into one (removing what sat there). */
+export function mergeAt(d: IsoDrawing, node: number): IsoDrawing {
+  const sd = sidesOf(d, node); if (!sd) return d;
+  const [ia, ib] = sd; const A = d.runs[ia], B = d.runs[ib];
+  const both = isMeasured(A) && isMeasured(B);
+  const ra = runVec(A), rb = runVec(B);
+  const joined: Run = { ...A, dx: A.dx + B.dx, dy: A.dy + B.dy, dz: A.dz + B.dz, sketch: A.sketch || B.sketch,
+    ...(both ? { meas: [ra[0] + rb[0], ra[1] + rb[1], ra[2] + rb[2]] as Vec3 } : {}), items: [...runItems(A), ...runItems(B)] };
+  if (!both) delete joined.meas;
+  const bEnd = ib + 1;
+  // everything hanging off B's end now hangs off the joined line's end (A's end = node); then drop B and renumber
+  let runs = d.runs.map((r, k) => (k === ia ? joined : r.from === bEnd ? { ...r, from: node } : r));
+  const remap = (n: number) => (n === bEnd ? node : n > bEnd ? n - 1 : n);
+  runs = runs.filter((_, k) => k !== ib).map((r) => ({ ...r, from: remap(r.from) }));
+  const mapRec = <T,>(o: Record<number, T> | undefined, skip: number) => {
+    const out: Record<number, T> = {};
+    Object.entries(o ?? {}).forEach(([n, v]) => { const k = Number(n); if (k === skip) return; out[remap(k)] = v; });
+    return out;
+  };
+  return { ...d, runs, ends: mapRec(d.ends, node), fits: mapRec(d.fits, node), nodeConn: mapRec(d.nodeConn, node), fitSize: mapRec(d.fitSize, node),
+    endLen: mapRec(d.endLen, node), inl: mapRec(d.inl, node), notes: d.notes.filter((t) => t.node !== node).map((t) => ({ ...t, node: remap(t.node) })) };
+}
+
 /** Isometric projection to screen (x right, y down): North up-right, East down-right, Up straight up. */
 export function iso(p: Vec3): [number, number] {
   const c = Math.cos(Math.PI / 6), s = 0.5;
@@ -511,7 +568,10 @@ export function deleteSubtree(d: IsoDrawing, i: number): IsoDrawing {
   Object.entries(d.fitSize ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) fitSize[m] = f; });
   const nodeConn: Record<number, Conn> = {};
   Object.entries(d.nodeConn ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) nodeConn[m] = f; });
-  return { ...d, runs, ends, notes, fits, fitSize, nodeConn };
+  const inl: Record<number, LineItem> = {}; const endLen: Record<number, number> = {};
+  Object.entries(d.inl ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) inl[m] = f; });
+  Object.entries(d.endLen ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) endLen[m] = f; });
+  return { ...d, runs, ends, notes, fits, fitSize, nodeConn, inl, endLen };
 }
 
 /** Human description of a run direction, e.g. "North", "Up 45° East". */

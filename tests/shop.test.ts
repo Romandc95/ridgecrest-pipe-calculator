@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { miter, cope, thermalExpansion } from '../src/engine/shop';
-import { newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments } from '../src/engine/iso';
+import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef } from '../src/engine/iso';
 import { flange, valveFaceToFace, nptMakeup } from '../src/engine/refdata';
 
 describe('miter (segmented elbow)', () => {
@@ -191,5 +191,22 @@ describe('ISO route', () => {
     expect(sg[0].len).toBeCloseTo(60 - v / 2, 9); expect(sg[1].len).toBeCloseTo(60 - v / 2, 9);
     d.runs[0].items![0].at = 40; // valve center moved to 3'-4" from the start
     expect(runSegments(d, 0)![0].len).toBeCloseTo(40 - v / 2, 9);
+  });
+  it('a valve breaks the line like a tee: two lines measured to the valve faces, cut between them, and it can be merged back', () => {
+    const d = base(); d.runs = [{ ...run(0, 120, 0, 0), sketch: true, meas: [120, 0, 0] }, run(1, 0, 48, 0)];
+    const sp = splitRun(d, 0, 0.5, 'b'); const e = sp.d; const M = sp.node; // valve point
+    e.inl = { [M]: { id: 'v', type: 'gate', t: 0.5, conn: 'flg' } };
+    const v = valveFaceToFace(150, 'gate', '4')!, y = flange(150, '4').yWN;
+    // run 2 (start → valve) and run 0 (valve → elbow)
+    expect(shownLength(e, 2)).toBeCloseTo(60 - v / 2, 9); expect(runRef(e, 2)).toBe('E-F');
+    expect(shownLength(e, 0)).toBeCloseTo(60 - v / 2, 9); expect(runRef(e, 0)).toBe('F-C');
+    const c = cutList(e);
+    expect(c[2].cut).toBeCloseTo(60 - v / 2 - (0.125 + y + 0.125), 9);
+    expect(c[0].cut).toBeCloseTo(60 - v / 2 - (0.125 + y + 0.125) - 6 - 0.125, 9); // LR elbow + gap at the far end
+    const m = mergeAt(e, M);
+    expect(m.runs.length).toBe(2);
+    expect(m.runs.map((r) => Math.round(runLength(r))).sort((a, b) => a - b)).toEqual([48, 120]);
+    expect(nodePositions(m).some((p) => p[0] === 120 && p[1] === 48)).toBe(true); expect(m.inl).toEqual({});
+    expect(cutList(m).every((c) => !c.note.some((n) => n.includes('gate')))).toBe(true);
   });
 });

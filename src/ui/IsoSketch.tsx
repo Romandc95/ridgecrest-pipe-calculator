@@ -6,7 +6,7 @@ import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
@@ -132,18 +132,29 @@ export function IsoSketch() {
     if (!item || !target) return false;
     if (item.kind === 'branch') return placeBranch(item, target, t);
     if (item.kind === 'line') {
-      if (target.kind !== 'run') { toast(`Drop the ${item.label.toLowerCase()} on a line`); return false; }
-      update((x) => ({ ...x, runs: x.runs.map((q, k) => {
-        if (k !== target.id) return q;
-        const items = runItems(q);
-        // on a dimensioned line the fitting's center lands on a whole inch from the start
-        const at = isMeasured(q) ? Math.round(t * runLength(q)) : undefined;
-        // give a short sketched line room for its spool dimensions (the sketch only — measurements don't change)
-        const sl = Math.hypot(q.dx, q.dy, q.dz), want = GRID * (2 + 2 * (items.length + 1));
-        const grow = q.sketch && sl > 0 && sl < want ? want / sl : 1;
-        return { ...q, dx: q.dx * grow, dy: q.dy * grow, dz: q.dz * grow, inline: 'none', items: [...items, { id: uid(), type: item.id, t, conn: opts.conn, ...(at != null ? { at } : {}) }].sort((a, b) => a.t - b.t) };
-      }) }));
-      setSel({ kind: 'run', id: target.id });
+      const newIt = { id: uid(), type: item.id, t: 0.5, conn: opts.conn };
+      if (target.kind === 'node') {
+        // on an existing straight joint: the fitting sits right there
+        if (nodeKind(d, target.id).kind !== 'straight' || inlineAt(d, target.id)) { toast(`Drop the ${item.label.toLowerCase()} on a straight line`); return false; }
+        update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [target.id]: newIt } }));
+        setSel({ kind: 'node', id: target.id });
+      } else {
+        // on a line: break it there (like a tee) — two lines, each measured to the fitting
+        const r = d.runs[target.id];
+        if (r.move) { toast('That dotted link is not a pipe'); return false; }
+        let tt = snapSplitT(r, t);
+        if (isMeasured(r)) { const L = runLength(r); tt = Math.max(1, Math.min(L - 1, Math.round(t * L))) / L; } // center on a whole inch
+        const node = d.runs.length + 1;
+        update((x) => {
+          // give a short sketched line room for two dimensions (sketch only)
+          const q = x.runs[target.id]; const sl = Math.hypot(q.dx, q.dy, q.dz), want = GRID * 6;
+          const grow = q.sketch && sl > 0 && sl < want ? want / sl : 1;
+          const x2 = grow === 1 ? x : { ...x, runs: x.runs.map((z, k) => (k === target.id ? { ...z, dx: z.dx * grow, dy: z.dy * grow, dz: z.dz * grow } : z)) };
+          const sp = splitRun(x2, target.id, tt, uid());
+          return { ...sp.d, inl: { ...(sp.d.inl ?? {}), [sp.node]: newIt } };
+        });
+        setSel({ kind: 'node', id: node });
+      }
     } else {
       if (target.kind !== 'node') { toast(`Drop the ${item.label.toLowerCase()} on a ${item.kind === 'end' ? 'line end' : item.kind === 'elbow' ? 'turn' : 'tee point'}`); return false; }
       const nk = nodeKind(d, target.id).kind;
@@ -292,7 +303,7 @@ export function IsoSketch() {
   const editor = selRun !== null
     ? <RunEditor key={d.runs[selRun].id} d={d} i={selRun} prefs={prefs} cut={cuts[selRun]} update={update} onClose={() => setSel(null)}
         onDelete={() => { update((x) => deleteSubtree(x, selRun)); setSel(null); setCursor(d.runs[selRun].from); }} />
-    : selNode !== null ? <NodeEditor key={selNode} d={d} node={selNode} update={update} onClose={() => setSel(null)} prefs={prefs} /> : null;
+    : selNode !== null ? (inlineAt(d, selNode) ? <InlineEditor key={'i' + selNode} d={d} node={selNode} update={update} onClose={() => setSel(null)} prefs={prefs} /> : <NodeEditor key={selNode} d={d} node={selNode} update={update} onClose={() => setSel(null)} prefs={prefs} />) : null;
 
   const tools = (
     <DrawTools opts={opts} setOpts={setOpts} lenText={lenText} setLenText={setLenText} addDir={addDir} undo={undo} canUndo={canUndo} redo={redo} canRedo={canRedo} heading={heading} addOffset={addOffset}
@@ -302,6 +313,19 @@ export function IsoSketch() {
 
   const stage = (
     <IsoCanvas d={d} disp={disp} opts={opts} prefs={prefs} cursor={cur} sel={sel} rot={rot} fitTick={fitTick} armed={armed} apiRef={canvasApi} onPick={startAt}
+      onInlDrag={(node, t) => update((x) => {
+        const sd = sidesOf(x, node); if (!sd) return x;
+        const A = x.runs[sd[0]], B = x.runs[sd[1]];
+        const sA: Vec3 = [A.dx + B.dx, A.dy + B.dy, A.dz + B.dz];
+        const both = isMeasured(A) && isMeasured(B);
+        const tot = both ? add(runVec(A), runVec(B)) : null;
+        let tt = t;
+        if (tot) { const L = len3(tot); tt = Math.max(1, Math.min(L - 1, Math.round(t * L))) / L; } // whole inches
+        const part = (v: Vec3, k: number): Vec3 => [v[0] * k, v[1] * k, v[2] * k];
+        const nA = part(sA, tt), nB = part(sA, 1 - tt);
+        return { ...x, runs: x.runs.map((q, k) => k === sd[0] ? { ...q, dx: nA[0], dy: nA[1], dz: nA[2], ...(tot ? { meas: part(tot, tt) } : {}) }
+          : k === sd[1] ? { ...q, dx: nB[0], dy: nB[1], dz: nB[2], ...(tot ? { meas: part(tot, 1 - tt) } : {}) } : q) };
+      }, 'slide' + node)}
       onItemDrag={(run, id, t) => setItem(run, id, (q) => (q.id === id ? { ...q, t, at: undefined } : q), 'drag' + id)}
       menu={itemSel ? { run: itemSel.run, t: runItems(d.runs[itemSel.run]).find((q) => q.id === itemSel.id)!.t,
         node: <ItemMenu key={itemSel.id} d={d} prefs={prefs} item={runItems(d.runs[itemSel.run]).find((q) => q.id === itemSel.id)!} onClose={() => setSel(null)}
@@ -561,10 +585,10 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
 // ------------------------------------------------------------------ canvas
 type Cam = { s: number; tx: number; ty: number };
 export interface CanvasApi { hitAt: (clientX: number, clientY: number) => { sel: Sel; t: number } | null }
-function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, children }: {
+function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
   armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>; onPick: (v: Vec3 | null) => void;
-  onItemDrag: (run: number, id: string, t: number) => void; menu: { run: number; t: number; node: React.ReactNode } | null;
+  onItemDrag: (run: number, id: string, t: number) => void; onInlDrag: (node: number, t: number) => void; menu: { run: number; t: number; node: React.ReactNode } | null;
   startOn: boolean; onStartBtn: () => void; onNotice: (m: string) => void;
   onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number, split?: { run: number; t: number }) => void; children?: React.ReactNode;
 }) {
@@ -686,7 +710,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   // pointer handling. Draw mode: drag from a point (or anywhere, from the current point) to draw a line.
   // Rotate mode: drag turns the view. Move mode: drag pans. Two fingers always pan / zoom. Taps select.
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
-  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean; itemDrag?: boolean; split?: { run: number; t: number; origin: Vec3 }; blocked?: boolean } | null>(null);
+  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean; itemDrag?: boolean; split?: { run: number; t: number; origin: Vec3 }; blocked?: boolean; inlDrag?: number | null } | null>(null);
   const gestureTurn = useRef(false); // a two-finger twist moves the camera itself; skip the re-centring below
   const CMP = { x: 40, y: 40 };
   const onDown = (e: React.PointerEvent) => {
@@ -697,6 +721,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     const target = ps.length > 1 ? 'none' : targetOf(e.target as Element);
     let drawFrom: number | null = null;
     const itemDrag = ps.length === 1 && !armed && target !== 'none' && target !== 'compass' && target.kind === 'item';
+    const inlDrag = ps.length === 1 && !armed && target !== 'none' && target !== 'compass' && target.kind === 'node' && !!inlineAt(d, target.id) ? target.id : null;
     let split: { run: number; t: number; origin: Vec3 } | undefined;
     let blocked = false;
     if (ps.length === 1 && opts.mode === 'draw' && !armed && target !== 'compass' && !itemDrag) {
@@ -712,10 +737,10 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         split = { run: target.id, t: tt, origin: add(P[r.from], mul(disp.vecs[target.id], tt)) };
         drawFrom = r.from;
       } else drawFrom = cursor;
-      if (drawFrom !== null && !split && nodeKind(d, drawFrom).kind === 'elbow') { drawFrom = null; blocked = true; } // no lines off a turn
+      if (drawFrom !== null && !split && (nodeKind(d, drawFrom).kind === 'elbow' || inlineAt(d, drawFrom))) { drawFrom = null; blocked = true; } // no lines off a turn or a valve
     }
     const mid = ps.length === 2 ? { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 } : loc;
-    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom, itemDrag, split, blocked,
+    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom: inlDrag !== null ? null : drawFrom, itemDrag, split, blocked: inlDrag !== null ? false : blocked, inlDrag,
       ang: ps.length === 2 ? Math.atan2(ps[1].y - ps[0].y, ps[1].x - ps[0].x) : undefined, twist: false };
     setGhost(null);
   };
@@ -744,6 +769,14 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       const raw = s.view.az + ((a - s.cAng) * 180) / Math.PI;
       const az = normAz(ISO_VIEW.az + 90 * Math.round((raw - ISO_VIEW.az) / 90));
       if (Math.abs(normAz(az - view.az)) > 1e-6) onView({ az, el: s.view.el });
+    } else if (s.inlDrag != null) {
+      // slide a valve along its line: the two lines either side trade length, the total stays put
+      const sd = sidesOf(d, s.inlDrag);
+      if (sd) {
+        const A = d.runs[sd[0]]; const a0 = T3(P[A.from]), b0 = T3(P[sd[1] + 1]);
+        const dx2 = b0[0] - a0[0], dy2 = b0[1] - a0[1], L2 = dx2 * dx2 + dy2 * dy2 || 1;
+        onInlDrag(s.inlDrag, Math.max(0.05, Math.min(0.95, ((loc.x - a0[0]) * dx2 + (loc.y - a0[1]) * dy2) / L2)));
+      }
     } else if (s.itemDrag && s.target !== 'none' && s.target !== 'compass' && s.target?.kind === 'item') {
       onItemDrag(s.target.run, s.target.id, runT(s.target.run, loc)); // slide the fitting along its line
     } else if (s.drawFrom !== null) {
@@ -1045,7 +1078,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         const lb = label('d' + i, a, b, `${formatFtIn(runLength(r), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`, 'iso-dimsub', -13);
         if (lb) els.push(lb);
       } else if (measured) {
-        const txt = `${formatFtIn(runLength(r), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`;
+        const txt = `${formatFtIn(shownLength(d, i), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`;
         const lb = label('d' + i, a, b, txt, 'iso-dim', items.length ? 20 : 11);
         if (lb) els.push(lb);
       } else if (!exportMode && L > 22) {
@@ -1073,7 +1106,23 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       els.push(...nodeSymbol(fit, k.kind, p, legScreen, 'ns' + n, undefined, fs ? (fit === 'redtee' ? `${d.nps}"×${fs}"` : `${fs}"`) : undefined));
       if (k.kind === 'elbow' && Math.abs(k.angle - 90) > 0.05) els.push(<text key={'ea' + n} className="iso-note" x={p[0] + 7} y={p[1] + 15}>{formatNumber(k.angle, 1)}°</text>);
     } else if (k.kind === 'straight') {
-      if (opts.welds) els.push(...jointMark(connAt(d, n), p, legScreen[0] ?? [1, 0], 'sw' + n));
+      const it = inlineAt(d, n);
+      if (it && legScreen.length === 2) {
+        const u = legScreen[1];
+        const sz = 7;
+        // stem points the same real-world way whatever the view
+        const rv = runVec(d.runs[legs[0].run]);
+        const sw = stemDir(rv), q0 = T3(P[n]), q1 = T3(add(P[n], mul(sw, 12)));
+        const sl = Math.hypot(q1[0] - q0[0], q1[1] - q0[1]);
+        const stemS: [number, number] | undefined = sl > 0.5 ? [(q1[0] - q0[0]) / sl, (q1[1] - q0[1]) / sl] : undefined;
+        const isSelN = sel?.kind === 'node' && sel.id === n;
+        if (isSelN && !exportMode) els.push(<circle key={'ih' + n} className="iso-itemsel" cx={p[0]} cy={p[1]} r={sz * 1.9} />);
+        els.push(<g key={'inl' + n} className="iso-item">{lineSymbol(it.type, p, u, sz, 'inl' + n, stemS)}</g>);
+        if (opts.welds && !['spool', 'flange', 'orifice', 'spectacle', 'union', 'coupling', 'dielectric', 'swage'].includes(it.type)) {
+          const off = sz * 1.15 + 4;
+          for (const sgn of [-1, 1]) els.push(...jointMark(it.conn ?? 'bw', [p[0] + u[0] * off * sgn, p[1] + u[1] * off * sgn], u, `ij${n}${sgn}`));
+        }
+      } else if (opts.welds) els.push(...jointMark(connAt(d, n), p, legScreen[0] ?? [1, 0], 'sw' + n));
     } else {
       const endT = d.ends[n] ?? 'open';
       els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode));
@@ -1081,7 +1130,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     }
     if (!exportMode) {
       const isCursor = n === cursor, isSel = sel?.kind === 'node' && sel.id === n;
-      els.push(<circle key={'hn' + n} data-node={n} cx={p[0]} cy={p[1]} r={13} className={"iso-nodehit" + (isCursor ? ' cursor' : '') + (isSel ? ' sel' : '')} />);
+      els.push(<circle key={'hn' + n} data-node={n} data-inl={inlineAt(d, n) ? '1' : undefined} cx={p[0]} cy={p[1]} r={inlineAt(d, n) ? 16 : 13} className={"iso-nodehit" + (isCursor ? ' cursor' : '') + (isSel ? ' sel' : '')} />);
     }
     if (opts.labels) els.push(<text key={'nl' + n} className="iso-node" x={p[0] + 8} y={p[1] - 8}>{n}</text>);
   }
@@ -1102,9 +1151,10 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
   const sv = sketchVec(r);
   const axes = [0, 1, 2].filter((k) => nz(sv[k]));
   const tv = isMeasured(r) ? runVec(r) : null;
+  const adj = axes.length === 1 ? faceAdj(d, i) : 0; // a valve at either end: the length is to its face / end
   const [txt, setTxt] = useState<Record<string, string>>(() => {
     const o: Record<string, string> = { t: '' };
-    axes.forEach((k) => { o[k] = tv ? formatFtIn(Math.abs(tv[k]), prefs) : ''; });
+    axes.forEach((k) => { o[k] = tv ? formatFtIn(Math.abs(tv[k]) - adj, prefs) : ''; });
     return o;
   });
   const [err, setErr] = useState<string | null>(null);
@@ -1122,7 +1172,7 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
     let m: Vec3 | undefined;
     const known = vals.filter((v) => v !== null) as number[];
     if (known.length === axes.length) {
-      m = [0, 0, 0]; axes.forEach((k, j) => { m![k] = sign(k) * (vals[j] as number); });
+      m = [0, 0, 0]; axes.forEach((k, j) => { m![k] = sign(k) * ((vals[j] as number) + adj); });
     } else if (T !== null && T > 0) {
       const blanks = axes.length - known.length;
       if (blanks === axes.length) { const L = len3(sv); m = mul(sv, T / L); }
@@ -1242,6 +1292,32 @@ function SpoolFields({ d, i, prefs, setRun }: { d: IsoDrawing; i: number; prefs:
   );
 }
 
+function InlineEditor({ d, node, update, onClose, prefs }: { d: IsoDrawing; node: number; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void; onClose: () => void; prefs: Prefs }) {
+  const it = inlineAt(d, node)!;
+  const c = catalogItem(it.type, 'line');
+  const std = itemLength(d, { ...it, len: undefined });
+  const [lenT, setLenT] = useState(it.len != null ? formatFracIn(it.len, prefs) : '');
+  const [armed, setArmed] = useState(false);
+  const setIt = (f: (q: typeof it) => typeof it, mk?: string) => update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [node]: f(x.inl![node]) } }), mk);
+  const sd = sidesOf(d, node);
+  return (
+    <Card className="isoedit">
+      <div className="row-between"><b>{c && <PaletteIcon item={c} />} {c?.label ?? it.type} · point {node}</b><button className="chip" onClick={onClose}>Done</button></div>
+      <p className="fhint">The line is broken here{sd ? ` into line ${sd[0] + 1} and line ${sd[1] + 1}` : ''}. Tap either line to set its length (to this {(c?.label ?? 'fitting').toLowerCase()}'s {it.conn === 'flg' ? 'face' : 'end'}) — or drag the {(c?.label ?? 'fitting').toLowerCase()} along the line.</p>
+      <Grid>
+        <Select label="Fitting" value={it.type} options={CATALOG.filter((x) => x.kind === 'line').map((x) => [x.id, x.label])} onChange={(v) => setIt((q) => ({ ...q, type: v }))} />
+        <Select label="Joint" value={it.conn ?? 'bw'} options={CONN_ORDER.map((k) => [k, CONN_LABEL[k]])} onChange={(v) => setIt((q) => ({ ...q, conn: v as Conn }))} />
+      </Grid>
+      <Field label={`Length (${it.conn === 'flg' ? 'face to face' : 'end to end'})`} value={lenT} parse={parseLength} placeholder={std.len != null ? formatFracIn(std.len, prefs) : 'enter length'}
+        hint={it.len != null ? 'your length — clear it to use the standard one' : std.len != null ? std.src : 'no standard length — enter your manufacturer’s'}
+        onChange={(v) => { setLenT(v); const r = tryParse(parseLength, v); if (!v.trim()) setIt((q) => ({ ...q, len: undefined }), 'ilen' + node); else if (r && r.ok && r.v >= 0) setIt((q) => ({ ...q, len: r.v }), 'ilen' + node); }} />
+      {armed
+        ? <button className="btn danger" onClick={() => { update((x) => mergeAt(x, node)); onClose(); }}>Remove it and join the line back</button>
+        : <button className="btn danger" onClick={() => setArmed(true)}>Delete {(c?.label ?? 'fitting').toLowerCase()}…</button>}
+    </Card>
+  );
+}
+
 function NodeEditor({ d, node, update, onClose, prefs }: { d: IsoDrawing; node: number; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void; onClose: () => void; prefs: Prefs }) {
   const [noteText, setNoteText] = useState('');
   const [endT, setEndT] = useState(d.endLen?.[node] != null ? formatFracIn(d.endLen[node], prefs) : '');
@@ -1291,7 +1367,7 @@ function CutPanel({ d, cuts, prefs, onShare }: { d: IsoDrawing; cuts: ReturnType
   const L = (i: number) => String.fromCharCode(97 + i);
   const missing = cuts.filter((c) => Number.isNaN(c.travel)).length;
   const text = [`${d.name} — ${d.nps}" pipe, gap ${formatFracIn(d.gap, prefs)}`,
-    ...cuts.map((c) => `Line ${c.run + 1} ${describeRun(d.runs[c.run])}: ${Number.isNaN(c.travel) ? 'NO DIMENSION' : `${runRef(d, c.run)} ${formatFtIn(c.travel, prefs)}, ${c.pieces ? c.pieces.map((q, k) => `${c.run + 1}${L(k)} ${q.from}→${q.to} CUT ${Number.isNaN(q.cut) ? '?' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE'}`).join(', ') : `CUT ${c.ok ? formatFtIn(c.cut, prefs) : 'IMPOSSIBLE'}`}`}${c.note.length && !Number.isNaN(c.travel) ? ' (' + c.note.join('; ') + ')' : ''}`),
+    ...cuts.map((c) => `Line ${c.run + 1} ${describeRun(d.runs[c.run])}: ${Number.isNaN(c.travel) ? 'NO DIMENSION' : `${runRef(d, c.run)} ${formatFtIn(shownLength(d, c.run), prefs)}, ${c.pieces ? c.pieces.map((q, k) => `${c.run + 1}${L(k)} ${q.from}→${q.to} CUT ${Number.isNaN(q.cut) ? '?' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE'}`).join(', ') : `CUT ${c.ok ? formatFtIn(c.cut, prefs) : 'IMPOSSIBLE'}`}`}${c.note.length && !Number.isNaN(c.travel) ? ' (' + c.note.join('; ') + ')' : ''}`),
     `Total pipe ${formatFtIn(total, prefs)}${missing ? ` (+ ${missing} undimensioned)` : ''}`].join('\n');
   return (
     <Card>
@@ -1310,14 +1386,14 @@ function CutPanel({ d, cuts, prefs, onShare }: { d: IsoDrawing; cuts: ReturnType
                 ))}
               </React.Fragment>
             ) : (
-            <tr key={c.run} className={c.ok ? '' : 'bad'}><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}</small></th><td>{formatFtIn(c.travel, prefs)} {runRef(d, c.run)}</td><td>{formatFracIn(c.to1 + c.to2 + c.gaps, prefs)}</td><td><b>{c.ok ? formatFtIn(c.cut, prefs) : 'impossible'}</b></td></tr>
+            <tr key={c.run} className={c.ok ? '' : 'bad'}><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}</small></th><td>{formatFtIn(shownLength(d, c.run), prefs)} {runRef(d, c.run)}</td><td>{c.ok ? formatFracIn(shownLength(d, c.run) - c.cut, prefs) : ''}</td><td><b>{c.ok ? formatFtIn(c.cut, prefs) : Number.isNaN(c.cut) ? 'need length' : 'impossible'}</b></td></tr>
             )
           ))}</tbody>
         </table>
       </div>
       {cuts.some((c) => c.note.length && !Number.isNaN(c.travel)) && <ul className="fhint">{cuts.filter((c) => c.note.length && !Number.isNaN(c.travel)).map((c) => <li key={c.run}>Line {c.run + 1}: {c.note.join('; ')}</li>)}</ul>}
       <p><b>Total pipe: {formatFtIn(total, prefs)}</b>{missing ? <span className="muted"> · {missing} line{missing > 1 ? 's' : ''} still need a dimension</span> : null}</p>
-      <p className="fhint">Deduct = fitting take-outs + root gaps.</p>
+      <p className="fhint">Deduct = what comes off the length shown: fitting take-outs, root gaps, flanges and gaskets (or what threads / sockets add back).</p>
       <Msg kind="info">Each length says what it measures to: C = fitting center, F = flange face, E = pipe or fitting end. Take-outs use ASME B16.9 butt-weld fittings in {d.nps}" (long-radius elbows and straight tees unless you picked another fitting at a point). Valves and fittings on a line split it into spools: each is cut between the fitting faces, less its length (B16.10 for flanged valves at the flange class in Setup, or your length) and adjusted for the joint — root gap, WN flange + gasket, thread makeup or socket engagement. Tap a fitting to enter your manufacturer's length.</Msg>
       <button className="btn" onClick={() => onShare(text)}>Copy / share cut list</button>
     </Card>
