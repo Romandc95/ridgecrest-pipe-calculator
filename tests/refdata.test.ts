@@ -1,7 +1,7 @@
 // Spot checks of the reference library against the values published in the cited sources.
 import { describe, it, expect } from 'vitest';
 import {
-  flange, flangeSizes, FLANGE_CLASSES, heavyHexAcrossFlats, tensileStressArea, boltTorque, tighteningSequence,
+  flange, flangeSizes, FLANGE_CLASSES, heavyHexAcrossFlats, tensileStressArea, boltTorque, tighteningSequence, boltYieldPsi, NUT_FACTORS,
   spiralGasket, bwFitting, socketWeld, threadedFitting, nptMakeup, valveFaceToFace, weldolet, SUPPORT_SPAN,
   pipeVolume, pipeSurface, pipeSpacing,
 } from '../src/engine/refdata';
@@ -47,6 +47,15 @@ describe('bolting', () => {
     const r = boltTorque(0.875, 50000, 0.17);
     expect(r.preload).toBeCloseTo(50000 * 0.4617, -1); expect(r.torqueFtLb).toBeCloseTo((0.17 * 0.875 * r.preload) / 12, 9);
     expect(r.passes.find((p) => p.pct === 30)!.ftlb).toBeCloseTo(r.torqueFtLb * 0.3, 9);
+  });
+  it('stud yield by grade and size (ASTM A193 Table 2)', () => {
+    expect(boltYieldPsi('B7', 0.875)).toBe(105000); expect(boltYieldPsi('B7', 2.5)).toBe(105000); expect(boltYieldPsi('B7', 3)).toBe(95000); expect(boltYieldPsi('B7', 5)).toBe(75000);
+    expect(boltYieldPsi('B8C2', 0.75)).toBe(100000); expect(boltYieldPsi('B8C2', 0.875)).toBe(80000); expect(boltYieldPsi('B8C2', 1.5)).toBe(50000); expect(boltYieldPsi('B8C2', 1.625)).toBeNull();
+    expect(boltYieldPsi('B8C1', 3)).toBe(30000); expect(boltYieldPsi('nope', 1)).toBeNull();
+  });
+  it('dry needs more torque than lubricated for the same preload', () => {
+    const k = (id: string) => NUT_FACTORS.find((n) => n.id === id)!.k;
+    expect(boltTorque(0.75, 52500, k('dry')).torqueFtLb).toBeGreaterThan(boltTorque(0.75, 52500, k('oilgraph')).torqueFtLb);
   });
   it('cross pattern: 8 → 1,5,3,7,2,6,4,8; 12 → 1,7,4,10,2,8,5,11,3,9,6,12', () => {
     expect(tighteningSequence(8)).toEqual([1, 5, 3, 7, 2, 6, 4, 8]);

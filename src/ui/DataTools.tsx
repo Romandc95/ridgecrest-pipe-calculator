@@ -8,7 +8,7 @@ import {
   FLANGE_CLASSES, FlangeClass, Flange, flange, flangeSizes, FLANGE_SOURCE, STUD_SOURCE, RING_SOURCE, boltTorque, tighteningSequence, boltTPI,
   spiralGasket, SW_GASKET_SOURCE, bwFitting, B169_FIT_SOURCE, socketWeld, B1611_SOURCE, threadedFitting, THREADED_KINDS, THREADED_LABEL,
   ThreadedKind, threadedSizes, NPT_SOURCE, B163_SOURCE, VALVE_CLASSES, VALVE_LABEL, ValveType, valveFaceToFace, VALVE_SOURCE, SIZES,
-  WELDOLET_A, weldolet, OLET_SOURCE, SUPPORT_SPAN, SUPPORT_SOURCE, pipeVolume, pipeSurface, pipeSpacing, heavyHexAcrossFlats,
+  BOLT_GRADES, BOLT_GRADE_SOURCE, boltYieldPsi, NUT_FACTORS, WELDOLET_A, weldolet, OLET_SOURCE, SUPPORT_SPAN, SUPPORT_SOURCE, pipeVolume, pipeSurface, pipeSpacing, heavyHexAcrossFlats,
 } from '../engine/refdata';
 import { B169, B169_SOURCE, steelOD } from '../engine/fittings';
 import { pipeProps, sizesFor, typesFor } from '../engine/pipedata';
@@ -103,6 +103,7 @@ function FlangeView() {
         {!r.ok && <Msg>{r.err}</Msg>}
       </Card>
       {f && <Results title={`Class ${p.cls} · NPS ${p.nps} · ASME B16.5`} rows={rows} />}
+      {f && <FlangeTorque f={f} />}
       <Card>
         <label className="toggle sm"><input type="checkbox" checked={x.table === '1'} onChange={(e) => setX('table', e.target.checked ? '1' : '')} /> Show the full Class {p.cls} table</label>
         {x.table === '1' && <FlangeTable cls={p.cls} />}
@@ -112,6 +113,79 @@ function FlangeView() {
     </>
   );
 }
+/** Torque spec for the selected flange: bolt size and count from B16.5, stud grade, lubricant (nut factor) and target stress. */
+function FlangeTorque({ f }: { f: Flange }) {
+  const prefs = useAppPrefs();
+  const [x, setX] = useTool('dftorque', { grade: 'B7', lube: 'oilgraph', k: '', mode: 'pct', pct: '50', psi: '50000', job: '' });
+  const grade = BOLT_GRADES[x.grade] ? x.grade : 'B7';
+  const lube = NUT_FACTORS.find((n) => n.id === x.lube) ?? NUT_FACTORS[0];
+  const d = f.boltDia, n = f.nBolts;
+  const Sy = boltYieldPsi(grade, d);
+  const r = attempt(() => {
+    const K = lube.id === 'custom' ? Number(x.k) : lube.k;
+    if (!(K > 0 && K < 1)) throw new CalcError('INPUT', 'Enter a nut factor K, e.g. 0.16.');
+    let S: number;
+    if (x.mode === 'pct') {
+      if (Sy == null) throw new CalcError('DATA', `${BOLT_GRADES[grade].label} yield is not tabulated for ${formatFracIn(d, prefs)} studs — enter the stress in psi instead.`);
+      const pct = Number(x.pct); if (!(pct > 0 && pct <= 100)) throw new CalcError('INPUT', 'Enter a percent of yield between 1 and 100.');
+      S = (Sy * pct) / 100;
+    } else { S = Number(x.psi); if (!(S > 0)) throw new CalcError('INPUT', 'Enter the target bolt stress in psi.'); }
+    const t = boltTorque(d, S, K);
+    const job = x.job.trim() ? Number(x.job) : null;
+    if (job != null && !(job > 0)) throw new CalcError('INPUT', 'Job target torque must be a number in ft·lb.');
+    return { K, S, t, job, seq: tighteningSequence(n) };
+  });
+  const v = r.ok ? r.v : null;
+  const final = v ? (v.job ?? v.t.torqueFtLb) : 0;
+  const pctY = v && Sy ? (v.S / Sy) * 100 : null;
+  const warns: string[] = [];
+  if (v && pctY != null && pctY > 70) warns.push(`Target is ${formatNumber(pctY, 0)}% of the stud's minimum yield (${formatNumber(Sy! / 1000, 0)} ksi). Common practice stays at or below about 70%; check the procedure.`);
+  if (v && Sy == null) warns.push(`${BOLT_GRADES[grade].label} yield is not tabulated for this stud size, so stress can't be checked against yield.`);
+  if (v && grade === 'B7' && v.S > 60000) warns.push('Flexitallic does not generally recommend more than 60,000 psi bolt stress on spiral-wound gaskets.');
+  if (v && v.job != null) { const dev = (v.job / v.t.torqueFtLb - 1) * 100; if (Math.abs(dev) > 25) warns.push(`Job target is ${formatNumber(Math.abs(dev), 0)}% ${dev > 0 ? 'above' : 'below'} the calculated value — confirm the procedure's lubricant and stress basis match.`); }
+  return (
+    <>
+      <Card>
+        <h3 className="cardh">Bolt torque</h3>
+        <p className="lead">{n} × {formatFracIn(d, prefs)}-{boltTPI(d)} studs (from B16.5). Pick the stud grade, lubricant and target stress — or enter the torque your job procedure gives.</p>
+        <Grid>
+          <Select label="Stud grade" value={grade} options={Object.entries(BOLT_GRADES).map(([k, g]) => [k, g.label.replace('A193 ', '').replace(/ \(.*\)/, '').replace('Class', 'Cl.')])} onChange={(s) => setX('grade', s)} />
+          <Select label="Lubrication" value={lube.id} options={NUT_FACTORS.map((q) => [q.id, q.id === 'custom' ? 'Custom K' : q.short])} onChange={(s) => setX('lube', s)} />
+          {lube.id === 'custom' && <Field label="Nut factor K" value={x.k} onChange={(s) => setX('k', s)} inputMode="decimal" hint="from the procedure / lubricant sheet" />}
+          <Select label="Target stress set by" value={x.mode} options={[['pct', '% of stud yield'], ['psi', 'Bolt stress (psi)']]} onChange={(s) => setX('mode', s)} />
+          {x.mode === 'pct'
+            ? <Field label="Percent of yield" value={x.pct} onChange={(s) => setX('pct', s)} inputMode="decimal" hint={Sy ? `yield ${formatNumber(Sy / 1000, 0)} ksi min` : 'yield not tabulated'} />
+            : <Field label="Target bolt stress (psi)" value={x.psi} onChange={(s) => setX('psi', s)} inputMode="decimal" hint="from the bolting procedure" />}
+          <Field label="Approved job target (ft·lb, optional)" value={x.job} onChange={(s) => setX('job', s)} inputMode="decimal" hint="overrides the calculated torque" />
+        </Grid>
+        <p className="fhint">{lube.id !== 'custom' && <b>K {lube.k.toFixed(2)} — </b>}{lube.note}</p>
+        {!r.ok && <Msg>{r.err}</Msg>}
+      </Card>
+      {v && <Results title={`Torque · Class ${f.cls} · NPS ${f.nps}`} rows={[
+        { label: v.job != null ? 'Job target torque' : 'Final torque (100%)', value: `${formatNumber(final, 0)} ft·lb`, sub: `${formatNumber(final * 1.3558179, 0)} N·m${v.job != null ? ` · calculated ${formatNumber(v.t.torqueFtLb, 0)} ft·lb` : ''}`, strong: true },
+        ...[30, 70].map((pc) => ({ label: `Pass at ${pc}%`, value: `${formatNumber((final * pc) / 100, 0)} ft·lb` })),
+        { label: 'Studs', value: `${n} × ${formatFracIn(d, prefs)}-${boltTPI(d)}`, sub: `${BOLT_GRADES[grade].label} · ${BOLT_GRADES[grade].nut} heavy-hex nuts` },
+        { label: 'Target bolt stress', value: `${formatNumber(v.S, 0)} psi`, sub: pctY != null ? `${formatNumber(pctY, 0)}% of ${formatNumber(Sy! / 1000, 0)} ksi minimum yield` : 'yield not tabulated for this size' },
+        { label: 'Preload per stud', value: `${formatNumber(v.t.preload, 0)} lbf`, sub: `stress area ${formatNumber(v.t.As, 4)} in² · total ${formatNumber(v.t.preload * n, 0)} lbf` },
+        { label: 'Nut factor K', value: v.K.toFixed(2), sub: lube.label },
+        { label: 'Wrench (heavy hex nut)', value: formatFracIn(heavyHexAcrossFlats(d), prefs) },
+        { label: 'Tightening order', value: v.seq.join(' – ') },
+      ]} />}
+      {v && <BoltPattern n={n} seq={v.seq} />}
+      {warns.map((w, i) => <Msg key={i} kind="warn">{w}</Msg>)}
+      <Formula title="How the torque is worked out">
+        <ul>
+          <li>Preload F = target stress × tensile stress area As (ASME B1.1, UNC to 1", 8-UN above). Torque T = K × D × F ÷ 12 ft·lb — the ASME PCC-1 short-form method.</li>
+          <li>Lubrication changes K, so a dry stud needs more torque for the same preload. Presets are typical published values; your lubricant data sheet or procedure governs.</li>
+          <li>Passes: snug, 30%, 70%, 100% in the cross pattern, then rotate at 100% until nuts stop turning (PCC-1 legacy method).</li>
+          <li>{BOLT_GRADE_SOURCE}</li>
+          <li>General service guide only. High temperature, high pressure, hydrotest and critical joints need the specified joint procedure and gasket maker's values.</li>
+        </ul>
+      </Formula>
+    </>
+  );
+}
+
 function useAppPrefs() { return useApp().settings.prefs; }
 
 function FlangeTable({ cls }: { cls: FlangeClass }) {

@@ -349,6 +349,33 @@ export function boltTorque(d: number, targetStressPsi: number, nutFactor: number
   return { As, preload: F, torqueFtLb: T, passes: [20, 30, 70, 100].map((p) => ({ pct: p, ftlb: (T * p) / 100 })) };
 }
 
+/** Stud grades with minimum yield strength (ksi) by diameter band: [max diameter in inches, ksi].
+ *  ASTM A193 Table 2 (B7, B7M, B8/B8M Class 1 and Class 2). Diameters beyond the last band are not covered. */
+export const BOLT_GRADES: Record<string, { label: string; nut: string; yieldKsi: Array<[number, number]> }> = {
+  B7: { label: 'A193 B7 (alloy steel)', nut: 'A194 2H', yieldKsi: [[2.5, 105], [4, 95], [7, 75]] },
+  B7M: { label: 'A193 B7M (sour service)', nut: 'A194 2HM', yieldKsi: [[4, 80], [7, 75]] },
+  B8C2: { label: 'A193 B8 Class 2 (304 SS, strain hardened)', nut: 'A194 8', yieldKsi: [[0.75, 100], [1, 80], [1.25, 65], [1.5, 50]] },
+  B8MC2: { label: 'A193 B8M Class 2 (316 SS, strain hardened)', nut: 'A194 8M', yieldKsi: [[0.75, 95], [1, 80], [1.25, 65], [1.5, 50]] },
+  B8C1: { label: 'A193 B8 / B8M Class 1 (304/316 SS)', nut: 'A194 8 / 8M', yieldKsi: [[99, 30]] },
+};
+export const BOLT_GRADE_SOURCE = 'Minimum yield: ASTM A193/A193M Table 2 (as tabulated by Portland Bolt).';
+/** Minimum yield (psi) of a stud grade at a diameter; null when the size is outside the grade's table. */
+export function boltYieldPsi(grade: string, d: number): number | null {
+  const g = BOLT_GRADES[grade]; if (!g) return null;
+  for (const [max, ksi] of g.yieldKsi) if (d <= max + 1e-9) return ksi * 1000;
+  return null;
+}
+
+/** Nut factor presets. Values are the cited typical figures; the lubricant maker's data sheet or the job procedure governs. */
+export const NUT_FACTORS: Array<{ id: string; label: string; short: string; k: number; note: string }> = [
+  { id: 'oilgraph', short: 'Oil/graphite', label: 'Oil / graphite lubricated', k: 0.17, note: 'Flexitallic spiral-wound torque tables assume oil/graphite with K 0.15–0.19; mid value used.' },
+  { id: 'coated', short: 'Anti-seize', label: 'Anti-seize / thread compound', k: 0.16, note: 'ASME PCC-1 simplified torque tables use K 0.16 for lubricated (coated) threads.' },
+  { id: 'moly', short: 'Moly paste', label: 'Moly-based paste', k: 0.14, note: 'Typical 0.13–0.15 (Texas Flange reference guide); check the paste data sheet.' },
+  { id: 'ptfe', short: 'PTFE coated', label: 'PTFE / fluoropolymer coated studs', k: 0.10, note: 'Can be as low as 0.10 (Texas Flange reference guide); check the coating supplier.' },
+  { id: 'dry', short: 'Dry', label: 'Dry / unlubricated', k: 0.20, note: 'Unlubricated carbon steel ≈ 0.20 (ASME PCC-1 uses 0.20 for non-coated). Scatter is large; lubricate if allowed.' },
+  { id: 'custom', short: 'Custom', label: 'Custom nut factor', k: 0, note: 'Enter the K from your procedure or lubricant data sheet.' },
+];
+
 /** Cross-pattern ("legacy star") tightening order, bolts numbered clockwise from 1. ASME PCC-1 legacy pattern. */
 export function tighteningSequence(n: number): number[] {
   if (n < 4 || n % 4 !== 0) throw new CalcError('INPUT', 'Bolt count must be a multiple of 4.');

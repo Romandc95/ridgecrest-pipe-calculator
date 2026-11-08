@@ -127,6 +127,8 @@
 ✓ bolting › heavy hex across flats: 5/8 → 1-1/16, 7/8 → 1-7/16, 1-1/4 → 2
 ✓ bolting › tensile stress area: 3/4-10 UNC 0.334 in², 1-8 0.606 in², 1-1/4-8 1.000 in²
 ✓ bolting › torque T = K·D·F: 7/8" at 50 ksi, K 0.17 → ≈ 285 ft·lb
+✓ bolting › stud yield by grade and size (ASTM A193 Table 2)
+✓ bolting › dry needs more torque than lubricated for the same preload
 ✓ bolting › cross pattern: 8 → 1,5,3,7,2,6,4,8; 12 → 1,7,4,10,2,8,5,11,3,9,6,12
 ✓ bolting › every bolt appears exactly once (4–24)
 ✓ gaskets (B16.20 spiral wound) › Class 150 1/2": winding 0.75 × 1.25, ring 1.88, inner ring 0.56
@@ -247,4 +249,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-248 passed, 0 failed, 248 total
+250 passed, 0 failed, 250 total
