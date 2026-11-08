@@ -6,7 +6,7 @@ import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, weldList, materials, Weld, WeldInfo, DrawingInfo,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, weldList, materials, Weld, WeldInfo, DrawingInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
@@ -2153,7 +2153,7 @@ function sheetData(d: IsoDrawing, prefs: Prefs) {
 
 function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: IsoDrawing; opts: Opts; prefs: Prefs; svgRef?: React.Ref<SVGSVGElement>; welds?: boolean; vb?: string }) {
   const view = opts.view;
-  const disp = displayPositions(d, opts.scaled);
+  const disp0 = displayPositions(d, opts.scaled);
   const { cutRows, total, mat, weldRows: weldRows0, wl, spools, items } = sheetData(d, prefs);
   const weldRows = showWelds ? weldRows0 : [];
   const M = 25;
@@ -2162,6 +2162,28 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
   const cutH = Math.min(380, 70 + cutRows.length * 22);
   const DH = SH - M - 10 - DY - cutH - 10;
   const KK = 2.3; // drawing symbols / text scaled up for the sheet
+  const aw0 = DW / KK - 90, ah0 = DH / KK - 80;
+  // Nothing may be hidden on a completed drawing: a line drawn to scale can come out too short for its fittings
+  // and measurement, so short lines are lengthened (only on the sheet) until everything fits. The real lengths
+  // are still the ones written on it.
+  const fitScale = (P: Vec3[]) => { const q = P.map((p) => project(p, view)); const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]); return Math.min(aw0 / Math.max(30, Math.max(...xs) - Math.min(...xs)), ah0 / Math.max(30, Math.max(...ys) - Math.min(...ys))); };
+  const needs = d.runs.map((r, i) => (r.move ? 0 : 66 + (inlineAt(d, r.from) ? 22 : 0) + (inlineAt(d, i + 1) ? 22 : 0) + ((d.ends[i + 1] ?? 'open') !== 'open' ? 10 : 0) + (r.items?.length ?? 0) * 34));
+  let vecs = disp0.vecs.map((v) => [...v] as Vec3);
+  const build = (vs: Vec3[]) => { const P: Vec3[] = [[0, 0, 0]]; for (const i of runOrder(d)) { const a = P[d.runs[i].from] ?? [0, 0, 0]; P[i + 1] = add(a, vs[i]); } for (let n = 0; n <= d.runs.length; n++) if (!P[n]) P[n] = [0, 0, 0]; return P; };
+  let stretched = false;
+  for (let pass = 0; pass < 6; pass++) {
+    const sc0 = fitScale(build(vecs));
+    let changed = false;
+    vecs = vecs.map((v, i) => {
+      if (!needs[i]) return v;
+      const q = project(v, view), L = Math.hypot(q[0], q[1]) * sc0;
+      if (L <= 0.01 || L >= needs[i] * 0.98) return v;
+      changed = true; return mul(v, needs[i] / L);
+    });
+    if (!changed) break;
+    stretched = true;
+  }
+  const disp = { ...disp0, vecs, P: build(vecs) };
   const pts = [...disp.P, ...(d.texts ?? []).filter((t) => disp.P[t.node]).map((t) => add(disp.P[t.node], mul(t.off, disp.k || 1)))].map((p) => project(p, view));
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
@@ -2221,7 +2243,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
           </g>
         ))}
       </g>
-      <text x={M + 4} y={SH - 8} style={{ font: '600 11px sans-serif', fill: '#888' }}>11" × 17" iso sheet · Ridgecrest Pipe Calculator · not to scale unless dimensioned</text>
+      <text x={M + 4} y={SH - 8} style={{ font: '600 11px sans-serif', fill: '#888' }}>11" × 17" iso sheet · Ridgecrest Pipe Calculator · {opts.scaled ? (stretched ? 'drawn to scale — short pieces lengthened so every fitting and dimension shows; use the dimensions' : 'drawn to scale') : 'not to scale — use the dimensions'}</text>
     </svg>
   );
 }
