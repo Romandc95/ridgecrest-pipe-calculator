@@ -588,3 +588,12 @@ button { cursor: pointer; }
 .textdock .chiprow, .textdock .tsrow { flex-wrap: nowrap; }
 .textdock .tsl, .textdock .tsrow .flabel { display: none; }
 .textdock .chip.tsb { padding: 4px 7px; }
+.iso-arrowline { fill: none; stroke: var(--text); stroke-width: 1.1; }
+.iso-arrowhead { fill: var(--text); }
+.isosheet .iso-arrowline { stroke: #111; } .isosheet .iso-arrowhead { fill: #111; }
+.arrowsec { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+.arrowrow { display: flex; flex-direction: column; gap: 5px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; }
+.arrowrow.new { border-style: dashed; }
+.arrowstyle .chip.tsb { padding: 3px 6px; }
+.arrowstyle .tsl { display: none; }
+.chip.danger { color: #e5534b; border-color: #e5534b66; }

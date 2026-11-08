@@ -17,7 +17,7 @@ function ftHint(text: string, prefs: Prefs): string | undefined {
 }
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, pipeOrder, TextStyle, TextBorder, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, pipeOrder, TextStyle, TextBorder, TextArrow, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
@@ -88,6 +88,7 @@ export function IsoSketch() {
   const [dots, setDots] = useState(false); // ⋮ menu
   const [modal, setModal] = useState<null | 'name' | 'complete' | 'drawings'>(null);
   const [textStyle, setTextStyle] = usePersistent<TextStyle>('isotextstyle', { border: 'none', size: 9, color: '' }); // the style for the next text box
+  const [arrowStyle, setArrowStyle] = usePersistent<Pick<TextArrow, 'head' | 'dash' | 'curve'>>('isoarrowstyle', { head: 'single', dash: false, curve: false });
   useEffect(() => setMore(false), [JSON.stringify(sel)]);
   const history = useRef<{ id: string; snaps: IsoDrawing[]; redo: IsoDrawing[]; last: number; key: string }>({ id: '', snaps: [], redo: [], last: 0, key: '' });
   const [, setHistTick] = useState(0);
@@ -366,7 +367,7 @@ export function IsoSketch() {
   };
   const onTap = (t: Sel, at?: number) => {
     if (armed === 'notes') { setSel(t?.kind === 'text' ? t : null); return; }
-    if (armed === 'text') return;
+    if (armed === 'text' || armed?.startsWith('arrow:')) return;
     if (armed === 'start') { if (t?.kind === 'node') { setArmed(null); setCursor(t.id); setSel(t); toast(`Drawing from point ${t.id}`); } return; }
     if (armed?.startsWith('mv:')) {
       const n = Number(armed.slice(3));
@@ -453,7 +454,11 @@ export function IsoSketch() {
       onItemDrag={(run, id, t) => setItem(run, id, (q) => (q.id === id ? { ...q, t, at: undefined } : q), 'drag' + id)}
       menu={sel?.kind === 'angle' && offsetAt(d, sel.node) ? { at: disp.P[sel.node], node: <AnglePop key={'ap' + sel.node + ':' + d.updated} d={d} node={sel.node} onSet={(a) => { const nd = setOffsetAngle(d, sel.node, a); if (nd) { update(() => nd); toast(`Offset now ${formatNumber(a, 2)}°`); } else toast('Enter an angle between 1° and 89°'); }} onClose={() => setSel(null)} /> }
         : weldSel >= 0 ? { at: disp.P[welds[weldSel].node], node: <WeldPop key={'wp' + welds[weldSel].key} d={d} w={welds[weldSel]} num={weldSel + 1} update={update} onClose={() => setSel(null)} /> }
-        : textSel && disp.P[textSel.node] ? { at: add(disp.P[textSel.node], mul(textSel.off, disp.k || 1)), node: <TextPop key={'tp' + textSel.id} note={textSel} onText={(v) => setText(textSel.id, v)} onStyle={(p) => { setTextStyle((o) => ({ ...o, ...p })); update((x) => ({ ...x, texts: (x.texts ?? []).map((q) => (q.id === textSel.id ? { ...q, ...p } : q)) })); }} onDelete={() => { setText(textSel.id, null); setSel(null); }} onClose={() => closeText(textSel.id)} /> }
+        : textSel && disp.P[textSel.node] ? { at: add(disp.P[textSel.node], mul(textSel.off, disp.k || 1)), node: <TextPop key={'tp' + textSel.id} note={textSel} onText={(v) => setText(textSel.id, v)}
+          onArrow={(aid) => { setArmed('arrow:' + textSel.id + (aid ? ':' + aid : '')); setSel(null); }}
+          onArrowStyle={(aid, p) => { if (!aid) { setArrowStyle((o) => ({ ...o, ...p })); return; } setArrowStyle((o) => ({ ...o, ...p })); update((x) => ({ ...x, texts: (x.texts ?? []).map((t) => t.id !== textSel.id ? t : { ...t, arrows: (t.arrows ?? []).map((a) => (a.id === aid ? { ...a, ...p } : a)) }) })); }}
+          onArrowDelete={(aid) => update((x) => ({ ...x, texts: (x.texts ?? []).map((t) => t.id !== textSel.id ? t : { ...t, arrows: (t.arrows ?? []).filter((a) => a.id !== aid) }) }))}
+          arrowStyle={arrowStyle} onStyle={(p) => { setTextStyle((o) => ({ ...o, ...p })); update((x) => ({ ...x, texts: (x.texts ?? []).map((q) => (q.id === textSel.id ? { ...q, ...p } : q)) })); }} onDelete={() => { setText(textSel.id, null); setSel(null); }} onClose={() => closeText(textSel.id)} /> }
         : selNode !== null && pointKind(d, selNode) && !more ? { at: disp.P[selNode], node: <PointMenu key={'pm' + selNode} d={d} n={selNode} prefs={prefs}
           act={{
             close: () => setSel(null), more: () => setMore(true),
@@ -481,6 +486,12 @@ export function IsoSketch() {
           onDelete={() => { setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? null : q)); setSel(null); }} /> } : null}
       startOn={armed === 'start'} onStartBtn={() => setArmed(armed === 'start' ? null : 'start')} onNotice={toast}
       onMode={(m) => setOpts({ mode: m })}
+      onPlaceArrow={(key, node, off) => {
+        // key = text id (a new arrow) or text id:arrow id (move that arrow's tip)
+        const [tid, aid] = key.split(':');
+        update((x) => ({ ...x, texts: (x.texts ?? []).map((t) => t.id !== tid ? t : { ...t, arrows: aid ? (t.arrows ?? []).map((a) => (a.id === aid ? { ...a, node, off } : a)) : [...(t.arrows ?? []), { id: uid(), node, off, ...arrowStyle }] }) }));
+        setArmed('notes'); setSel({ kind: 'text', id: tid });
+      }}
       onTextBtn={() => { if (armed === 'text') { setArmed(null); return; } setArmed('text'); setSel(null); setOffOpen(false); }}
       callouts={calloutData}
       offsetOn={offOpen} onOffsetBtn={() => { setOffOpen(!offOpen); setSel(null); }} onPlaceText={placeText} onTextMove={moveText}
@@ -500,7 +511,7 @@ export function IsoSketch() {
           {full ? '✕ Close' : <svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>}
         </button>
       </div>
-      {armed && <div className="isoarmed"><span className="armtxt">{armed === 'start' ? 'Drag on the paper to draw a new line (or tap to set its start)' : armed === 'text' ? 'Set the style below, then tap where the text goes' : armed === 'notes' ? 'Drag a note to move · tap to edit' : armed.startsWith('mv:') ? 'Tap where it should go' : armed.startsWith('move:') ? 'Tap a line where it should go' : `Tap where the ${CONN_LABEL[opts.conn].toLowerCase()} ${catalogItem(armed.split(':')[1], armed.split(':')[0] as CatalogItem['kind'])?.label.toLowerCase()} goes`}</span><button className="linkbtn" onClick={() => { setArmed(null); if (sel?.kind === 'text') closeText(sel.id); }}>{armed === 'notes' ? 'done' : 'cancel'}</button></div>}
+      {armed && <div className="isoarmed"><span className="armtxt">{armed === 'start' ? 'Drag on the paper to draw a new line (or tap to set its start)' : armed === 'text' ? 'Set the style below, then tap where the text goes' : armed.startsWith('arrow:') ? 'Tap where the arrow should point' : armed === 'notes' ? 'Drag a note to move · tap to edit' : armed.startsWith('mv:') ? 'Tap where it should go' : armed.startsWith('move:') ? 'Tap a line where it should go' : `Tap where the ${CONN_LABEL[opts.conn].toLowerCase()} ${catalogItem(armed.split(':')[1], armed.split(':')[0] as CatalogItem['kind'])?.label.toLowerCase()} goes`}</span><button className="linkbtn" onClick={() => { setArmed(null); if (sel?.kind === 'text') closeText(sel.id); }}>{armed === 'notes' ? 'done' : 'cancel'}</button></div>}
       {armed === 'text' && <div className="isodock textdock" onPointerDown={(e) => e.stopPropagation()}>
         <TextStyleBar st={textStyle} onChange={(p) => setTextStyle((o) => ({ ...o, ...p }))} />
       </div>}
@@ -909,7 +920,7 @@ function dropHint(key: string): string {
   const [kind] = key.split(':');
   return kind === 'elbow' ? 'Drop elbows on a turn in the drawing' : kind === 'end' ? 'Drop end fittings on the end of a line' : kind === 'branch' ? 'Drop branch fittings on a line or a tee point' : 'Drop it on a straight line';
 }
-function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, onMode, callouts, onTextBtn, children }: {
+function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, onMode, callouts, onTextBtn, onPlaceArrow, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
   armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>; onPick: (v: Vec3 | null) => void;
   onItemDrag: (run: number, id: string, t: number) => void; onInlDrag: (node: number, t: number) => void; menu: { at: Vec3; node: React.ReactNode } | null;
@@ -917,6 +928,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   onMode?: (m: Mode) => void;
   callouts?: Pick<ArtOpts, 'items' | 'spools'>;
   onTextBtn?: () => void;
+  onPlaceArrow?: (key: string, node: number, off: Vec3) => void;
   offsetOn: boolean; onOffsetBtn: () => void; onPlaceText: (node: number, off: Vec3) => void; onTextMove: (id: string, node: number, off: Vec3) => void;
   onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number, split?: { run: number; t: number }, link?: DrawLink, start?: Vec3) => void; children?: React.ReactNode;
 }) {
@@ -1241,6 +1253,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     if (s.target === 'compass') { onView({ az: stepAz(view.az, 1), el: view.el }); return; }
     if (armed === 'start' && (s.target === 'none' || s.target.kind !== 'node')) { onPick(pickPoint(loc)); return; }
     if (armed === 'text') { const at = textAt(loc); if (at) onPlaceText(at.node, at.off); else onNotice('Turn the view a little to place the note'); return; }
+    if (armed?.startsWith('arrow:')) { const at = textAt(loc); if (at) onPlaceArrow?.(armed.slice(6), at.node, at.off); else onNotice('Turn the view a little to place the arrow'); return; }
     if (s.target !== 'none' && s.target) { onTap(s.target, s.target.kind === 'run' ? runT(s.target.id, loc) : s.target.kind === 'item' || s.target.kind === 'dim' ? runT(s.target.run, loc) : undefined); return; }
     onTap(null);
   };
@@ -1826,6 +1839,27 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       {t.border === 'round' && <rect className="iso-textborder" x={x0} y={y0} width={w} height={h} rx={Math.min(h / 2, fs)} style={col ? { stroke: col } : undefined} />}
       {t.border === 'cloud' && <path className="iso-textborder" d={cloudPath(x0, y0, w, h, fs)} style={col ? { stroke: col } : undefined} />}
       {lines.map((ln, k) => <text key={k} className={'iso-textnote' + (t.text ? '' : ' ph')} x={q[0]} y={q[1] + k * lh} style={{ fontSize: `${fs}px`, ...(col ? { fill: col } : {}) }}>{ln}</text>)}
+      {(t.arrows ?? []).map((a) => {
+        const ab = P[a.node]; if (!ab) return null;
+        const tip = T3(add(ab, mul(a.off, kk)));
+        // start on the edge of the box, on the side facing the tip
+        const cx = x0 + w / 2, cy = y0 + h / 2, dx = tip[0] - cx, dy = tip[1] - cy;
+        const sc = Math.min(Math.abs(dx) > 1e-6 ? (w / 2 + 2) / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-6 ? (h / 2 + 2) / Math.abs(dy) : Infinity);
+        if (!(sc < 1)) return null; // tip inside the box
+        const s0: [number, number] = [cx + dx * sc, cy + dy * sc];
+        const L = Math.hypot(tip[0] - s0[0], tip[1] - s0[1]);
+        const c: [number, number] = [(s0[0] + tip[0]) / 2 - ((tip[1] - s0[1]) / (L || 1)) * L * 0.28, (s0[1] + tip[1]) / 2 + ((tip[0] - s0[0]) / (L || 1)) * L * 0.28];
+        const dPath = a.curve ? `M${s0[0]},${s0[1]} Q${c[0]},${c[1]} ${tip[0]},${tip[1]}` : `M${s0[0]},${s0[1]} L${tip[0]},${tip[1]}`;
+        const hs = Math.max(4, fs * 0.6);
+        const head = (at: [number, number], from: [number, number]) => { const ux = at[0] - from[0], uy = at[1] - from[1], ul = Math.hypot(ux, uy) || 1, ex = ux / ul, ey = uy / ul;
+          return `${at[0]},${at[1]} ${at[0] - ex * hs - ey * hs * 0.45},${at[1] - ey * hs + ex * hs * 0.45} ${at[0] - ex * hs + ey * hs * 0.45},${at[1] - ey * hs - ex * hs * 0.45}`; };
+        const endFrom = a.curve ? c : s0, startFrom = a.curve ? c : tip;
+        return <g key={a.id} className="iso-arrow">
+          <path d={dPath} className="iso-arrowline" strokeDasharray={a.dash ? '4 3' : undefined} style={col ? { stroke: col } : undefined} />
+          {(a.head ?? 'single') !== 'none' && <polygon className="iso-arrowhead" points={head(tip, endFrom)} style={col ? { fill: col } : undefined} />}
+          {a.head === 'double' && <polygon className="iso-arrowhead" points={head(s0, startFrom)} style={col ? { fill: col } : undefined} />}
+        </g>;
+      })}
     </g>);
   });
   return <g>{under}{els}{tags}</g>;
@@ -2178,7 +2212,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
     </Card>
   );
 }
-const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:700 10px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}.iso-legdim{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-dimlead{stroke:#0a4f4a;stroke-width:.5;stroke-dasharray:1.5 1.5}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textborder{fill:#fff;stroke:#111;stroke-width:1}.iso-fit{font:800 6.8px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:2.4px;stroke-linejoin:round}.iso-note{paint-order:stroke;stroke:#fff;stroke-width:2.4px}.iso-spoolbox{fill:#fff;stroke:#1f3b3a;stroke-width:.9}.iso-spooltxt{font:800 6.6px sans-serif;fill:#1f3b3a}.iso-spoollead{stroke:#1f3b3a;stroke-width:.5}.iso-ballc{fill:#fff;stroke:#111;stroke-width:.9}.iso-balltxt{font:800 6.4px sans-serif;fill:#111}.iso-balllead{stroke:#111;stroke-width:.5}.iso-textbox{fill:none;stroke:none}`;
+const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:700 10px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}.iso-legdim{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-dimlead{stroke:#0a4f4a;stroke-width:.5;stroke-dasharray:1.5 1.5}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textborder{fill:#fff;stroke:#111;stroke-width:1}.iso-arrowline{fill:none;stroke:#111;stroke-width:1.1}.iso-arrowhead{fill:#111}.iso-fit{font:800 6.8px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:2.4px;stroke-linejoin:round}.iso-note{paint-order:stroke;stroke:#fff;stroke-width:2.4px}.iso-spoolbox{fill:#fff;stroke:#1f3b3a;stroke-width:.9}.iso-spooltxt{font:800 6.6px sans-serif;fill:#1f3b3a}.iso-spoollead{stroke:#1f3b3a;stroke-width:.5}.iso-ballc{fill:#fff;stroke:#111;stroke-width:.9}.iso-balltxt{font:800 6.4px sans-serif;fill:#111}.iso-balllead{stroke:#111;stroke-width:.5}.iso-textbox{fill:none;stroke:none}`;
 
 async function shareImage(d: IsoDrawing, markup: string, W: number, H: number, scale = 3): Promise<string> {
   const svg = markup.replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);
@@ -2257,12 +2291,45 @@ function TextStyleBar({ st, onChange }: { st: TextStyle; onChange: (p: TextStyle
   );
 }
 
-function TextPop({ note, onText, onStyle, onDelete, onClose }: { note: { text: string } & TextStyle; onText: (v: string) => void; onStyle: (p: TextStyle) => void; onDelete: () => void; onClose: () => void }) {
+type ArrowStyle = Pick<TextArrow, 'head' | 'dash' | 'curve'>;
+/** Arrow style: heads (one end, both ends, none), line (solid / dashed), shape (straight / curved). */
+function ArrowStyleBar({ st, onChange }: { st: ArrowStyle; onChange: (p: ArrowStyle) => void }) {
+  const opt = (on: boolean, label: string, icon: React.ReactNode, f: () => void) => <button className={'chip tsb' + (on ? ' on' : '')} title={label} aria-label={label} onClick={f}>{icon}<span className="tsl">{label}</span></button>;
+  const ic = (d: string, dash = false, a = true, b = false) => <svg viewBox="0 0 30 18" width="26" height="16" aria-hidden="true"><path d={d} fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray={dash ? '3 2' : undefined} />{a && <path d="M27 9l-5-3v6z" fill="currentColor" />}{b && <path d="M3 9l5-3v6z" fill="currentColor" />}</svg>;
+  return (
+    <div className="chiprow arrowstyle">
+      {opt((st.head ?? 'single') === 'single', 'Single arrow', ic('M4 9H23'), () => onChange({ head: 'single' }))}
+      {opt(st.head === 'double', 'Double arrow', ic('M7 9H23', false, true, true), () => onChange({ head: 'double' }))}
+      {opt(st.head === 'none', 'No arrowhead', ic('M4 9H26', false, false), () => onChange({ head: 'none' }))}
+      {opt(!st.dash, 'Solid line', ic('M4 9H26', false, false), () => onChange({ dash: false }))}
+      {opt(!!st.dash, 'Dashed line', ic('M4 9H26', true, false), () => onChange({ dash: true }))}
+      {opt(!st.curve, 'Straight', ic('M4 14L26 4', false, false), () => onChange({ curve: false }))}
+      {opt(!!st.curve, 'Curved', ic('M4 15Q8 2 26 5', false, false), () => onChange({ curve: true }))}
+    </div>
+  );
+}
+
+function TextPop({ note, onText, onStyle, onDelete, onClose, onArrow, onArrowStyle, onArrowDelete, arrowStyle }: { note: { text: string; arrows?: TextArrow[] } & TextStyle; onText: (v: string) => void; onStyle: (p: TextStyle) => void; onDelete: () => void; onClose: () => void;
+  onArrow: (arrowId?: string) => void; onArrowStyle: (arrowId: string | null, p: ArrowStyle) => void; onArrowDelete: (arrowId: string) => void; arrowStyle: ArrowStyle }) {
   return (
     <div className="itemmenu-in">
       <div className="row-between"><b>Text box</b><button className="linkbtn" onClick={onClose}>Done</button></div>
       <textarea className="isotext" rows={3} autoFocus value={note.text} placeholder="Type the text…" onChange={(e) => onText(e.target.value)} />
       <TextStyleBar st={note} onChange={onStyle} />
+      <div className="arrowsec">
+        <span className="flabel">Arrows</span>
+        {(note.arrows ?? []).map((a, k) => (
+          <div key={a.id} className="arrowrow">
+            <b>{k + 1}</b>
+            <ArrowStyleBar st={a} onChange={(p) => onArrowStyle(a.id, p)} />
+            <div className="chiprow"><button className="chip" onClick={() => onArrow(a.id)}>Move tip</button><button className="chip danger" onClick={() => onArrowDelete(a.id)}>Remove</button></div>
+          </div>
+        ))}
+        <div className="arrowrow new">
+          <ArrowStyleBar st={arrowStyle} onChange={(p) => onArrowStyle(null, p)} />
+          <button className="btn" onClick={() => onArrow()}>+ Add arrow (then tap where it points)</button>
+        </div>
+      </div>
       <span className="fhint">Drag the text box on the drawing to move it (⋮ → Edit / move notes).</span>
       <button className="btn danger" onClick={onDelete}>Delete text box</button>
     </div>

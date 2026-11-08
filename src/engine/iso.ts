@@ -179,7 +179,9 @@ export interface WeldInfo { stencil?: string; field?: boolean; notes?: string }
 export type TextBorder = 'none' | 'box' | 'round' | 'cloud';
 /** Text box style: border, font size (drawing px, 9 = normal) and colour ('' = the drawing's text colour). */
 export interface TextStyle { border?: TextBorder; size?: number; color?: string }
-export interface TextNote extends TextStyle { id: string; node: number; off: Vec3; text: string }
+/** An arrow (leader) from a text box to a spot on the drawing; the tip is anchored to a point like the text is. */
+export interface TextArrow { id: string; node: number; off: Vec3; head?: 'single' | 'double' | 'none'; dash?: boolean; curve?: boolean }
+export interface TextNote extends TextStyle { id: string; node: number; off: Vec3; text: string; arrows?: TextArrow[] }
 /** The inline fitting at a point, if that point is still a straight joint. */
 export const inlineAt = (d: IsoDrawing, node0: number): LineItem | null => {
   const node = d.links?.[node0] ?? node0;
