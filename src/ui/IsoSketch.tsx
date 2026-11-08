@@ -10,7 +10,8 @@ import {
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon } from './isoSymbols';
-import { B169 } from '../engine/fittings';
+import { B169, npsNumber } from '../engine/fittings';
+const npsVal = (n: string) => npsNumber(n) ?? 0;
 
 type Prefs = ReturnType<typeof useApp>['settings']['prefs'];
 interface IsoStore { drawings: IsoDrawing[]; current: string | null }
@@ -1026,7 +1027,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       const fit = d.fits?.[n];
       const cn = fit === 'thd90' ? 'thd' : connAt(d, n);
       if (opts.welds) legScreen.forEach(([ux, uy], j) => els.push(...jointMark(cn, [p[0] + ux * 8, p[1] + uy * 8], [ux, uy], `w${n}-${j}`)));
-      els.push(...nodeSymbol(fit, k.kind, p, legScreen, 'ns' + n));
+      const fs = d.fitSize?.[n];
+      els.push(...nodeSymbol(fit, k.kind, p, legScreen, 'ns' + n, undefined, fs ? `${d.nps}"×${fs}"` : undefined));
       if (k.kind === 'elbow' && Math.abs(k.angle - 90) > 0.05) els.push(<text key={'ea' + n} className="iso-note" x={p[0] + 7} y={p[1] + 15}>{formatNumber(k.angle, 1)}°</text>);
     } else if (k.kind === 'straight') {
       if (opts.welds) els.push(...jointMark(connAt(d, n), p, legScreen[0] ?? [1, 0], 'sw' + n));
@@ -1178,6 +1180,11 @@ function NodeEditor({ d, node, update, onClose }: { d: IsoDrawing; node: number;
       {(k.kind === 'elbow' || k.kind === 'tee' || k.kind === 'cross') && (
         <Select label="Fitting" value={d.fits?.[node] ?? (k.kind === 'elbow' ? 'lr' : 'tee')} options={CATALOG.filter((c) => c.kind === (k.kind === 'elbow' ? 'elbow' : 'branch')).map((c) => [c.id, c.label])}
           onChange={(v) => update((x) => ({ ...x, fits: { ...(x.fits ?? {}), [node]: v } }))} />
+      )}
+      {(k.kind === 'tee' || k.kind === 'cross') && d.fits?.[node] === 'redtee' && (
+        <Select label={`Branch size (optional) — run is ${d.nps}"`} value={d.fitSize?.[node] ?? ''}
+          options={[['', 'Not set'], ...Object.keys(B169).filter((n) => npsVal(n) < npsVal(d.nps)).map((n) => [n, `${d.nps}" × ${n}"`] as [string, string])]}
+          onChange={(v) => update((x) => { const fs = { ...(x.fitSize ?? {}) }; if (v) fs[node] = v; else delete fs[node]; return { ...x, fitSize: fs }; })} />
       )}
       {k.kind !== 'multi' && !(k.kind === 'start-end' && !nodeLegs(d, node).length) && (
         <Select label="Joint here" value={connAt(d, node)} options={CONN_ORDER.map((c) => [c, CONN_LABEL[c]])} onChange={(v) => update((x) => ({ ...x, nodeConn: { ...(x.nodeConn ?? {}), [node]: v as Conn } }))} />

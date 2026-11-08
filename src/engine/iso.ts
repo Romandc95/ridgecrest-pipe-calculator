@@ -103,6 +103,8 @@ export interface IsoDrawing {
   /** Default joint for the drawing's elbows, tees and straight joints, and per-point overrides. */
   conn?: Conn;
   nodeConn?: Record<number, Conn>;
+  /** Optional branch size (NPS) for a reducing tee or olet at a point. */
+  fitSize?: Record<number, string>;
 }
 export const connAt = (d: IsoDrawing, node: number): Conn => d.nodeConn?.[node] ?? d.conn ?? 'bw';
 
@@ -260,7 +262,8 @@ function takeoutAt(d: IsoDrawing, node: number, run: number, note: string[]): { 
         if (fit === 'redtee') {
           const c = bwFitting(d.nps).teeC;
           if (header && c != null) return { to: c, weld: true };
-          note.push('reducing tee branch: subtract outlet M from the fitting'); return { to: 0, weld: true };
+          const bs = d.fitSize?.[node];
+          note.push(`reducing tee${bs ? ` ${d.nps}" × ${bs}"` : ''} branch: subtract outlet M from the fitting`); return { to: 0, weld: true };
         }
         note.push(`${lbl(fit).toLowerCase()}: subtract per the fitting`);
         return { to: 0, weld: fit !== 'threeway' };
@@ -369,7 +372,11 @@ export function deleteSubtree(d: IsoDrawing, i: number): IsoDrawing {
   const notes = d.notes.filter((t) => nodeMap.has(t.node)).map((t) => ({ ...t, node: nodeMap.get(t.node)! }));
   const fits: Record<number, string> = {};
   Object.entries(d.fits ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) fits[m] = f; });
-  return { ...d, runs, ends, notes, fits };
+  const fitSize: Record<number, string> = {};
+  Object.entries(d.fitSize ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) fitSize[m] = f; });
+  const nodeConn: Record<number, Conn> = {};
+  Object.entries(d.nodeConn ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) nodeConn[m] = f; });
+  return { ...d, runs, ends, notes, fits, fitSize, nodeConn };
 }
 
 /** Human description of a run direction, e.g. "North", "Up 45° East". */

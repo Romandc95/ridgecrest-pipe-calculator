@@ -75,7 +75,7 @@ export function lineSymbol(type: string, m: V2, u: V2, s: number, key: string): 
 }
 
 /** Symbol at an elbow or branch point. legs = unit screen directions leaving the point. */
-export function nodeSymbol(type: string | undefined, kind: 'elbow' | 'tee' | 'cross', p: V2, legs: V2[], key: string, labelDir?: V2): React.ReactNode[] {
+export function nodeSymbol(type: string | undefined, kind: 'elbow' | 'tee' | 'cross', p: V2, legs: V2[], key: string, labelDir?: V2, size?: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   const s = 6;
   const tri = (u: V2, kk: string) => {
@@ -91,6 +91,19 @@ export function nodeSymbol(type: string | undefined, kind: 'elbow' | 'tee' | 'cr
   if (type === 'anglevalve' || type === 'threeway') {
     legs.forEach((l, j) => tri(l, 't' + j));
     out.push(<line key={key + 'st'} className="iso-sym" x1={p[0]} y1={p[1]} x2={p[0] + ox * 12} y2={p[1] + oy * 12} />);
+    return out;
+  }
+  if (type === 'redtee' && kind !== 'elbow') {
+    // reducing tee: tee body plus a reducer drawn on the branch outlet, narrowing away from the run
+    const branch = legs.filter((l, j) => !legs.some((m, k) => k !== j && l[0] * m[0] + l[1] * m[1] < -0.98));
+    const b = branch[0] ?? legs[legs.length - 1];
+    if (b) {
+      const n: V2 = [-b[1], b[0]];
+      const P = (a: number, w: number) => `${(p[0] + b[0] * a + n[0] * w).toFixed(1)},${(p[1] + b[1] * a + n[1] * w).toFixed(1)}`;
+      out.push(<polygon key={key + 'rt'} className="iso-sym" points={`${P(3, 5)} ${P(13, 2.6)} ${P(13, -2.6)} ${P(3, -5)}`} />);
+    }
+    out.push(<circle key={key + 'd'} className="iso-symfill" cx={p[0]} cy={p[1]} r={3} />);
+    label(size ? `RED TEE ${size}` : 'RED TEE');
     return out;
   }
   if (kind !== 'elbow' && (!type || type === 'tee')) out.push(<circle key={key + 'd'} className="iso-symfill" cx={p[0]} cy={p[1]} r={3} />);
