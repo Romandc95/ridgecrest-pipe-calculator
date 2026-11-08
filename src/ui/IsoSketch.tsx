@@ -3,7 +3,12 @@ import { createPortal } from 'react-dom';
 import { Field, Msg, Select, Segmented, Card, Grid, useApp } from './components';
 import { usePersistent, uid, shareText } from './store';
 import { parseLength, parseAngle, tryParse } from '../engine/parse';
-import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
+import { formatFtIn, formatFracIn, formatNumber, splitFtIn } from '../engine/format';
+/** Measurements on the drawing: feet and inches joined by a dash, and a 0 before a fraction with no whole inches — 10'-6-1/8", 1'-0-1/2". */
+function dimFt(totalIn: number, prefs: Prefs): string {
+  const p = splitFtIn(totalIn, prefs.fracDen, true, prefs.fracMode === 'std');
+  return `${p.neg ? '−' : ''}${p.feet}'-${p.inch}${p.num ? `-${p.num}/${p.den}` : ''}"`;
+}
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
   runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
@@ -1412,8 +1417,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         under.push(<polygon key={'h' + i} points={`${a.join(',')} ${c.join(',')} ${b.join(',')}`} fill={`url(#${hatch})`} className="iso-hatch" />);
         under.push(<polyline key={'o' + i} points={`${a.join(',')} ${c.join(',')} ${b.join(',')}`} className="iso-off" />);
         if (opts.dims && measured) {
-          under.push(label('l1' + i, a, c, `${formatFtIn(Math.abs(tv[axes[0]]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
-          under.push(label('l2' + i, c, b, `${formatFtIn(Math.abs(tv[axes[1]]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
+          under.push(label('l1' + i, a, c, `${dimFt(Math.abs(tv[axes[0]]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
+          under.push(label('l2' + i, c, b, `${dimFt(Math.abs(tv[axes[1]]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
         }
       } else {
         const C1 = add(A3, comp(0)), Hh = add(C1, comp(1));
@@ -1423,9 +1428,9 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         under.push(<polyline key={'o' + i} points={`${a.join(',')} ${c1.join(',')} ${h.join(',')} ${b.join(',')}`} className="iso-off" />);
         under.push(<line key={'oh' + i} x1={a[0]} y1={a[1]} x2={h[0]} y2={h[1]} className="iso-off" />);
         if (opts.dims && measured) {
-          under.push(label('l1' + i, a, c1, `${formatFtIn(Math.abs(tv[0]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
-          under.push(label('l2' + i, c1, h, `${formatFtIn(Math.abs(tv[1]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
-          under.push(label('l3' + i, h, b, `${formatFtIn(Math.abs(tv[2]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
+          under.push(label('l1' + i, a, c1, `${dimFt(Math.abs(tv[0]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
+          under.push(label('l2' + i, c1, h, `${dimFt(Math.abs(tv[1]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
+          under.push(label('l3' + i, h, b, `${dimFt(Math.abs(tv[2]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
         }
       }
     }
@@ -1464,13 +1469,13 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         const at = (x: number): [number, number] => [a[0] + (b[0] - a[0]) * (x / tr), a[1] + (b[1] - a[1]) * (x / tr)];
         segs.forEach((g, k) => {
           const p1 = at(g.a), p2 = at(g.b);
-          const lb = label('sg' + i + '-' + k, p1, p2, `${g.known ? '' : '≈'}${formatFtIn(Math.max(0, g.len), prefs)} ${g.kind}`, 'iso-dim seg' + (g.known ? '' : ' unk'), 19);
+          const lb = label('sg' + i + '-' + k, p1, p2, `${g.known ? '' : '≈'}${dimFt(Math.max(0, g.len), prefs)} ${g.kind}`, 'iso-dim seg' + (g.known ? '' : ' unk'), 19);
           if (lb) els.push(lb);
         });
-        const lb = label('d' + i, a, b, `${formatFtIn(runLength(r), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`, 'iso-dimsub', -13);
+        const lb = label('d' + i, a, b, `${dimFt(runLength(r), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`, 'iso-dimsub', -13);
         if (lb) els.push(lb);
       } else if (measured) {
-        const txt = `${formatFtIn(shownLength(d, i), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`;
+        const txt = `${dimFt(shownLength(d, i), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`;
         const lb = label('d' + i, a, b, txt, 'iso-dim', items.length ? 20 : 11, i);
         if (lb) els.push(lb);
       } else if (!exportMode && L > 22) {
