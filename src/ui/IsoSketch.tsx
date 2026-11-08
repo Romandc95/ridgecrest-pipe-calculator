@@ -1601,7 +1601,6 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         els.push(<g key={'q' + i} data-dim={i}><circle className="iso-qbg" cx={m[0] + nx * off} cy={m[1] + ny * off} r={7} /><text className="iso-q" x={m[0] + nx * off} y={m[1] + ny * off + 3.5} textAnchor="middle">?</text></g>);
       }
     }
-    if (opts.labels) els.push(<text key={'rl' + i} className="iso-node" x={m[0] - nx * 12} y={m[1] - ny * 12 + 3} textAnchor="middle">L{i + 1}</text>);
   });
 
   // fitting callouts (sizes, RED TEE, WOL …): queued, then placed clear of the measurements, pipes and symbols
