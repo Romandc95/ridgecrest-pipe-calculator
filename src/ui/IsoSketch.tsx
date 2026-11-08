@@ -1354,8 +1354,12 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         els.push(...endSymbol(er.type === 'eccreducer' ? 'eccreducer' : 'reducer', p, legScreen[0], 'er' + n));
         if (er.size && opts.dims) els.push(<text key={'ers' + n} className="iso-fit" x={p[0] - legScreen[0][0] * 22} y={p[1] - legScreen[0][1] * 22 + 3} textAnchor="middle">{`${sizes[n - 1] ?? d.nps}"×${er.size}"`}</text>);
         if (opts.welds) els.push(...jointMark(er.conn ?? 'bw', p, legScreen[0], 'erj' + n));
-      } else els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode));
-      if (opts.welds && !['open', 'weld', 'flange', 'blind', 'nozzle'].includes(endT) && legScreen[0]) els.push(...jointMark(connAt(d, n), [p[0] + legScreen[0][0] * 3, p[1] + legScreen[0][1] * 3], legScreen[0], 'ej' + n));
+      } else els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode, connAt(d, n)));
+      // the joint between the pipe and the end fitting, shown with the chosen connection's mark
+      // (a flange end shows how the flange is joined to the pipe: weld dot = weld neck, tick = threaded …; the nozzle draws its own)
+      const ec = connAt(d, n);
+      if (opts.welds && legScreen[0] && !['open', 'weld', 'nozzle'].includes(endT) && !(['flange', 'blind'].includes(endT) && ec === 'flg'))
+        els.push(...jointMark(ec, [p[0] + legScreen[0][0] * (['flange', 'blind'].includes(endT) ? 6 : 3), p[1] + legScreen[0][1] * (['flange', 'blind'].includes(endT) ? 6 : 3)], legScreen[0], 'ej' + n));
     }
     if (!exportMode) {
       const isCursor = n === cursor, isSel = sel?.kind === 'node' && sel.id === n;

@@ -180,7 +180,7 @@ export function legJoint(type: string | undefined, legs: V2[], j: number, conn: 
 }
 
 /** Symbol at the end of a line. u = unit screen direction from the end back along the pipe. */
-export function endSymbol(type: string, p: V2, u: V2, key: string, exportMode?: boolean): React.ReactNode[] {
+export function endSymbol(type: string, p: V2, u: V2, key: string, exportMode?: boolean, conn?: Conn): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   const o: V2 = [-u[0], -u[1]]; // outward
   const { P, X } = frame(p, o);
@@ -197,8 +197,15 @@ export function endSymbol(type: string, p: V2, u: V2, key: string, exportMode?: 
     case 'plug': out.push(<polygon key={key} className="iso-symfill" points={`${P(0, -3)} ${P(5, -3)} ${P(5, 3)} ${P(0, 3)}`} />); break;
     case 'threaded': for (const t of [-6, -3, 0]) { const a = X(t, 3), b = X(t + 1.5, -3); out.push(<line key={key + t} className="iso-sym" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />); } break;
     case 'weld': out.push(<circle key={key} className="iso-weld" cx={p[0]} cy={p[1]} r={3} />); txt('FW', 6, -9); break;
-    case 'nozzle': out.push(<line key={key + 'f'} className="iso-sym thick" {...seg(X(0, s * 1.2), X(0, -s * 1.2))} />);
-      out.push(<polygon key={key} className="iso-equip" points={`${P(3, -s * 2.4)} ${P(3 + s * 2.6, -s * 2.4)} ${P(3 + s * 2.6, s * 2.4)} ${P(3, s * 2.4)}`} />); break;
+    case 'nozzle': {
+      // equipment: the box, joined to the pipe by whatever connection was chosen (flanged unless set)
+      const cn = conn ?? 'flg';
+      const gap = 9; // a short nozzle stub between the joint and the equipment, so the joint mark reads clearly
+      out.push(<line key={key + 'nz'} className="iso-pipe thin" {...seg(X(0, 0), X(gap, 0))} />);
+      out.push(...jointMark(cn, X(cn === 'flg' ? 2.5 : 2, 0), o, key + 'j'));
+      out.push(<polygon key={key} className="iso-equip" points={`${P(gap, -s * 2.4)} ${P(gap + s * 2.6, -s * 2.4)} ${P(gap + s * 2.6, s * 2.4)} ${P(gap, s * 2.4)}`} />);
+      break;
+    }
     case 'hose': for (const t of [0, 3]) out.push(<line key={key + t} className="iso-sym" {...seg(X(t, s * 0.8), X(t, -s * 0.8))} />); txt('HC', 10, 0); break;
     case 'gauge': { out.push(<line key={key + 's'} className="iso-sym" {...seg(X(0, 0), X(s * 1.3, 0))} />); const c = X(s * 2.1, 0); out.push(<circle key={key} className="iso-symball" cx={c[0]} cy={c[1]} r={s * 0.8} />); out.push(<line key={key + 'n'} className="iso-sym" {...seg(c, X(s * 2.4, s * 0.45))} />); break; }
     case 'thermowell': out.push(<polygon key={key} className="iso-sym" points={`${P(0, -2.5)} ${P(s * 1.6, -2.5)} ${P(s * 1.6, 2.5)} ${P(0, 2.5)}`} />); txt('TW', s * 2.8, 0); break;
