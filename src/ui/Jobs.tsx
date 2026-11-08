@@ -163,7 +163,8 @@ function Help() {
       <Card>
         <h4>ISO sketch</h4>
         <ul>
-          <li><b>Draw:</b> in Draw mode press on a point and drag — the line follows your finger, snaps to the grid and is placed when you let go (drag from empty space to continue from the dashed-circle point). Drags near an axis go straight. Pick Flat, E–W wall or N–S wall to draw horizontal or vertical lines and offsets. Or type a length (optional) and tap a direction button. Two fingers move and zoom.</li>
+          <li><b>Draw:</b> in Draw mode press on a point and drag — the line follows your finger, snaps to the grid and is placed when you let go (drag from empty space to continue from the dashed-circle point). Drags near an axis go straight. Pick Flat, E–W wall or N–S wall to draw horizontal or vertical lines and offsets. Or type a length (optional) and tap a direction button.</li>
+          <li><b>Two fingers</b> (any mode): pinch to zoom, slide to move, twist to turn the drawing around — it turns with your fingers like the compass.</li>
           <li><b>Fittings &amp; valves:</b> drag one from the palette onto a line (valves, flanges, reducers, strainers, unions…) or a point (elbow types and angle valves at turns, olets, laterals and 3-way valves at tees, caps, flanges, relief/vent/drain valves and instruments at ends) — or tap it, then tap the spot. Tap a line to slide or remove its fittings; tap a point to change its fitting.</li>
           <li><b>Edit:</b> tap a point to draw or branch from it (a branch makes a tee). Tap any line to dimension it, change its direction, add a valve or flange, or delete it. Lines with a yellow ? still need a dimension.</li>
           <li><b>Offsets</b> are shown with their legs dashed and the offset triangle hatched. Enter each leg, or the travel and all but one leg.</li>

@@ -278,11 +278,11 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
             <span className="flabel">Draw on</span>
             <Segmented small value={opts.plane} onChange={(p) => setOpts({ plane: p as Plane })} options={(Object.keys(PLANES) as Plane[]).map((k) => [k, PLANES[k].label])} />
           </div>
-          <p className="fhint">Drag from a point to draw a line (drag from empty space starts at point {cur}{isBranch ? ', making a tee' : ''}). Tap a line or point to edit it. Two fingers move and zoom.</p>
+          <p className="fhint">Drag from a point to draw a line (drag from empty space starts at point {cur}{isBranch ? ', making a tee' : ''}). Tap a line or point to edit it. Two fingers: pinch to zoom, slide to move, twist to turn.</p>
         </>
       )}
       {opts.mode === 'orbit' && <p className="fhint">Drag the drawing to turn it in 3D. Drag the compass to swing North; tap it to turn 90°.</p>}
-      {opts.mode === 'pan' && <p className="fhint">Drag to move, pinch or scroll to zoom. Tap lines and points to edit them.</p>}
+      {opts.mode === 'pan' && <p className="fhint">Drag to move, pinch or scroll to zoom, twist two fingers to turn. Tap lines and points to edit them.</p>}
       <div className="isorow">
         <span className="flabel">View</span>
         <div className="chiprow">
@@ -329,7 +329,11 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   useEffect(() => {
     const el = wrap.current; if (!el) return;
     const ro = new ResizeObserver(() => setSize({ w: Math.max(100, el.clientWidth), h: Math.max(100, el.clientHeight) }));
-    ro.observe(el); return () => ro.disconnect();
+    ro.observe(el);
+    // iOS Safari: stop its own pinch-to-zoom of the page while fingers are on the drawing
+    const stop = (e: Event) => e.preventDefault();
+    el.addEventListener('gesturestart', stop); el.addEventListener('gesturechange', stop);
+    return () => { ro.disconnect(); el.removeEventListener('gesturestart', stop); el.removeEventListener('gesturechange', stop); };
   }, []);
 
   const fitCam = (): Cam => {
@@ -354,6 +358,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   useEffect(() => {
     const pv = prevView.current; prevView.current = view;
     if (homing.current) { homing.current = false; setCam(fitCam()); return; }
+    if (gestureTurn.current) { gestureTurn.current = false; return; }
     if (pv.az === view.az && pv.el === view.el) return;
     const C = P.reduce((a, p) => add(a, p), [0, 0, 0] as Vec3).map((v) => v / P.length) as Vec3;
     const a = project(C, pv), b = project(C, view);
@@ -409,7 +414,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   // pointer handling. Draw mode: drag from a point (or anywhere, from the current point) to draw a line.
   // Rotate mode: drag turns the view. Move mode: drag pans. Two fingers always pan / zoom. Taps select.
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
-  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null } | null>(null);
+  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean } | null>(null);
+  const gestureTurn = useRef(false); // a two-finger twist moves the camera itself; skip the re-centring below
   const CMP = { x: 40, y: 40 };
   const onDown = (e: React.PointerEvent) => {
     try { svg.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
@@ -426,7 +432,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       } else drawFrom = cursor;
     }
     const mid = ps.length === 2 ? { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 } : loc;
-    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom };
+    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom,
+      ang: ps.length === 2 ? Math.atan2(ps[1].y - ps[0].y, ps[1].x - ps[0].x) : undefined, twist: false };
     setGhost(null);
   };
   const onMove = (e: React.PointerEvent) => {
@@ -436,10 +443,30 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     const s = st.current; if (!s) return;
     const ps = [...ptrs.current.values()];
     if (ps.length === 2 && s.dist > 0) {
+      // two fingers: pinch = zoom, move = pan, twist = turn the drawing (about the vertical, like the compass)
       const dist = Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y);
       const mid = { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 };
       const ns = Math.max(0.02, Math.min(400, s.cam.s * (dist / s.dist))), kk = ns / s.cam.s;
-      setCam({ s: ns, tx: mid.x - (s.mid.x - s.cam.tx) * kk, ty: mid.y - (s.mid.y - s.cam.ty) * kk });
+      let dA = Math.atan2(ps[1].y - ps[0].y, ps[1].x - ps[0].x) - (s.ang ?? 0);
+      dA = Math.atan2(Math.sin(dA), Math.cos(dA));
+      const DEAD = (7 * Math.PI) / 180; // small wobble while pinching doesn't turn the drawing
+      if (!s.twist && Math.abs(dA) > DEAD) s.twist = true;
+      const turn = s.twist ? dA - Math.sign(dA) * Math.min(Math.abs(dA), DEAD) : 0;
+      if (!turn) {
+        setCam({ s: ns, tx: mid.x - (s.mid.x - s.cam.tx) * kk, ty: mid.y - (s.mid.y - s.cam.ty) * kk });
+      } else {
+        // keep the point of the drawing that was under the fingers under the fingers while it turns
+        const nv: View = { az: normAz(s.view.az + (turn * 180) / Math.PI), el: s.view.el };
+        const u0 = (s.mid.x - s.cam.tx) / s.cam.s, v0 = (s.mid.y - s.cam.ty) / s.cam.s;
+        const c0 = P.reduce((a, p) => add(a, p), [0, 0, 0] as Vec3).map((v) => v / P.length) as Vec3;
+        const pivot = unproject(u0, v0, s.view, c0, [0, 0, 1]) ?? c0;
+        const q0 = project(pivot, s.view), q1 = project(pivot, nv);
+        const sx = s.mid.x + (q0[0] * s.cam.s + s.cam.tx - s.mid.x) * kk, sy = s.mid.y + (q0[1] * s.cam.s + s.cam.ty - s.mid.y) * kk;
+        const tx = sx + (mid.x - s.mid.x) - q1[0] * ns, ty = sy + (mid.y - s.mid.y) - q1[1] * ns;
+        if (Math.abs(normAz(nv.az - view.az)) > 1e-9) gestureTurn.current = true;
+        setCam({ s: ns, tx, ty });
+        onView(nv);
+      }
       s.moved = true; return;
     }
     if (ps.length !== 1) return;
