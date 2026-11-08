@@ -120,12 +120,15 @@ export interface IsoDrawing {
   inl?: Record<number, LineItem>;
   /** Weld map: welder stencil, shop / field and notes per weld (keyed by weldList keys). */
   welds?: Record<string, WeldInfo>;
+  /** Title block details asked for when the drawing is named / completed. */
+  info?: DrawingInfo;
   /** Free text placed on the drawing. */
   texts?: TextNote[];
   /** Finished: saved and locked (shown as the 11×17 sheet). */
   done?: boolean;
   doneAt?: number;
 }
+export interface DrawingInfo { customer?: string; site?: string; jobNo?: string; system?: string }
 export interface WeldInfo { stencil?: string; field?: boolean; notes?: string }
 /** Text on the drawing, anchored to a point (node) with an offset in sketch units so it follows the drawing. */
 export interface TextNote { id: string; node: number; off: Vec3; text: string }
@@ -615,7 +618,7 @@ export function weldList(d: IsoDrawing): Weld[] {
 }
 
 // ---------------------------------------------------------------- material breakdown
-export interface MaterialRow { item: string; size: string; spec: string; qty: number; unit: string }
+export interface MaterialRow { item: string; size: string; spec: string; qty: number; unit: string; /** points where this item is the fitting drawn (for item numbers on the drawing) */ nodes?: number[] }
 /** Bill of materials: pipe by size, fittings, valves, flanges, gaskets, bolt sets and welds. */
 export function materials(d: IsoDrawing): MaterialRow[] {
   const sizes = runSizes(d);
@@ -623,7 +626,9 @@ export function materials(d: IsoDrawing): MaterialRow[] {
   const add = (item: string, size: string, spec: string, qty = 1, unit = 'ea') => {
     const k = `${item}|${size}|${spec}|${unit}`;
     const r = rows.get(k); if (r) r.qty += qty; else rows.set(k, { item, size, spec, qty, unit });
+    return rows.get(k)!;
   };
+  const addAt = (node: number, item: string, size: string, spec: string, qty = 1) => { const r = add(item, size, spec, qty); (r.nodes ??= []).push(node); };
   const cls = d.cls ?? 150;
   const flanged = (size: string, n: number) => { add('WN flange', size, `Class ${cls} RF`, n); };
   const joint = (size: string) => { add('Gasket', size, `Class ${cls}`); add('Stud bolt set', size, `Class ${cls}`); };
@@ -645,32 +650,32 @@ export function materials(d: IsoDrawing): MaterialRow[] {
       const red = inlineAt(d, n);
       const ez = red?.size ?? z;
       const typ = fit && !['anglevalve'].includes(fit) ? (catalogItem(fit)?.label ?? fit) : 'LR elbow';
-      if (fit === 'anglevalve') add('Angle valve', z, conn);
-      else add(`${typ} ${Math.abs(k.angle - 90) < 0.05 ? '90°' : Math.abs(k.angle - 45) < 0.05 ? '45°' : `${k.angle.toFixed(1)}° (cut)`}`, red ? ez : z, conn);
-      if (red) add(red.type === 'eccreducer' ? 'Ecc. reducer' : 'Conc. reducer', `${sizes[n - 1] ?? d.nps}×${red.size ?? '?'}`, CONN_LABEL[red.conn ?? 'bw']);
+      if (fit === 'anglevalve') addAt(n, 'Angle valve', z, conn);
+      else addAt(n, `${typ} ${Math.abs(k.angle - 90) < 0.05 ? '90°' : Math.abs(k.angle - 45) < 0.05 ? '45°' : `${k.angle.toFixed(1)}° (cut)`}`, red ? ez : z, conn);
+      if (red) addAt(n, red.type === 'eccreducer' ? 'Ecc. reducer' : 'Conc. reducer', `${sizes[n - 1] ?? d.nps}×${red.size ?? '?'}`, CONN_LABEL[red.conn ?? 'bw']);
     } else if (k.kind === 'tee' || k.kind === 'cross') {
       const hz = sizes[n - 1] ?? z, bs = d.fitSize?.[n];
       const typ = fit ? (catalogItem(fit)?.label ?? fit) : k.kind === 'cross' ? 'Cross' : 'Straight tee';
-      add(typ, bs ? `${hz}×${bs}` : hz, conn);
+      addAt(n, typ, bs ? `${hz}×${bs}` : hz, conn);
     } else if (k.kind === 'straight') {
       const it = inlineAt(d, n);
       if (it) {
         const iz = sizes[n - 1] ?? z;
         const nm = INLINE_LABEL[it.type] ?? it.type;
-        if (it.type === 'flange' || it.type === 'orifice') { flanged(iz, 2); joint(iz); }
+        if (it.type === 'flange' || it.type === 'orifice') { addAt(n, 'WN flange', iz, `Class ${cls} RF`, 2); joint(iz); }
         else if (it.type !== 'spool') {
-          add(nm, isReducer(it.type) && it.size ? `${iz}×${it.size}` : iz, CONN_LABEL[it.conn ?? 'bw']);
+          addAt(n, nm, isReducer(it.type) && it.size ? `${iz}×${it.size}` : iz, CONN_LABEL[it.conn ?? 'bw']);
           if ((it.conn ?? 'bw') === 'flg') { flanged(iz, 2); joint(iz); joint(iz); }
         }
       }
     } else if (k.kind === 'end' || k.kind === 'start-end') {
       const end = d.ends[n] ?? 'open';
       const red = inlineAt(d, n);
-      if (red) add(red.type === 'eccreducer' ? 'Ecc. reducer' : 'Conc. reducer', `${z}×${red.size ?? '?'}`, CONN_LABEL[red.conn ?? 'bw']);
-      else if (end === 'flange') { add('WN flange', z, `Class ${cls} RF`); joint(z); }
-      else if (end === 'blind') { flanged(z, 1); add('Blind flange', z, `Class ${cls} RF`); joint(z); }
+      if (red) addAt(n, red.type === 'eccreducer' ? 'Ecc. reducer' : 'Conc. reducer', `${z}×${red.size ?? '?'}`, CONN_LABEL[red.conn ?? 'bw']);
+      else if (end === 'flange') { addAt(n, 'WN flange', z, `Class ${cls} RF`); joint(z); }
+      else if (end === 'blind') { flanged(z, 1); addAt(n, 'Blind flange', z, `Class ${cls} RF`); joint(z); }
       else if (end === 'nozzle') { if (connAt(d, n) === 'flg') { flanged(z, 1); joint(z); } }
-      else if (!['open', 'weld'].includes(end)) add(END_LABEL[end] ?? end, z, conn);
+      else if (!['open', 'weld'].includes(end)) addAt(n, END_LABEL[end] ?? end, z, conn);
     }
   }
   // legacy fittings sitting on lines

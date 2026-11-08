@@ -6,7 +6,7 @@ import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, weldList, materials, Weld, WeldInfo,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, weldList, materials, Weld, WeldInfo, DrawingInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
@@ -20,7 +20,7 @@ type Sel = { kind: 'node'; id: number } | { kind: 'run'; id: number } | { kind: 
 type Mode = 'draw' | 'orbit' | 'pan';
 type Plane = 'EN' | 'EU' | 'NU';
 interface Opts { dims: boolean; welds: boolean; labels: boolean; scaled: boolean; weldmap?: boolean; view: View; mode: Mode; plane: Plane; conn: Conn }
-type ArtOpts = Pick<Opts, 'dims' | 'welds' | 'labels' | 'weldmap'> & { textEdit?: boolean };
+type ArtOpts = Pick<Opts, 'dims' | 'welds' | 'labels' | 'weldmap'> & { textEdit?: boolean; /** sheet: item numbers per point (match the material list) */ items?: Record<number, number[]>; /** sheet: pipe piece letters (match the cut list) */ spools?: Array<{ run: number; t: number; letter: string }> };
 
 const PLANES: Record<Plane, { n: Vec3; a: Vec3; b: Vec3; label: string }> = {
   EN: { n: [0, 0, 1], a: [1, 0, 0], b: [0, 1, 0], label: 'Flat' },
@@ -511,9 +511,9 @@ export function IsoSketch() {
   );
   const modals = <>
     {modal === 'drawings' && <IsoModal title="My Drawings" onClose={() => setModal(null)}><Library store={store} setStore={setStore} onOpen={(id) => { openDrawing(id); setModal(null); }} /></IsoModal>}
-    {modal === 'name' && <NameModal title="Name drawing" name={d.name} action="Save name" onClose={() => setModal(null)} onSave={(n) => { update((x) => ({ ...x, name: n })); setModal(null); toast('Renamed'); }} />}
-    {modal === 'complete' && <NameModal title="Complete drawing" name={d.name} action="Save & complete" note="The drawing is saved and shown as an 11×17 iso sheet with its material breakdown, cut list and weld log. Confirm the name:"
-      onClose={() => setModal(null)} onSave={(n) => { update((x) => ({ ...x, name: n, done: true, doneAt: Date.now() })); setModal(null); setSel(null); setArmed(null); setOffOpen(false); toast('Saved — drawing complete'); }} />}
+    {modal === 'name' && <NameModal title="Name drawing" d={d} action="Save" onClose={() => setModal(null)} onSave={(n, info) => { update((x) => ({ ...x, name: n, info })); setModal(null); toast('Saved'); }} />}
+    {modal === 'complete' && <NameModal title="Complete drawing" d={d} action="Save & complete" note="The drawing is saved and shown as an 11×17 iso sheet with its material breakdown, cut list and weld log. Confirm the name and job details for the title block:"
+      onClose={() => setModal(null)} onSave={(n, info) => { update((x) => ({ ...x, name: n, info, done: true, doneAt: Date.now() })); setModal(null); setSel(null); setArmed(null); setOffOpen(false); toast('Saved — drawing complete'); }} />}
   </>;
 
   if (d.done) {
@@ -1301,6 +1301,33 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
   const pipeSegs: LSeg[] = [];
   d.runs.forEach((r, i) => { if (r.move) return; const a = S[r.from], b = S[i + 1]; if (a && b) pipeSegs.push([a[0], a[1], b[0], b[1], 1.5]); });
   const placed: LSeg[] = [];
+  // fitting / valve / end symbols are obstacles too
+  const symObs: LSeg[] = [];
+  for (let n = 0; n <= d.runs.length; n++) {
+    const p = S[n]; if (!p) continue;
+    const kd = nodeKind(d, n).kind;
+    const r = kd === 'straight' ? (inlineAt(d, n) ? 10 : 0) : kd === 'end' || kd === 'start-end' ? ((d.ends[n] ?? 'open') === 'open' && !inlineAt(d, n) ? 0 : (d.ends[n] === 'nozzle' ? 14 : 8)) : 5;
+    if (r) symObs.push([p[0], p[1], p[0], p[1], r]);
+  }
+  const crowd = (me: LSeg) => {
+    let sc = 0;
+    for (const q of placed) { const dd = segSeg(me, q) - me[4] - q[4] - 1.5; if (dd < 0) sc += 10 - dd; }
+    for (const q of pipeSegs) { const dd = segSeg(me, q) - me[4] - q[4] - 0.8; if (dd < 0) sc += 5 - dd; }
+    for (const q of symObs) { const dd = segSeg(me, q) - me[4] - q[4]; if (dd < 0) sc += 4 - dd; }
+    return sc;
+  };
+  /** Find a free spot for a horizontal box (half-width hw, half-height hh) near (ax, ay), starting in direction (dx, dy). */
+  const freeSpot = (ax: number, ay: number, hw: number, hh: number, dx: number, dy: number, d0: number): [number, number, number] => {
+    const a0 = Math.atan2(dy, dx);
+    let best: [number, number, number] = [ax + dx * d0, ay + dy * d0, Infinity];
+    search: for (const dist of [d0, d0 * 1.35, d0 * 1.8, d0 * 2.4, d0 * 3.2]) for (const da of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.2, -2.2, Math.PI]) {
+      const x = ax + Math.cos(a0 + da) * dist, y = ay + Math.sin(a0 + da) * dist;
+      const sc = crowd([x - hw, y, x + hw, y, hh]) + dist * 0.01 + Math.abs(da) * 0.05;
+      if (sc < best[2]) best = [x, y, sc];
+      if (sc < 0.3) break search;
+    }
+    return best;
+  };
   const BASE: Record<string, number> = { 'iso-dim': 10.5, 'iso-legdim': 9, 'iso-dimsub': 9 };
   const label = (key: string, a: [number, number], b: [number, number], text: string, cls: string, off = 11, dim?: number) => {
     const [ux, uy, L] = unit(a, b);
@@ -1309,21 +1336,27 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; } // keep labels above / left of the line
     const base = (BASE[cls.split(' ')[0]] ?? 10) - (cls.includes(' seg') ? 0.5 : 0);
     const cw = 0.56; // average character width of the bold font, in ems
-    const fs = Math.max(5, Math.min(base, (L - 4) / (text.length * cw)));
-    const half = (text.length * cw * fs) / 2;
     const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-    const k = fs / base, o0 = Math.sign(off) * Math.max(fs * 0.85 + 2, Math.abs(off) * k);
-    const cands = [o0, -o0, o0 * 1.8, -o0 * 1.8, o0 * 2.6, -o0 * 2.6];
-    let best = { o: o0, along: 0, score: Infinity };
-    for (const o of cands) for (const along of [0, L * 0.22, -L * 0.22]) {
-      if (Math.abs(along) + half > L / 2 + half * 0.6 && along !== 0) continue;
-      const cx = mx + nx * o + ux * along, cy = my + ny * o + uy * along;
-      const me: LSeg = [cx - ux * half, cy - uy * half, cx + ux * half, cy + uy * half, fs * 0.5];
-      let score = Math.abs(o - o0) * 0.01 + Math.abs(along) * 0.005;
-      for (const q of placed) { const dd = segSeg(me, q) - me[4] - q[4] - 1; if (dd < 0) score += 10 - dd; }
-      for (const q of pipeSegs) { const dd = segSeg(me, q) - me[4] - q[4] - 0.5; if (dd < 0) score += 5 - dd; }
-      if (score < best.score) best = { o, along, score };
-      if (score < 0.2) break;
+    let fs = Math.max(5, Math.min(base, (L - 4) / (text.length * cw)));
+    let half = 0, o0 = 0;
+    let best = { o: 0, along: 0, score: Infinity };
+    // look for a clear spot; if there is none, make the text a little smaller and look again
+    for (const shrink of [1, 0.85, 0.72]) {
+      const f = Math.max(4.5, fs * shrink);
+      const h2 = (text.length * cw * f) / 2;
+      const k = f / base, oo = Math.sign(off) * Math.max(f * 0.85 + 2, Math.abs(off) * k);
+      const cands = [oo, -oo, oo * 1.8, -oo * 1.8, oo * 2.6, -oo * 2.6, oo * 3.4, -oo * 3.4];
+      let b2 = { o: oo, along: 0, score: Infinity };
+      for (const o of cands) for (const along of [0, L * 0.22, -L * 0.22, L * 0.38, -L * 0.38]) {
+        if (Math.abs(along) + h2 > L / 2 + h2 * 0.6 && along !== 0) continue;
+        const cx = mx + nx * o + ux * along, cy = my + ny * o + uy * along;
+        const me: LSeg = [cx - ux * h2, cy - uy * h2, cx + ux * h2, cy + uy * h2, f * 0.5];
+        const score = Math.abs(o - oo) * 0.01 + Math.abs(along) * 0.005 + crowd(me);
+        if (score < b2.score) b2 = { o, along, score };
+        if (score < 0.2) break;
+      }
+      if (b2.score < best.score - 0.5 || shrink === 1) { best = b2; fs = f; half = h2; o0 = oo; }
+      if (best.score < 1) break;
     }
     const lx = mx + nx * best.o + ux * best.along, ly = my + ny * best.o + uy * best.along;
     placed.push([lx - ux * half, ly - uy * half, lx + ux * half, ly + uy * half, fs * 0.5]);
@@ -1430,6 +1463,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     if (opts.labels) els.push(<text key={'rl' + i} className="iso-node" x={m[0] - nx * 12} y={m[1] - ny * 12 + 3} textAnchor="middle">L{i + 1}</text>);
   });
 
+  // fitting callouts (sizes, RED TEE, WOL …): queued, then placed clear of the measurements, pipes and symbols
+  const callouts: Array<{ key: string; text: string; at: [number, number]; dir: [number, number]; dist: number; cls?: string }> = [];
   // nodes
   const nNodes = d.runs.length + 1;
   for (let n = 0; n < nNodes; n++) {
@@ -1444,7 +1479,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         if (jm) els.push(...jointMark(jm.conn, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy], `w${n}-${j}`));
       });
       const fs = d.fitSize?.[n];
-      els.push(...nodeSymbol(fit, k.kind, p, legScreen, 'ns' + n, undefined, fs ? (fit === 'redtee' ? `${d.nps}"×${fs}"` : `${fs}"`) : undefined));
+      els.push(...nodeSymbol(fit, k.kind, p, legScreen, 'ns' + n, undefined, fs ? (fit === 'redtee' ? `${sizes[n - 1] ?? d.nps}"×${fs}"` : `${fs}"`) : undefined,
+        (text, dir, dist) => callouts.push({ key: 'nl' + n, text, at: [p[0], p[1]], dir: [dir[0], dir[1]], dist })));
       const er = k.kind === 'elbow' ? inlineAt(d, n) : null;
       const li = legs.findIndex((l) => l.run === n - 1);
       if (er && li >= 0) {
@@ -1452,9 +1488,9 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         const ui = legScreen[li]; const c: [number, number] = [p[0] + ui[0] * 15, p[1] + ui[1] * 15];
         if (sel?.kind === 'node' && sel.id === n && !exportMode) els.push(<circle key={'ih' + n} className="iso-itemsel" cx={c[0]} cy={c[1]} r={12} />);
         els.push(...lineSymbol(er.type, c, [-ui[0], -ui[1]], 6, 'er' + n));
-        if (er.size && opts.dims) els.push(<text key={'ers' + n} className="iso-fit" x={c[0] - ui[1] * 14} y={c[1] + ui[0] * 14 + 3} textAnchor="middle">{`${sizes[n - 1] ?? d.nps}"×${er.size}"`}</text>);
+        if (er.size && opts.dims) callouts.push({ key: 'ers' + n, text: `${sizes[n - 1] ?? d.nps}"×${er.size}"`, at: c, dir: [-ui[1], ui[0]], dist: 11 });
       }
-      if (k.kind === 'elbow' && Math.abs(k.angle - 90) > 0.05) els.push(<text key={'ea' + n} className="iso-note" x={p[0] + 7} y={p[1] + 15}>{formatNumber(k.angle, 1)}°</text>);
+      if (k.kind === 'elbow' && Math.abs(k.angle - 90) > 0.05) { const bx = -(legScreen[0][0] + legScreen[1][0]), by = -(legScreen[0][1] + legScreen[1][1]), bl = Math.hypot(bx, by) || 1; callouts.push({ key: 'ea' + n, text: `${formatNumber(k.angle, 1)}°`, at: [p[0], p[1]], dir: [bx / bl, by / bl], dist: 11, cls: 'iso-note' }); }
     } else if (k.kind === 'straight') {
       const it = inlineAt(d, n);
       if (it && legScreen.length === 2) {
@@ -1468,7 +1504,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         const isSelN = sel?.kind === 'node' && sel.id === n;
         if (isSelN && !exportMode) els.push(<circle key={'ih' + n} className="iso-itemsel" cx={p[0]} cy={p[1]} r={sz * 1.9} />);
         els.push(<g key={'inl' + n} className="iso-item">{lineSymbol(it.type, p, u, sz, 'inl' + n, stemS)}</g>);
-        if (isReducer(it.type) && it.size && opts.dims) els.push(<text key={'rs' + n} className="iso-fit" x={p[0] + (stemS?.[0] ?? 0) * 16} y={p[1] + (stemS?.[1] ?? -1) * 16 + 3} textAnchor="middle">{`${sizes[n - 1] ?? d.nps}"×${it.size}"`}</text>);
+        if (isReducer(it.type) && it.size && opts.dims) callouts.push({ key: 'rs' + n, text: `${sizes[n - 1] ?? d.nps}"×${it.size}"`, at: [p[0], p[1]], dir: stemS ?? [0, -1], dist: 13 });
         if (opts.welds && !['spool', 'flange', 'orifice', 'spectacle', 'union', 'coupling', 'dielectric', 'swage'].includes(it.type)) {
           const off = sz * 1.15 + 4;
           for (const sgn of [-1, 1]) els.push(...jointMark(it.conn ?? 'bw', [p[0] + u[0] * off * sgn, p[1] + u[1] * off * sgn], u, `ij${n}${sgn}`));
@@ -1481,7 +1517,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         // reducer on the end of a line
         if (sel?.kind === 'node' && sel.id === n && !exportMode) els.push(<circle key={'ih' + n} className="iso-itemsel" cx={p[0] - legScreen[0][0] * 7} cy={p[1] - legScreen[0][1] * 7} r={12} />);
         els.push(...endSymbol(er.type === 'eccreducer' ? 'eccreducer' : 'reducer', p, legScreen[0], 'er' + n));
-        if (er.size && opts.dims) els.push(<text key={'ers' + n} className="iso-fit" x={p[0] - legScreen[0][0] * 22} y={p[1] - legScreen[0][1] * 22 + 3} textAnchor="middle">{`${sizes[n - 1] ?? d.nps}"×${er.size}"`}</text>);
+        if (er.size && opts.dims) callouts.push({ key: 'ers' + n, text: `${sizes[n - 1] ?? d.nps}"×${er.size}"`, at: [p[0] - legScreen[0][0] * 7, p[1] - legScreen[0][1] * 7], dir: [-legScreen[0][0], -legScreen[0][1]], dist: 16 });
         if (opts.welds) els.push(...jointMark(er.conn ?? 'bw', p, legScreen[0], 'erj' + n));
       } else els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode, connAt(d, n)));
       // the joint between the pipe and the end fitting, shown with the chosen connection's mark
@@ -1496,6 +1532,52 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     }
     if (opts.labels) els.push(<text key={'nl' + n} className="iso-node" x={p[0] + 8} y={p[1] - 8}>{n}</text>);
   }
+  // place the fitting callouts — smaller text, moved off lines and measurements, with a leader when moved away
+  callouts.forEach((c) => {
+    for (const fs0 of [6.8, 5.8, 5]) {
+      const hw = (c.text.length * 0.56 * fs0) / 2, hh = fs0 * 0.55;
+      const [x, y, sc] = freeSpot(c.at[0], c.at[1], hw, hh, c.dir[0], c.dir[1], Math.max(c.dist * 0.75, hh + 7));
+      if (sc > 1 && fs0 > 5) continue;
+      placed.push([x - hw, y, x + hw, y, hh]);
+      const dd = Math.hypot(x - c.at[0], y - c.at[1]);
+      els.push(<g key={c.key}>
+        {dd > c.dist * 1.25 && <line className="iso-dimlead" x1={c.at[0]} y1={c.at[1]} x2={x} y2={y + (y > c.at[1] ? -hh : hh)} />}
+        <text className={c.cls ?? 'iso-fit'} x={x} y={y} textAnchor="middle" dominantBaseline="middle" style={{ fontSize: `${fs0}px` }}>{c.text}</text>
+      </g>);
+      break;
+    }
+  });
+  // sheet: item numbers (same item = same number, as in the material list) and pipe piece letters (as in the cut list)
+  if (opts.spools) opts.spools.forEach((sp) => {
+    const r = d.runs[sp.run]; const a = S[r?.from ?? -1], b = S[sp.run + 1]; if (!r || !a || !b) return;
+    const [ux, uy] = unit(a, b);
+    let nx = -uy, ny = ux; if (ny < 0 || (Math.abs(ny) < 1e-6 && nx < 0)) { nx = -nx; ny = -ny; } // below / right: the measurements sit above / left
+    const ax = a[0] + (b[0] - a[0]) * sp.t, ay = a[1] + (b[1] - a[1]) * sp.t;
+    const hw = 3 + sp.letter.length * 2.6, hh = 4.6;
+    const [x, y] = freeSpot(ax, ay, hw, hh, nx, ny, 10);
+    placed.push([x - hw, y, x + hw, y, hh]);
+    els.push(<g key={'sp' + sp.letter} className="iso-spool">
+      {Math.hypot(x - ax, y - ay) > 12 && <line className="iso-spoollead" x1={ax} y1={ay} x2={x} y2={y} />}
+      <rect className="iso-spoolbox" x={x - hw} y={y - hh} width={hw * 2} height={hh * 2} rx={1} />
+      <text className="iso-spooltxt" x={x} y={y + 0.3} textAnchor="middle" dominantBaseline="middle">{sp.letter}</text>
+    </g>);
+  });
+  if (opts.items) Object.entries(opts.items).forEach(([ns, nums]) => {
+    const n = Number(ns), p = S[n]; if (!p) return;
+    let bx = 0, by = 0;
+    nodeLegs(d, n).forEach((l) => { const q = d.runs[l.run]; const o2 = q.from === n ? S[l.run + 1] : S[q.from]; if (!o2) return; const [vx, vy] = unit(p, o2); bx -= vx; by -= vy; });
+    const bl = Math.hypot(bx, by); const dir: [number, number] = bl > 0.2 ? [bx / bl, by / bl] : [0.6, -0.8];
+    const txt = nums.join(',');
+    const r0 = Math.max(5.2, 2.6 + txt.length * 2.1);
+    const [x, y] = freeSpot(p[0], p[1], r0, r0, dir[0], dir[1], 17);
+    placed.push([x - r0, y, x + r0, y, r0]);
+    const dd = Math.hypot(x - p[0], y - p[1]) || 1;
+    els.push(<g key={'it#' + n} className="iso-ball">
+      <line className="iso-balllead" x1={p[0]} y1={p[1]} x2={x - ((x - p[0]) / dd) * r0} y2={y - ((y - p[1]) / dd) * r0} />
+      <circle className="iso-ballc" cx={x} cy={y} r={r0} />
+      <text className="iso-balltxt" x={x} y={y + 0.3} textAnchor="middle" dominantBaseline="middle">{txt}</text>
+    </g>);
+  });
   // notes
   d.notes.forEach((t, j) => {
     const p = S[t.node]; if (!p) return;
@@ -1536,16 +1618,18 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       const hw = (4 + tag.length * 4.3) / 2, hh = 5;
       // try spots around the weld; keep the first clear one (or the least crowded)
       let best: [number, number] = [c[0] + nx * 13, c[1] + ny * 13], bestScore = Infinity;
-      search: for (const dist of [12, 17, 23, 30, 38]) for (const sd of [1, -1]) for (const al of [0, 7, -7, 14, -14]) {
-        const x = c[0] + nx * sd * dist + ux * al, y = c[1] + ny * sd * dist + uy * al;
-        let score = dist * 0.02 + (sd < 0 ? 0.05 : 0);
+      const a0 = Math.atan2(ny, nx);
+      search: for (const dist of [12, 17, 23, 30, 40, 52, 66]) for (const da of [0, 0.45, -0.45, 0.9, -0.9, 1.4, -1.4, 2, -2, 2.6, -2.6, Math.PI]) {
+        const x = c[0] + Math.cos(a0 + da) * dist, y = c[1] + Math.sin(a0 + da) * dist;
+        let score = dist * 0.02 + Math.abs(da) * 0.04;
         for (const g of segs) { const dd = segDist(x, y, g) - Math.max(hw, hh) * 0.75; if (dd < g[4]) score += (g[4] - dd) * 2; }
         for (const bx of boxes) { const ovx = hw + bx[2] + 2 - Math.abs(x - bx[0]), ovy = hh + bx[3] + 2 - Math.abs(y - bx[1]); if (ovx > 0 && ovy > 0) score += 20 + ovx * ovy; }
+        score += crowd([x - hw, y, x + hw, y, hh]) * 2;
         if (score < bestScore) { bestScore = score; best = [x, y]; }
         if (score < 0.5) break search;
       }
       const t = best;
-      boxes.push([t[0], t[1], hw, hh]);
+      boxes.push([t[0], t[1], hw, hh]); placed.push([t[0] - hw, t[1], t[0] + hw, t[1], hh]);
       const on = sel?.kind === 'weld' && sel.key === w.key;
       // leader from the weld to the near edge of the tag
       const lx = t[0] - c[0], ly = t[1] - c[1], ll = Math.hypot(lx, ly) || 1;
@@ -1897,7 +1981,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
     </Card>
   );
 }
-const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:700 10px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}.iso-legdim{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-dimlead{stroke:#0a4f4a;stroke-width:.5;stroke-dasharray:1.5 1.5}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textbox{fill:none;stroke:none}`;
+const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:700 10px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}.iso-legdim{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-dimlead{stroke:#0a4f4a;stroke-width:.5;stroke-dasharray:1.5 1.5}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-fit{font:800 6.8px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:2.4px;stroke-linejoin:round}.iso-note{paint-order:stroke;stroke:#fff;stroke-width:2.4px}.iso-spoolbox{fill:#fff;stroke:#1f3b3a;stroke-width:.9}.iso-spooltxt{font:800 6.6px sans-serif;fill:#1f3b3a}.iso-spoollead{stroke:#1f3b3a;stroke-width:.5}.iso-ballc{fill:#fff;stroke:#111;stroke-width:.9}.iso-balltxt{font:800 6.4px sans-serif;fill:#111}.iso-balllead{stroke:#111;stroke-width:.5}.iso-textbox{fill:none;stroke:none}`;
 
 async function shareImage(d: IsoDrawing, markup: string, W: number, H: number, scale = 3): Promise<string> {
   const svg = markup.replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);
@@ -1957,15 +2041,25 @@ function IsoModal({ title, onClose, children }: { title: string; onClose: () => 
     </div>, document.body);
 }
 
-function NameModal({ title, name, action, note, onSave, onClose }: { title: string; name: string; action: string; note?: string; onSave: (n: string) => void; onClose: () => void }) {
-  const [v, setV] = useState(name);
+function NameModal({ title, d, action, note, onSave, onClose }: { title: string; d: IsoDrawing; action: string; note?: string; onSave: (n: string, info: DrawingInfo) => void; onClose: () => void }) {
+  const [v, setV] = useState(d.name);
+  const [info, setInfo] = useState<DrawingInfo>({ ...(d.info ?? {}) });
   const ok = v.trim().length > 0;
+  const save = () => { if (ok) onSave(v.trim(), Object.fromEntries(Object.entries(info).map(([k, x]) => [k, (x ?? '').trim()])) as DrawingInfo); };
+  const field = (k: keyof DrawingInfo, label: string, ph: string) => (
+    <label className="field"><span className="flabel">{label}</span>
+      <span className="finput"><input value={info[k] ?? ''} placeholder={ph} onChange={(e) => setInfo((o) => ({ ...o, [k]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') save(); }} /></span></label>
+  );
   return (
     <IsoModal title={title} onClose={onClose}>
       {note && <p className="fhint">{note}</p>}
       <label className="field"><span className="flabel">Drawing name</span>
-        <span className="finput"><input value={v} autoFocus onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && ok) onSave(v.trim()); }} /></span></label>
-      <button className="btn primary" disabled={!ok} onClick={() => onSave(v.trim())}>{action}</button>
+        <span className="finput"><input value={v} autoFocus onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); }} /></span></label>
+      {field('customer', 'Customer', 'Customer name')}
+      {field('site', 'Job site address', 'Street, city')}
+      {field('jobNo', 'Job number', 'e.g. 24-118')}
+      {field('system', 'System', 'e.g. Chilled water supply')}
+      <button className="btn primary" disabled={!ok} onClick={save}>{action}</button>
     </IsoModal>
   );
 }
@@ -2001,28 +2095,51 @@ function svgTable(key: string, x: number, y: number, w: number, hMax: number, ti
   return <g key={key}>{out}</g>;
 }
 
+/** Pipe piece letters: A … Z, AA, AB … */
+const pieceLetter = (i: number): string => (i < 26 ? String.fromCharCode(65 + i) : pieceLetter(Math.floor(i / 26) - 1) + String.fromCharCode(65 + (i % 26)));
 function sheetData(d: IsoDrawing, prefs: Prefs) {
   const sizes = runSizes(d);
   const cuts = cutList(d).filter((c) => !c.skip);
-  const L = (i: number) => String.fromCharCode(97 + i);
   const cutRows: TRow[] = [];
+  const spools: Array<{ run: number; t: number; letter: string }> = [];
+  let li = 0;
   cuts.forEach((c) => {
-    const base = `${c.run + 1}`;
-    if (Number.isNaN(c.travel)) { cutRows.push([base, `${describeRun(d.runs[c.run])} · ${sizes[c.run]}"`, 'no dimension', '—']); return; }
-    if (c.pieces) c.pieces.forEach((q, k) => cutRows.push([base + L(k), `${q.from} → ${q.to} · ${sizes[c.run]}"`, k === 0 ? `${formatFtIn(c.travel, prefs)} ${runRef(d, c.run)}` : '', Number.isNaN(q.cut) ? 'need length' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE']));
-    else cutRows.push([base, `${describeRun(d.runs[c.run])} · ${sizes[c.run]}"`, `${formatFtIn(shownLength(d, c.run), prefs)} ${runRef(d, c.run)}`, c.ok ? formatFtIn(c.cut, prefs) : Number.isNaN(c.cut) ? 'need length' : 'IMPOSSIBLE']);
+    const what = `L${c.run + 1} ${describeRun(d.runs[c.run])} · ${sizes[c.run]}"`;
+    if (c.pieces && !Number.isNaN(c.travel)) {
+      const segs = runSegments(d, c.run), tr = runLength(d.runs[c.run]) || 1;
+      c.pieces.forEach((q, k) => {
+        const letter = pieceLetter(li++);
+        const sg = segs && segs.length === c.pieces!.length ? segs[k] : null;
+        spools.push({ run: c.run, t: sg ? Math.max(0.05, Math.min(0.95, (sg.a + sg.b) / 2 / tr)) : (k + 0.5) / c.pieces!.length, letter });
+        cutRows.push([letter, `${what} · ${q.from} → ${q.to}`, k === 0 ? `${formatFtIn(c.travel, prefs)} ${runRef(d, c.run)}` : '', Number.isNaN(q.cut) ? 'need length' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE']);
+      });
+      return;
+    }
+    const letter = pieceLetter(li++);
+    spools.push({ run: c.run, t: 0.5, letter });
+    if (Number.isNaN(c.travel)) { cutRows.push([letter, what, 'no dimension', '—']); return; }
+    cutRows.push([letter, what, `${formatFtIn(shownLength(d, c.run), prefs)} ${runRef(d, c.run)}`, c.ok ? formatFtIn(c.cut, prefs) : Number.isNaN(c.cut) ? 'need length' : 'IMPOSSIBLE']);
   });
   const total = cuts.reduce((s, c) => s + (c.pieces ? c.pieces.reduce((t, q) => t + (q.ok ? q.cut : 0), 0) : c.ok ? c.cut : 0), 0);
-  const mat = materials(d).map((m): TRow => [m.item, m.size ? (m.size.includes('×') ? m.size.split('×').map((z) => z + '"').join('×') : m.size + '"') : '', m.spec, m.unit === 'ft' ? formatFtIn(m.qty * 12, prefs) : String(m.qty)]);
+  // material list numbered 1, 2, 3 … (pipe is lettered and welds are counted, so they get no number); the same number goes on every matching fitting
+  const items: Record<number, number[]> = {};
+  let num = 0;
+  const pipeLetters = (z: string) => { const ls = spools.filter((sp) => sizes[sp.run] === z).map((sp) => sp.letter); return ls.length > 2 ? `${ls[0]}–${ls[ls.length - 1]}` : ls.join(','); };
+  const mat = materials(d).map((m): TRow => {
+    const isPipe = m.item === 'Pipe', isWeld = /weld$/i.test(m.item);
+    const no = isPipe ? pipeLetters(m.size) : isWeld ? '' : String(++num);
+    if (!isPipe && !isWeld) (m.nodes ?? []).forEach((n) => { (items[n] ??= []).includes(num) || items[n].push(num); });
+    return [no, m.item, m.size ? (m.size.includes('×') ? m.size.split('×').map((z) => z + '"').join('×') : m.size + '"') : '', m.spec, m.unit === 'ft' ? formatFtIn(m.qty * 12, prefs) : String(m.qty)];
+  });
   const wl = weldList(d);
   const weldRows: TRow[] = wl.map((w, j) => { const i = d.welds?.[w.key]; return [`${i?.field ? 'FW' : 'W'}${j + 1}`, w.conn === 'sw' ? 'SW' : 'BW', i?.field ? 'Field' : 'Shop', i?.stencil ?? '', i?.notes ?? '']; });
-  return { cutRows, total, mat, weldRows, wl };
+  return { cutRows, total, mat, weldRows, wl, spools, items };
 }
 
 function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: IsoDrawing; opts: Opts; prefs: Prefs; svgRef?: React.Ref<SVGSVGElement>; welds?: boolean; vb?: string }) {
   const view = opts.view;
   const disp = displayPositions(d, opts.scaled);
-  const { cutRows, total, mat, weldRows: weldRows0, wl } = sheetData(d, prefs);
+  const { cutRows, total, mat, weldRows: weldRows0, wl, spools, items } = sheetData(d, prefs);
   const weldRows = showWelds ? weldRows0 : [];
   const M = 25;
   const RX = 1215, RW = SW - M - 10 - RX; // right column
@@ -2047,14 +2164,17 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
   const shop = wl.filter((w) => !d.welds?.[w.key]?.field).length, field = wl.length - shop;
   const date = new Date(d.doneAt ?? d.updated).toLocaleDateString();
   // right column: material, weld log, title block
-  const TB = 190, tbY = SH - M - 10 - TB;
+  const info = d.info ?? {};
+  const tbRows: Array<[string, string]> = [['DRAWING', d.name], ['CUSTOMER', info.customer ?? ''], ['JOB #', info.jobNo ?? ''], ['JOB SITE', info.site ?? ''], ['SYSTEM', info.system ?? ''],
+    ['SIZE', `${d.nps}" NPS · Class ${d.cls ?? 150} · ${CONN_LABEL[d.conn ?? 'bw']}`], ['DATE', date], ['STATUS', `COMPLETE · ${d.runs.filter((r) => !r.move).length} lines · ${wl.length} welds${showWelds ? '' : ' (map off)'}`]];
+  const RH = 25, TB = 44 + tbRows.length * RH + 6, tbY = SH - M - 10 - TB;
   const matH = Math.min(tbY - DY - 10 - (weldRows.length ? 150 : 0), 34 + (mat.length + 1) * 24 + 4);
   const weldY = DY + matH + 12, weldH = tbY - 12 - weldY;
   // cut list: one or two tables side by side under the drawing
   const cutY = DY + DH + 10;
   const two = cutRows.length > Math.floor((cutH - 34) / 20) - 1 && cutRows.length > 8;
   const half = Math.ceil(cutRows.length / 2);
-  const cutCols = [{ h: 'Line', w: 0.11 }, { h: 'Run · size', w: 0.39 }, { h: 'Length', w: 0.27 }, { h: 'Cut', w: 0.23, r: true }];
+  const cutCols = [{ h: 'Pc', w: 0.07 }, { h: 'Line · run · size', w: 0.45 }, { h: 'Length', w: 0.26 }, { h: 'Cut', w: 0.22, r: true }];
   return (
     <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" viewBox={vb ?? `0 0 ${SW} ${SH}`} className="isosheet" role="img" aria-label={`${d.name} iso sheet`}>
       <style>{EXPORT_CSS}</style>
@@ -2065,24 +2185,24 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
       <rect x={DX} y={DY} width={DW} height={DH} fill="none" stroke="#111" strokeWidth={1.2} />
       <g clipPath="url(#sheetclip)"><g transform={`translate(${DX} ${DY}) scale(${KK})`}>
         <HatchDefs />
-        <IsoArt d={d} disp={disp} T3={T3} sel={null} cursor={-1} opts={{ dims: true, welds: true, labels: false, weldmap: showWelds }} prefs={prefs} exportMode />
+        <IsoArt d={d} disp={disp} T3={T3} sel={null} cursor={-1} opts={{ dims: true, welds: true, labels: false, weldmap: showWelds, items, spools }} prefs={prefs} exportMode />
         <Compass x={36} y={36} view={view} />
       </g></g>
       <text x={DX + DW - 12} y={DY + 26} textAnchor="end" style={{ font: '800 20px sans-serif', fill: '#1f3b3a', letterSpacing: '2px' }}>ISOMETRIC</text>
       {two
         ? <>{svgTable('cut1', DX, cutY, DW / 2 - 6, cutH, 'CUT LIST', cutCols, cutRows.slice(0, half))}{svgTable('cut2', DX + DW / 2 + 6, cutY, DW / 2 - 6, cutH, `CUT LIST (cont.) · TOTAL ${formatFtIn(total, prefs)}`, cutCols, cutRows.slice(half))}</>
         : svgTable('cut', DX, cutY, DW, cutH, `CUT LIST · TOTAL PIPE ${formatFtIn(total, prefs)}`, cutCols, cutRows)}
-      {svgTable('mat', RX, DY, RW, matH, 'MATERIAL', [{ h: 'Item', w: 0.38 }, { h: 'Size', w: 0.16 }, { h: 'Spec', w: 0.25 }, { h: 'Qty', w: 0.21, r: true }], mat.length ? mat : [['No material yet']])}
+      {svgTable('mat', RX, DY, RW, matH, 'MATERIAL', [{ h: '#', w: 0.08 }, { h: 'Item', w: 0.36 }, { h: 'Size', w: 0.15 }, { h: 'Spec', w: 0.23 }, { h: 'Qty', w: 0.18, r: true }], mat.length ? mat : [['No material yet']])}
       {weldRows.length > 0 && svgTable('weld', RX, weldY, RW, weldH, `WELD LOG · ${shop} SHOP / ${field} FIELD`, [{ h: 'Weld', w: 0.13 }, { h: 'Type', w: 0.11 }, { h: 'S/F', w: 0.13 }, { h: 'Stencil', w: 0.2 }, { h: 'Notes', w: 0.43 }], weldRows)}
       <g>
         <rect x={RX} y={tbY} width={RW} height={TB} fill="#fff" stroke="#111" strokeWidth={2} />
         <rect x={RX} y={tbY} width={RW} height={44} fill="#1f3b3a" />
         <text x={RX + 14} y={tbY + 30} style={{ font: '900 23px sans-serif', fill: '#fff', letterSpacing: '1.5px' }}>RIDGECREST INDUSTRIES</text>
-        {[['DRAWING', d.name], ['SIZE', `${d.nps}" NPS · Class ${d.cls ?? 150} · gap ${formatFracIn(d.gap, prefs)}`], ['JOINT', CONN_LABEL[d.conn ?? 'bw']], ['DATE', date], ['STATUS', `COMPLETE · ${d.runs.filter((r) => !r.move).length} lines · ${wl.length} welds${showWelds ? '' : ' (map off)'}`]].map(([k, v], i) => (
+        {tbRows.map(([k, v], i) => (
           <g key={k}>
-            <line x1={RX} x2={RX + RW} y1={tbY + 44 + i * 29} y2={tbY + 44 + i * 29} stroke="#ccd" />
-            <text x={RX + 12} y={tbY + 64 + i * 29} style={{ font: '800 12px sans-serif', fill: '#666' }}>{k}</text>
-            <text x={RX + 100} y={tbY + 64 + i * 29} style={{ font: `${i === 0 ? 800 : 600} ${i === 0 ? 17 : 14}px sans-serif`, fill: i === 4 ? '#1f7f3a' : '#111' }}>{v.length > 44 ? v.slice(0, 43) + '…' : v}</text>
+            <line x1={RX} x2={RX + RW} y1={tbY + 44 + i * RH} y2={tbY + 44 + i * RH} stroke="#ccd" />
+            <text x={RX + 12} y={tbY + 61 + i * RH} style={{ font: '800 11px sans-serif', fill: '#666' }}>{k}</text>
+            <text x={RX + 98} y={tbY + 61 + i * RH} style={{ font: `${i === 0 ? 800 : 600} ${i === 0 ? 16 : 13.5}px sans-serif`, fill: k === 'STATUS' ? '#1f7f3a' : '#111' }}>{v.length > 46 ? v.slice(0, 45) + '…' : v || '—'}</text>
           </g>
         ))}
       </g>

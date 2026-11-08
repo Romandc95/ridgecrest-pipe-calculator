@@ -83,7 +83,7 @@ export function lineSymbol(type: string, m: V2, u: V2, s: number, key: string, s
 }
 
 /** Symbol at an elbow or branch point. legs = unit screen directions leaving the point. */
-export function nodeSymbol(type: string | undefined, kind: 'elbow' | 'tee' | 'cross', p: V2, legs: V2[], key: string, labelDir?: V2, size?: string): React.ReactNode[] {
+export function nodeSymbol(type: string | undefined, kind: 'elbow' | 'tee' | 'cross', p: V2, legs: V2[], key: string, labelDir?: V2, size?: string, onLabel?: (text: string, dir: V2, dist: number) => void): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   const s = 6;
   const at = (u: V2, a: number, w = 0): [number, number] => [p[0] + u[0] * a - u[1] * w, p[1] + u[1] * a + u[0] * w];
@@ -94,7 +94,7 @@ export function nodeSymbol(type: string | undefined, kind: 'elbow' | 'tee' | 'cr
   let bx = 0, by = 0; legs.forEach((l) => { bx -= l[0]; by -= l[1]; });
   const bl = Math.hypot(bx, by);
   const [ox, oy] = labelDir ?? (bl > 0.1 ? [bx / bl, by / bl] : legs.length ? [-legs[0][1], legs[0][0]] : [0, -1]);
-  const label = (t: string, d = 15) => out.push(<text key={key + 'lb'} className="iso-fit" x={p[0] + ox * d} y={p[1] + oy * d + 3} textAnchor="middle">{t}</text>);
+  const label = (t: string, d = 15) => onLabel ? onLabel(t, [ox, oy], d) : out.push(<text key={key + 'lb'} className="iso-fit" x={p[0] + ox * d} y={p[1] + oy * d + 3} textAnchor="middle">{t}</text>);
   // for branches: the leg that isn't straight through (the branch), and a header leg
   const isHeader = (j: number) => legs.some((m, k) => k !== j && legs[j][0] * m[0] + legs[j][1] * m[1] < -0.98);
   const branch = legs.find((_, j) => !isHeader(j)) ?? legs[legs.length - 1];
