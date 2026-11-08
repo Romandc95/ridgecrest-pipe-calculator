@@ -168,6 +168,10 @@
 ✓ ISO route › branch from node 1 makes a tee with the tee take-out
 ✓ ISO route › rolling run described
 ✓ ISO route › iso projection: up is screen-up, north and east diverge
+✓ ISO route › ISO view projection equals the isometric drawing projection
+✓ ISO route › unproject finds the tapped point on the drawing plane, in any view
+✓ ISO route › sketched runs need a dimension before they get a cut length; measured runs use the measurement
+✓ ISO route › deleting a run removes everything that continues from it and renumbers
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -221,4 +225,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-222 passed, 0 failed, 222 total
+226 passed, 0 failed, 226 total

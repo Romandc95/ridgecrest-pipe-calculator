@@ -13,7 +13,12 @@ export const INLINE_LABEL: Record<Inline, string> = {
 export type EndType = 'open' | 'cap' | 'flange' | 'blind' | 'plug' | 'weld';
 export const END_LABEL: Record<EndType, string> = { open: 'Open end', cap: 'Cap', flange: 'Flange', blind: 'Blind flange', plug: 'Plug', weld: 'Field weld / tie-in' };
 
-export interface Run { id: string; from: number; dx: number; dy: number; dz: number; inline: Inline; label?: string }
+/**
+ * A run. (dx, dy, dz) is the drawn (sketch) geometry. `meas` is the true center-to-center vector in inches once
+ * the fitter has dimensioned it. Runs saved before sketching existed have no `sketch` flag: their (dx, dy, dz)
+ * is the true vector.
+ */
+export interface Run { id: string; from: number; dx: number; dy: number; dz: number; inline: Inline; label?: string; meas?: Vec3; sketch?: boolean }
 export interface IsoNote { id: string; node: number; text: string }
 export interface IsoDrawing {
   id: string; name: string; created: number; updated: number;
@@ -46,7 +51,11 @@ export function nodePositions(d: IsoDrawing): Vec3[] {
 
 const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2]);
 const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-export const runVec = (r: Run): Vec3 => [r.dx, r.dy, r.dz];
+export const sketchVec = (r: Run): Vec3 => [r.dx, r.dy, r.dz];
+/** True if the run has real dimensions (measured, or entered by length). */
+export const isMeasured = (r: Run) => !!r.meas || !r.sketch;
+/** Best known direction/length: the measurement when there is one, otherwise the sketch. */
+export const runVec = (r: Run): Vec3 => r.meas ?? sketchVec(r);
 export const runLength = (r: Run) => len(runVec(r));
 
 export type NodeKind = { kind: 'start-end' | 'end' } | { kind: 'straight' } | { kind: 'elbow'; angle: number } | { kind: 'tee' } | { kind: 'cross' } | { kind: 'multi'; count: number };
@@ -113,6 +122,7 @@ export function cutList(d: IsoDrawing): CutRow[] {
   return d.runs.map((r, i) => {
     const note: string[] = [];
     const a = takeoutAt(d, r.from, note), b = takeoutAt(d, i + 1, note);
+    if (!isMeasured(r)) return { run: i, travel: NaN, to1: a.to, to2: b.to, gaps: 0, cut: NaN, note: ['no dimension yet'], ok: false };
     const travel = runLength(r);
     const gaps = (a.weld ? d.gap : 0) + (b.weld ? d.gap : 0);
     if (r.inline !== 'none' && r.inline !== 'spool') note.push(`subtract the ${INLINE_LABEL[r.inline].toLowerCase()} length`);
@@ -132,6 +142,68 @@ export function cutList(d: IsoDrawing): CutRow[] {
 export function iso(p: Vec3): [number, number] {
   const c = Math.cos(Math.PI / 6), s = 0.5;
   return [(p[0] + p[1]) * c, (p[0] - p[1]) * s - p[2]];
+}
+
+// ---------------------------------------------------------------- 3D view
+/** Orthographic view: az = camera azimuth (deg, from East toward North), el = elevation above horizontal (deg). */
+export interface View { az: number; el: number }
+/** The standard isometric view: East down-right, North up-right, Up straight up. */
+export const ISO_VIEW: View = { az: -45, el: rad2deg(Math.atan(1 / Math.SQRT2)) };
+export const VIEW_PRESETS: Array<{ id: string; label: string; v: View }> = [
+  { id: 'iso', label: 'ISO', v: ISO_VIEW },
+  { id: 'plan', label: 'Plan', v: { az: -90, el: 90 } },
+  { id: 'north', label: 'Elev. N', v: { az: -90, el: 0 } },
+  { id: 'east', label: 'Elev. E', v: { az: 0, el: 0 } },
+];
+const K = Math.sqrt(2 / 3); // so the ISO view matches isometric drawing scale (true lengths along axes)
+export function viewBasis(v: View): { R: Vec3; U: Vec3; C: Vec3 } {
+  const a = deg2rad(v.az), b = deg2rad(Math.max(-90, Math.min(90, v.el)));
+  const C: Vec3 = [Math.cos(b) * Math.cos(a), Math.cos(b) * Math.sin(a), Math.sin(b)]; // toward the camera
+  const R: Vec3 = [-Math.sin(a), Math.cos(a), 0];
+  const U: Vec3 = [-Math.sin(b) * Math.cos(a), -Math.sin(b) * Math.sin(a), Math.cos(b)];
+  return { R, U, C };
+}
+/** World → screen (x right, y down) for a view. With ISO_VIEW this equals iso(). */
+export function project(p: Vec3, v: View): [number, number] {
+  const { R, U } = viewBasis(v);
+  return [dot(p, R) / K, -dot(p, U) / K];
+}
+/** Screen → the point on a plane (through `origin`, normal `n`) under that screen point, or null if the plane is edge-on. */
+export function unproject(sx: number, sy: number, v: View, origin: Vec3, n: Vec3): Vec3 | null {
+  const { R, U, C } = viewBasis(v);
+  const q: Vec3 = [K * sx * R[0] - K * sy * U[0], K * sx * R[1] - K * sy * U[1], K * sx * R[2] - K * sy * U[2]];
+  const cn = dot(C, n);
+  if (Math.abs(cn) < 0.08) return null;
+  const t = dot([origin[0] - q[0], origin[1] - q[1], origin[2] - q[2]], n) / cn;
+  return [q[0] + t * C[0], q[1] + t * C[1], q[2] + t * C[2]];
+}
+
+/**
+ * Node positions for display. Sketch: the drawn geometry. Scaled: measured runs at their true size, unmeasured runs
+ * at the drawing's typical measured/drawn ratio (k).
+ */
+export function displayPositions(d: IsoDrawing, scaled: boolean): { P: Vec3[]; k: number; vecs: Vec3[] } {
+  const ratios = d.runs.filter((r) => r.meas && len(sketchVec(r)) > 0).map((r) => len(r.meas!) / len(sketchVec(r))).sort((a, b) => a - b);
+  const k = scaled && ratios.length ? ratios[Math.floor(ratios.length / 2)] : 1;
+  const vecs = d.runs.map((r): Vec3 => (scaled && r.meas ? r.meas : [r.dx * k, r.dy * k, r.dz * k]));
+  const P: Vec3[] = [[0, 0, 0]];
+  d.runs.forEach((r, i) => { const a = P[r.from] ?? [0, 0, 0]; const v = vecs[i]; P[i + 1] = [a[0] + v[0], a[1] + v[1], a[2] + v[2]]; });
+  return { P, k, vecs };
+}
+
+/** Remove run i and every run that continues from it (directly or further down the line). */
+export function deleteSubtree(d: IsoDrawing, i: number): IsoDrawing {
+  const gone = new Set<number>([i]);
+  let grew = true;
+  while (grew) { grew = false; d.runs.forEach((r, j) => { if (!gone.has(j) && r.from > 0 && gone.has(r.from - 1)) { gone.add(j); grew = true; } }); }
+  const nodeMap = new Map<number, number>([[0, 0]]);
+  let k = 0;
+  d.runs.forEach((_, j) => { if (!gone.has(j)) nodeMap.set(j + 1, ++k); });
+  const runs = d.runs.filter((_, j) => !gone.has(j)).map((r) => ({ ...r, from: nodeMap.get(r.from)! }));
+  const ends: Record<number, EndType> = {};
+  Object.entries(d.ends).forEach(([n, e]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) ends[m] = e; });
+  const notes = d.notes.filter((t) => nodeMap.has(t.node)).map((t) => ({ ...t, node: nodeMap.get(t.node)! }));
+  return { ...d, runs, ends, notes };
 }
 
 /** Human description of a run direction, e.g. "North", "Up 45° East". */

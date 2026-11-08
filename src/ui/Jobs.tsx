@@ -163,10 +163,12 @@ function Help() {
       <Card>
         <h4>ISO sketch</h4>
         <ul>
-          <li>Type a center-to-center length, then tap a direction. On screen North points up-right, East down-right, Up straight up. Each run starts from the dashed circle.</li>
-          <li>Tap any point on the drawing to continue or branch from it — a branch makes a tee. Tap a pipe to change its length, put a valve or flange on it, or delete it. Use “Offset / rolling run” for runs that aren’t square to the grid.</li>
-          <li>The Cut list subtracts B16.9 long-radius elbow and tee take-outs for the size in Setup plus a root gap at every butt weld. Valves, flanges and reducers on a run are flagged for you to subtract.</li>
-          <li>Drawings are saved on this device (Library). Setup → Share drawing as image makes a PNG.</li>
+          <li><b>Draw:</b> in Draw mode tap the grid and a line runs from the dashed-circle point to where you tapped (snaps to the grid; taps near an axis go straight). Pick Flat, E–W wall or N–S wall to draw horizontal or vertical lines and offsets. Or type a length (optional) and tap a direction button.</li>
+          <li><b>Edit:</b> tap a point to draw or branch from it (a branch makes a tee). Tap any line to dimension it, change its direction, add a valve or flange, or delete it. Lines with a yellow ? still need a dimension.</li>
+          <li><b>Offsets</b> are shown with their legs dashed and the offset triangle hatched. Enter each leg, or the travel and all but one leg.</li>
+          <li><b>To scale</b> redraws the sketch using your dimensions. <b>Rotate 3D</b>: drag to turn the drawing; View buttons jump to ISO, plan or elevations. Drag the compass to swing North, tap it to turn 90°.</li>
+          <li><b>Full screen</b> (corner button) opens the drawing landscape with the tools at the side; Hide tools leaves just the drawing.</li>
+          <li>The Cut list subtracts B16.9 long-radius elbow and tee take-outs for the size in Setup plus a root gap at every butt weld. Drawings are saved on this device (Library); Setup → Share drawing as image makes a PNG of the current view.</li>
         </ul>
       </Card>
       <Card>

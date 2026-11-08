@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { miter, cope, thermalExpansion } from '../src/engine/shop';
-import { newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun } from '../src/engine/iso';
+import { newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree } from '../src/engine/iso';
 
 describe('miter (segmented elbow)', () => {
   it('90° with 3 welds: cut angle 15°, gore = 2R·tan15°', () => {
@@ -78,5 +78,38 @@ describe('ISO route', () => {
     expect(iso([0, 0, 10])[1]).toBe(-10);
     expect(iso([10, 0, 0])[0]).toBeCloseTo(iso([0, 10, 0])[0], 9);
     expect(iso([10, 0, 0])[1]).toBeGreaterThan(0); expect(iso([0, 10, 0])[1]).toBeLessThan(0);
+  });
+  it('ISO view projection equals the isometric drawing projection', () => {
+    for (const p of [[10, 0, 0], [0, 10, 0], [0, 0, 10], [3, -7, 5]] as Array<[number, number, number]>) {
+      const a = project(p, ISO_VIEW), b = iso(p);
+      expect(a[0]).toBeCloseTo(b[0], 9); expect(a[1]).toBeCloseTo(b[1], 9);
+    }
+  });
+  it('unproject finds the tapped point on the drawing plane, in any view', () => {
+    for (const v of [ISO_VIEW, { az: 20, el: 60 }, { az: -130, el: 15 }]) {
+      const p: [number, number, number] = [36, -24, 12];
+      const [sx, sy] = project(p, v);
+      const q = unproject(sx, sy, v, [0, 0, 12], [0, 0, 1])!;
+      expect(q[0]).toBeCloseTo(36, 6); expect(q[1]).toBeCloseTo(-24, 6); expect(q[2]).toBeCloseTo(12, 6);
+    }
+    expect(unproject(5, 5, { az: 0, el: 0 }, [0, 0, 0], [0, 0, 1])).toBeNull(); // horizontal plane seen edge-on
+  });
+  it('sketched runs need a dimension before they get a cut length; measured runs use the measurement', () => {
+    const d = base();
+    d.runs = [{ ...run(0, 24, 0, 0), sketch: true, meas: [60, 0, 0] }, { ...run(1, 0, 24, 0), sketch: true }];
+    const c = cutList(d);
+    expect(c[0].cut).toBeCloseTo(60 - 6 - 0.125, 9);
+    expect(c[1].ok).toBe(false); expect(c[1].note[0]).toBe('no dimension yet');
+    // scaled view: measured run at true size, the other at the same ratio (60/24)
+    const { P } = displayPositions(d, true);
+    expect(P[1]).toEqual([60, 0, 0]); expect(P[2][1]).toBeCloseTo(60, 9);
+    expect(displayPositions(d, false).P[1]).toEqual([24, 0, 0]);
+  });
+  it('deleting a run removes everything that continues from it and renumbers', () => {
+    const d = base(); d.runs = [run(0, 10, 0, 0), run(1, 0, 10, 0), run(2, 0, 0, 10), run(1, 0, 0, -10)];
+    d.ends = { 3: 'cap', 4: 'flange' }; d.notes = [{ id: 'n', node: 4, text: 'x' }];
+    const e = deleteSubtree(d, 1);
+    expect(e.runs.length).toBe(2); expect(e.runs[1].from).toBe(1); expect(e.runs[1].dz).toBe(-10);
+    expect(e.ends).toEqual({ 2: 'flange' }); expect(e.notes[0].node).toBe(2);
   });
 });
