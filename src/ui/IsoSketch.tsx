@@ -403,7 +403,7 @@ export function IsoSketch() {
   const setText = (id: string, text: string | null) => update((x) => ({ ...x, texts: (x.texts ?? []).flatMap((t) => (t.id !== id ? [t] : text === null ? [] : [{ ...t, text }])) }), text === null ? '' : 'ttext' + id);
   const closeText = (id: string) => { const t = d.texts?.find((q) => q.id === id); if (t && !t.text.trim()) setText(id, null); setSel(null); };
   const openDrawing = (id: string) => { setStore((s) => ({ ...s, current: id })); setSel(null); setArmed(null); setCursor(0); setOffOpen(false); setFitTick((t) => t + 1); };
-  const newDrawingNow = () => { const nd = newDrawing(`Iso ${store.drawings.length + 1}`, uid()); setStore((s) => ({ drawings: [nd, ...s.drawings], current: nd.id })); openDrawing(nd.id); toast('New drawing'); };
+  const newDrawingNow = () => { const nd = newDrawing(`Iso ${store.drawings.length + 1}`, uid()); setStore((s) => ({ drawings: [nd, ...s.drawings], current: nd.id })); setOpts({ view: { ...ISO_VIEW }, mode: 'draw' }); openDrawing(nd.id); toast('New drawing'); }; // a new drawing opens in the home (standard ISO) view
   const calloutData = (() => { if (opts.callouts === false) return undefined; const sd = sheetData(d, prefs); return { spools: sd.spools }; })(); // working drawing: pipe letters only (item numbers go on the completed sheet)
   const welds = opts.weldmap ? weldList(d) : [];
   const weldSel = sel?.kind === 'weld' ? welds.findIndex((w) => w.key === sel.key) : -1;
@@ -541,7 +541,7 @@ export function IsoSketch() {
     </div>
   );
   const modals = <>
-    {modal === 'drawings' && <IsoModal title="My Drawings" onClose={() => setModal(null)}><Library store={store} setStore={setStore} onOpen={(id) => { openDrawing(id); setModal(null); }} /></IsoModal>}
+    {modal === 'drawings' && <IsoModal title="My Drawings" onClose={() => setModal(null)}><Library store={store} setStore={setStore} onOpen={(id) => { openDrawing(id); setModal(null); }} onNew={() => { newDrawingNow(); setModal(null); }} /></IsoModal>}
     {modal === 'name' && <NameModal title="Name drawing" d={d} action="Save" onClose={() => setModal(null)} onSave={(n, info) => { update((x) => ({ ...x, name: n, info })); setModal(null); toast('Saved'); }} />}
     {modal === 'complete' && <NameModal title="Complete drawing" d={d} action="Save & complete" note="The drawing is saved and shown as an 11×17 iso sheet with its material breakdown, cut list and weld log. Confirm the name and job details for the title block:"
       onClose={() => setModal(null)} onSave={(n, info) => { update((x) => ({ ...x, name: n, info, done: true, doneAt: Date.now() })); setModal(null); setSel(null); setArmed(null); setOffOpen(false); toast('Saved — drawing complete'); }} />}
@@ -571,7 +571,7 @@ export function IsoSketch() {
           <Segmented value={panel} onChange={setPanel} options={[['cut', 'Cut list'], ['setup', 'Setup'], ['library', 'Library']]} />
           {panel === 'cut' && <CutPanel d={d} cuts={cuts} prefs={prefs} onShare={async (t) => { const m = await shareText(t); if (m) toast(m); }} />}
           {panel === 'setup' && <SetupPanel d={d} disp={disp} opts={opts} prefs={prefs} update={update} toast={toast} />}
-          {panel === 'library' && <Library store={store} setStore={setStore} onOpen={openDrawing} />}
+          {panel === 'library' && <Library store={store} setStore={setStore} onOpen={openDrawing} onNew={newDrawingNow} />}
         </div>
       </div>
     </div>
@@ -2071,11 +2071,11 @@ function CutPanel({ d, cuts, prefs, onShare }: { d: IsoDrawing; cuts: ReturnType
   );
 }
 
-function Library({ store, setStore, onOpen }: { store: IsoStore; setStore: (f: (s: IsoStore) => IsoStore) => void; onOpen: (id: string) => void }) {
+function Library({ store, setStore, onOpen, onNew }: { store: IsoStore; setStore: (f: (s: IsoStore) => IsoStore) => void; onOpen: (id: string) => void; onNew?: () => void }) {
   const [armed, setArmed] = useState<string | null>(null);
   return (
     <Card>
-      <button className="btn primary" onClick={() => { const d = newDrawing(`Iso ${store.drawings.length + 1}`, uid()); setStore((s) => ({ drawings: [d, ...s.drawings], current: d.id })); onOpen(d.id); }}>New drawing</button>
+      <button className="btn primary" onClick={() => { if (onNew) { onNew(); return; } const d = newDrawing(`Iso ${store.drawings.length + 1}`, uid()); setStore((s) => ({ drawings: [d, ...s.drawings], current: d.id })); onOpen(d.id); }}>New drawing</button>
       {store.drawings.map((x) => (
         <div key={x.id} className={'item' + (x.id === store.current ? ' cur' : '')}>
           <div className="ihead"><b>{x.name}{x.done && <span className="badge ok">Complete</span>}</b><span className="muted">{x.runs.length} lines · {new Date(x.updated).toLocaleDateString()}</span></div>
