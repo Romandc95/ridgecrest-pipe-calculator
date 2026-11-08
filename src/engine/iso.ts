@@ -2,28 +2,99 @@
 // x = East, y = North, z = Up (inches). Run lengths are centerline, fitting center to fitting center.
 // Fittings are inferred at nodes (elbow / tee / cross / straight weld / end) and can be overridden at ends.
 import { CalcError, deg2rad, rad2deg } from './units';
-import { B169 } from './fittings';
+import { B169, npsNumber } from './fittings';
 import { bwFitting } from './refdata';
 
-export type Inline = 'none' | 'gate' | 'globe' | 'check' | 'ball' | 'butterfly' | 'flange' | 'reducer' | 'union' | 'spool';
-export const INLINE_LABEL: Record<Inline, string> = {
-  none: 'Pipe only', gate: 'Gate valve', globe: 'Globe valve', check: 'Check valve', ball: 'Ball valve', butterfly: 'Butterfly valve',
-  flange: 'Flange pair', reducer: 'Reducer', union: 'Union', spool: 'Spool break',
-};
-export type EndType = 'open' | 'cap' | 'flange' | 'blind' | 'plug' | 'weld';
-export const END_LABEL: Record<EndType, string> = { open: 'Open end', cap: 'Cap', flange: 'Flange', blind: 'Blind flange', plug: 'Plug', weld: 'Field weld / tie-in' };
+/** Fittings and valves that can be placed on a drawing. kind: line = sits on a line; elbow = at a turn; branch = at a tee point; end = at the end of a line. */
+export type ItemKind = 'line' | 'elbow' | 'branch' | 'end';
+export interface CatalogItem { id: string; label: string; kind: ItemKind; group: string; short?: string }
+export const CATALOG: CatalogItem[] = [
+  // valves on a line
+  { id: 'gate', label: 'Gate valve', kind: 'line', group: 'Valves' },
+  { id: 'globe', label: 'Globe valve', kind: 'line', group: 'Valves' },
+  { id: 'ball', label: 'Ball valve', kind: 'line', group: 'Valves' },
+  { id: 'butterfly', label: 'Butterfly valve', kind: 'line', group: 'Valves' },
+  { id: 'check', label: 'Swing check', kind: 'line', group: 'Valves' },
+  { id: 'liftcheck', label: 'Lift check', kind: 'line', group: 'Valves' },
+  { id: 'plug', label: 'Plug valve', kind: 'line', group: 'Valves' },
+  { id: 'needle', label: 'Needle valve', kind: 'line', group: 'Valves' },
+  { id: 'diaphragm', label: 'Diaphragm valve', kind: 'line', group: 'Valves' },
+  { id: 'knifegate', label: 'Knife gate', kind: 'line', group: 'Valves' },
+  { id: 'control', label: 'Control valve', kind: 'line', group: 'Valves' },
+  { id: 'regulator', label: 'Pressure regulator', kind: 'line', group: 'Valves' },
+  { id: 'solenoid', label: 'Solenoid valve', kind: 'line', group: 'Valves' },
+  { id: 'anglevalve', label: 'Angle valve', kind: 'elbow', group: 'Valves' },
+  { id: 'threeway', label: '3-way valve', kind: 'branch', group: 'Valves' },
+  { id: 'relief', label: 'Relief valve', kind: 'end', group: 'Valves' },
+  { id: 'vent', label: 'Vent valve', kind: 'end', group: 'Valves' },
+  { id: 'drain', label: 'Drain valve', kind: 'end', group: 'Valves' },
+  // fittings on a line
+  { id: 'flange', label: 'Flange pair', kind: 'line', group: 'Line' },
+  { id: 'orifice', label: 'Orifice flanges', kind: 'line', group: 'Line', short: 'FO' },
+  { id: 'spectacle', label: 'Spectacle blind', kind: 'line', group: 'Line' },
+  { id: 'reducer', label: 'Conc. reducer', kind: 'line', group: 'Line' },
+  { id: 'eccreducer', label: 'Ecc. reducer', kind: 'line', group: 'Line' },
+  { id: 'swage', label: 'Swage nipple', kind: 'line', group: 'Line' },
+  { id: 'union', label: 'Union', kind: 'line', group: 'Line' },
+  { id: 'coupling', label: 'Coupling', kind: 'line', group: 'Line' },
+  { id: 'dielectric', label: 'Dielectric union', kind: 'line', group: 'Line' },
+  { id: 'expjoint', label: 'Expansion joint', kind: 'line', group: 'Line' },
+  { id: 'flexhose', label: 'Flex connector', kind: 'line', group: 'Line' },
+  { id: 'ystrainer', label: 'Y-strainer', kind: 'line', group: 'Line' },
+  { id: 'basket', label: 'Basket strainer', kind: 'line', group: 'Line' },
+  { id: 'trap', label: 'Steam trap', kind: 'line', group: 'Line', short: 'T' },
+  { id: 'flowmeter', label: 'Flow meter', kind: 'line', group: 'Line', short: 'FM' },
+  { id: 'sightglass', label: 'Sight glass', kind: 'line', group: 'Line' },
+  { id: 'spool', label: 'Spool break', kind: 'line', group: 'Line' },
+  // elbows
+  { id: 'lr', label: 'LR elbow', kind: 'elbow', group: 'Elbows', short: 'LR' },
+  { id: 'sr', label: 'SR elbow', kind: 'elbow', group: 'Elbows', short: 'SR' },
+  { id: 'r3', label: '3R bend', kind: 'elbow', group: 'Elbows', short: '3R' },
+  { id: 'r5', label: '5R bend', kind: 'elbow', group: 'Elbows', short: '5R' },
+  { id: 'miter', label: 'Mitered elbow', kind: 'elbow', group: 'Elbows', short: 'MITER' },
+  { id: 'thd90', label: 'Threaded / SW elbow', kind: 'elbow', group: 'Elbows', short: 'THD' },
+  // branches
+  { id: 'tee', label: 'Straight tee', kind: 'branch', group: 'Branches', short: 'TEE' },
+  { id: 'redtee', label: 'Reducing tee', kind: 'branch', group: 'Branches', short: 'RED TEE' },
+  { id: 'weldolet', label: 'Weldolet', kind: 'branch', group: 'Branches', short: 'WOL' },
+  { id: 'sockolet', label: 'Sockolet', kind: 'branch', group: 'Branches', short: 'SOL' },
+  { id: 'threadolet', label: 'Threadolet', kind: 'branch', group: 'Branches', short: 'TOL' },
+  { id: 'stubin', label: 'Stub-in', kind: 'branch', group: 'Branches', short: 'STUB-IN' },
+  { id: 'lateral', label: 'Lateral', kind: 'branch', group: 'Branches', short: 'LAT' },
+  // ends
+  { id: 'open', label: 'Open end', kind: 'end', group: 'Ends' },
+  { id: 'cap', label: 'Cap', kind: 'end', group: 'Ends' },
+  { id: 'flange', label: 'Flange', kind: 'end', group: 'Ends' },
+  { id: 'blind', label: 'Blind flange', kind: 'end', group: 'Ends' },
+  { id: 'plug', label: 'Plug', kind: 'end', group: 'Ends' },
+  { id: 'threaded', label: 'Threaded end', kind: 'end', group: 'Ends', short: 'THD' },
+  { id: 'weld', label: 'Field weld / tie-in', kind: 'end', group: 'Ends', short: 'FW' },
+  { id: 'nozzle', label: 'Equipment nozzle', kind: 'end', group: 'Ends' },
+  { id: 'hose', label: 'Hose connection', kind: 'end', group: 'Ends', short: 'HC' },
+  { id: 'gauge', label: 'Pressure gauge', kind: 'end', group: 'Ends', short: 'PI' },
+  { id: 'thermowell', label: 'Thermowell', kind: 'end', group: 'Ends', short: 'TW' },
+];
+export const CATALOG_GROUPS = ['Valves', 'Line', 'Elbows', 'Branches', 'Ends'];
+export const catalogItem = (id: string, kind?: ItemKind) => CATALOG.find((c) => c.id === id && (!kind || c.kind === kind));
+export type Inline = string;
+const LINE_IDS = CATALOG.filter((c) => c.kind === 'line');
+export const INLINE_LABEL: Record<string, string> = { none: 'Pipe only', ...Object.fromEntries(LINE_IDS.map((c) => [c.id, c.label])) };
+export type EndType = string;
+export const END_LABEL: Record<string, string> = Object.fromEntries(CATALOG.filter((c) => c.kind === 'end').map((c) => [c.id, c.label]));
 
-/**
- * A run. (dx, dy, dz) is the drawn (sketch) geometry. `meas` is the true center-to-center vector in inches once
- * the fitter has dimensioned it. Runs saved before sketching existed have no `sketch` flag: their (dx, dy, dz)
- * is the true vector.
- */
-export interface Run { id: string; from: number; dx: number; dy: number; dz: number; inline: Inline; label?: string; meas?: Vec3; sketch?: boolean }
+/** A fitting placed on a line, at fraction t (0–1) of the way along it. */
+export interface LineItem { id: string; type: string; t: number }
+
+export interface Run { id: string; from: number; dx: number; dy: number; dz: number; inline: Inline; label?: string; meas?: Vec3; sketch?: boolean; items?: LineItem[] }
+/** Items on a run (older drawings kept a single `inline` item). */
+export const runItems = (r: Run): LineItem[] => r.items ?? (r.inline && r.inline !== 'none' ? [{ id: r.id + '-i', type: r.inline, t: 0.5 }] : []);
 export interface IsoNote { id: string; node: number; text: string }
 export interface IsoDrawing {
   id: string; name: string; created: number; updated: number;
   nps: string; gap: number; // nominal size for take-outs, butt-weld root gap
   runs: Run[]; ends: Record<number, EndType>; notes: IsoNote[];
+  /** Fitting chosen at an elbow or branch point (default: LR elbow / straight tee). */
+  fits?: Record<number, string>;
 }
 
 export type Vec3 = [number, number, number];
@@ -90,29 +161,66 @@ export interface CutRow {
   run: number; travel: number; to1: number; to2: number; gaps: number; cut: number; note: string[]; ok: boolean;
 }
 
-/** Take-out at one end of a run, using ASME B16.9 long-radius elbows / straight tees for the drawing's NPS. */
-function takeoutAt(d: IsoDrawing, node: number, note: string[]): { to: number; weld: boolean } {
+/** Take-out at one end of a run, using ASME B16.9 fittings for the drawing's NPS and the fitting chosen at that point. */
+function takeoutAt(d: IsoDrawing, node: number, run: number, note: string[]): { to: number; weld: boolean } {
   const k = nodeKind(d, node);
   const e = B169[d.nps];
+  const fit = d.fits?.[node];
+  const lbl = (id: string) => catalogItem(id)?.label ?? id;
   switch (k.kind) {
     case 'elbow': {
+      const ang = k.angle;
+      if (fit === 'anglevalve') { note.push('angle valve: subtract its center-to-face'); return { to: 0, weld: true }; }
+      if (fit === 'thd90') { note.push('threaded / socket-weld elbow: use the Data tab take-out'); return { to: 0, weld: false }; }
+      if (ang > 90.05) { note.push(`${ang.toFixed(1)}° turn needs two fittings — not deducted`); return { to: 0, weld: true }; }
+      const n = npsNumber(d.nps);
+      if (fit === 'r3' || fit === 'r5') {
+        if (!n) { note.push(`no size for ${d.nps}"`); return { to: 0, weld: true }; }
+        const R = (fit === 'r3' ? 3 : 5) * n;
+        note.push(`${lbl(fit)} R = ${fit === 'r3' ? 3 : 5} × NPS = ${R}" (verify against the bend)`);
+        return { to: R * Math.tan(deg2rad(ang / 2)), weld: true };
+      }
+      if (fit === 'sr') {
+        if (!e?.sr90) { note.push(`no SR elbow data for ${d.nps}"`); return { to: 0, weld: true }; }
+        if (Math.abs(ang - 90) < 0.05) return { to: e.sr90, weld: true };
+        note.push(`${ang.toFixed(2)}° cut from an SR 90°`);
+        return { to: e.sr90 * Math.tan(deg2rad(ang / 2)), weld: true };
+      }
       if (!e) { note.push(`no elbow data for ${d.nps}"`); return { to: 0, weld: true }; }
-      if (k.angle > 90.05) { note.push(`${k.angle.toFixed(1)}° turn needs two fittings — not deducted`); return { to: 0, weld: true }; }
-      if (Math.abs(k.angle - 90) < 0.05) return { to: e.lr90, weld: true };
-      if (Math.abs(k.angle - 45) < 0.05) return { to: e.lr45, weld: true };
-      note.push(`${k.angle.toFixed(2)}° elbow cut from a 90° (ideal R·tan θ/2)`);
-      return { to: e.lr90 * Math.tan(deg2rad(k.angle / 2)), weld: true };
+      if (fit === 'miter') note.push('mitered elbow: take-out shown for R = 1.5 × NPS — see the Miter tool');
+      if (Math.abs(ang - 90) < 0.05) return { to: e.lr90, weld: true };
+      if (Math.abs(ang - 45) < 0.05 && fit !== 'miter') return { to: e.lr45, weld: true };
+      if (fit !== 'miter') note.push(`${ang.toFixed(2)}° elbow cut from a 90° (ideal R·tan θ/2)`);
+      return { to: e.lr90 * Math.tan(deg2rad(ang / 2)), weld: true };
     }
     case 'tee': case 'cross': {
+      if (fit && fit !== 'tee') {
+        // which legs are the header (straight through) and which is the branch
+        const legs = nodeLegs(d, node);
+        const me = legs.find((l) => l.run === run);
+        const header = !!me && legs.some((l) => l !== me && dot(l.dir, me.dir) < -0.9999);
+        if (fit === 'weldolet' || fit === 'sockolet' || fit === 'threadolet' || fit === 'stubin') {
+          if (header) { note.push(`header runs straight through the ${lbl(fit).toLowerCase()} — one piece of pipe`); return { to: 0, weld: false }; }
+          note.push(fit === 'stubin' ? 'stub-in: subtract ½ header OD' : `${lbl(fit).toLowerCase()}: subtract its height + ½ header OD (Data tab)`);
+          return { to: 0, weld: fit !== 'threadolet' && fit !== 'sockolet' };
+        }
+        if (fit === 'redtee') {
+          const c = bwFitting(d.nps).teeC;
+          if (header && c != null) return { to: c, weld: true };
+          note.push('reducing tee branch: subtract outlet M from the fitting'); return { to: 0, weld: true };
+        }
+        note.push(`${lbl(fit).toLowerCase()}: subtract per the fitting`);
+        return { to: 0, weld: fit !== 'threeway' };
+      }
       const c = bwFitting(d.nps).teeC;
       if (c == null) { note.push('no tee data'); return { to: 0, weld: true }; }
       return { to: c, weld: true };
     }
     case 'straight': return { to: 0, weld: true };
     default: {
-      // run ends: a cap, weld-neck flange or field weld is a butt weld; open ends, plugs and blinds are not
+      // run ends: a cap, weld-neck flange, nozzle or field weld is a butt weld; threaded / flanged items are not
       const end = d.ends[node] ?? 'open';
-      return { to: 0, weld: end === 'weld' || end === 'cap' || end === 'flange' };
+      return { to: 0, weld: ['weld', 'cap', 'flange', 'nozzle'].includes(end) };
     }
   }
 }
@@ -121,17 +229,18 @@ function takeoutAt(d: IsoDrawing, node: number, note: string[]): { to: number; w
 export function cutList(d: IsoDrawing): CutRow[] {
   return d.runs.map((r, i) => {
     const note: string[] = [];
-    const a = takeoutAt(d, r.from, note), b = takeoutAt(d, i + 1, note);
+    const a = takeoutAt(d, r.from, i, note), b = takeoutAt(d, i + 1, i, note);
     if (!isMeasured(r)) return { run: i, travel: NaN, to1: a.to, to2: b.to, gaps: 0, cut: NaN, note: ['no dimension yet'], ok: false };
     const travel = runLength(r);
     const gaps = (a.weld ? d.gap : 0) + (b.weld ? d.gap : 0);
-    if (r.inline !== 'none' && r.inline !== 'spool') note.push(`subtract the ${INLINE_LABEL[r.inline].toLowerCase()} length`);
+    for (const it of runItems(r)) if (it.type !== 'spool') note.push(`subtract the ${(INLINE_LABEL[it.type] ?? it.type).toLowerCase()} length`);
     for (const n of [r.from, i + 1]) {
       const k = nodeKind(d, n).kind;
       if (k !== 'end' && k !== 'start-end') continue;
       const end = d.ends[n] ?? 'open';
       if (end === 'flange') note.push('flange end: subtract the flange length through hub if dimensioned to the face');
       if (end === 'cap') note.push('cap: subtract cap length E if dimensioned to the end of the cap');
+      if (['relief', 'vent', 'drain', 'gauge', 'thermowell', 'hose'].includes(end)) note.push(`${END_LABEL[end].toLowerCase()} at the end: subtract its length if dimensioned to the end`);
     }
     const cut = travel - a.to - b.to - gaps;
     return { run: i, travel, to1: a.to, to2: b.to, gaps, cut, note, ok: cut > 0 };
@@ -203,7 +312,9 @@ export function deleteSubtree(d: IsoDrawing, i: number): IsoDrawing {
   const ends: Record<number, EndType> = {};
   Object.entries(d.ends).forEach(([n, e]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) ends[m] = e; });
   const notes = d.notes.filter((t) => nodeMap.has(t.node)).map((t) => ({ ...t, node: nodeMap.get(t.node)! }));
-  return { ...d, runs, ends, notes };
+  const fits: Record<number, string> = {};
+  Object.entries(d.fits ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) fits[m] = f; });
+  return { ...d, runs, ends, notes, fits };
 }
 
 /** Human description of a run direction, e.g. "North", "Up 45° East". */

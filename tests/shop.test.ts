@@ -112,4 +112,19 @@ describe('ISO route', () => {
     expect(e.runs.length).toBe(2); expect(e.runs[1].from).toBe(1); expect(e.runs[1].dz).toBe(-10);
     expect(e.ends).toEqual({ 2: 'flange' }); expect(e.notes[0].node).toBe(2);
   });
+  it('fitting choices change the take-out: SR elbow, 3R bend, weldolet header straight through', () => {
+    const d = base(); d.runs = [run(0, 60, 0, 0), run(1, 0, 48, 0)];
+    d.fits = { 1: 'sr' }; expect(cutList(d)[0].to2).toBe(4);
+    d.fits = { 1: 'r3' }; expect(cutList(d)[0].to2).toBeCloseTo(12, 9);
+    const t = base(); t.runs = [run(0, 60, 0, 0), run(1, 60, 0, 0), run(1, 0, 0, 30)]; t.fits = { 1: 'weldolet' };
+    const c = cutList(t);
+    expect(c[0].to2).toBe(0); expect(c[0].gaps).toBe(0); // header: open start, continuous through the olet
+    expect(c[2].to1).toBe(0); expect(c[2].note.join(' ')).toContain('weldolet');
+  });
+  it('several items on one line are each noted; old single inline item still read', () => {
+    const d = base(); d.runs = [{ ...run(0, 60, 0, 0), items: [{ id: 'a', type: 'gate', t: 0.3 }, { id: 'b', type: 'flange', t: 0.6 }] }, { ...run(1, 0, 48, 0), inline: 'check' }];
+    const c = cutList(d);
+    expect(c[0].note.filter((n) => n.startsWith('subtract the')).length).toBe(2);
+    expect(c[1].note.join(' ')).toContain('swing check');
+  });
 });

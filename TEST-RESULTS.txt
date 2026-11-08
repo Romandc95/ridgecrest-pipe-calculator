@@ -172,6 +172,8 @@
 ✓ ISO route › unproject finds the tapped point on the drawing plane, in any view
 ✓ ISO route › sketched runs need a dimension before they get a cut length; measured runs use the measurement
 ✓ ISO route › deleting a run removes everything that continues from it and renumbers
+✓ ISO route › fitting choices change the take-out: SR elbow, 3R bend, weldolet header straight through
+✓ ISO route › several items on one line are each noted; old single inline item still read
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -225,4 +227,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-226 passed, 0 failed, 226 total
+228 passed, 0 failed, 228 total

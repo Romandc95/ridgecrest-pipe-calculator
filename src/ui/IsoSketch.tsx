@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Field, Msg, Select, Segmented, Card, Grid, useApp } from './components';
 import { usePersistent, uid, shareText } from './store';
 import { parseLength, tryParse } from '../engine/parse';
@@ -6,7 +7,9 @@ import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
   runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, displayPositions, deleteSubtree,
+  CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem,
 } from '../engine/iso';
+import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon } from './isoSymbols';
 import { B169 } from '../engine/fittings';
 
 type Prefs = ReturnType<typeof useApp>['settings']['prefs'];
@@ -51,6 +54,8 @@ export function IsoSketch() {
   const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
   const [fitTick, setFitTick] = useState(0);
   const apiFull = useRef(false);
+  const [armed, setArmed] = useState<string | null>(null); // catalog key "kind:id" waiting to be placed
+  const canvasApi = useRef<CanvasApi | null>(null);
 
   useEffect(() => {
     const onR = () => setWin({ w: window.innerWidth, h: window.innerHeight });
@@ -71,9 +76,9 @@ export function IsoSketch() {
 
   const update = (f: (d: IsoDrawing) => IsoDrawing) => setStore((s) => ({ ...s, drawings: s.drawings.map((x) => (x.id === d.id ? { ...f(x), updated: Date.now() } : x)) }));
   const cur = Math.min(cursor, d.runs.length);
-  const addRun = (r: Omit<Run, 'id' | 'from'>) => {
+  const addRun = (r: Omit<Run, 'id' | 'from'>, from = cur) => {
     const n = d.runs.length;
-    update((x) => ({ ...x, runs: [...x.runs, { ...r, id: uid(), from: cur }] }));
+    update((x) => ({ ...x, runs: [...x.runs, { ...r, id: uid(), from }] }));
     setCursor(n + 1); setSel(null);
   };
   const addDir = (k: string) => {
@@ -83,13 +88,35 @@ export function IsoSketch() {
     if (p && p.ok && p.v > 0) addRun({ dx: v[0] * p.v, dy: v[1] * p.v, dz: v[2] * p.v, inline: 'none', sketch: true, meas: mul(v, p.v) });
     else addRun({ dx: v[0] * GRID * 2, dy: v[1] * GRID * 2, dz: v[2] * GRID * 2, inline: 'none', sketch: true });
   };
-  const drawTo = (vec: Vec3 | null) => {
+  const drawTo = (vec: Vec3 | null, from: number) => {
     if (!vec) { toast('This drawing plane is edge-on in this view — turn the view or pick another plane'); return; }
     const s = mul(vec, 1 / (disp.k || 1));
-    addRun({ dx: s[0], dy: s[1], dz: s[2], inline: 'none', sketch: true });
+    addRun({ dx: s[0], dy: s[1], dz: s[2], inline: 'none', sketch: true }, Math.min(from, d.runs.length));
+  };
+  /** Put a catalog item on a line or point. Returns false (with a message) if it doesn't fit there. */
+  const place = (key: string, target: Sel, t = 0.5): boolean => {
+    const [kind, id] = key.split(':');
+    const item = catalogItem(id, kind as CatalogItem['kind']);
+    if (!item || !target) return false;
+    if (item.kind === 'line') {
+      if (target.kind !== 'run') { toast(`Drop the ${item.label.toLowerCase()} on a line`); return false; }
+      update((x) => ({ ...x, runs: x.runs.map((q, k) => (k === target.id ? { ...q, inline: 'none', items: [...runItems(q), { id: uid(), type: item.id, t }].sort((a, b) => a.t - b.t) } : q)) }));
+      setSel({ kind: 'run', id: target.id });
+    } else {
+      if (target.kind !== 'node') { toast(`Drop the ${item.label.toLowerCase()} on a ${item.kind === 'end' ? 'line end' : item.kind === 'elbow' ? 'turn' : 'tee point'}`); return false; }
+      const nk = nodeKind(d, target.id).kind;
+      const ok = item.kind === 'end' ? nk === 'end' || nk === 'start-end' : item.kind === 'elbow' ? nk === 'elbow' : nk === 'tee' || nk === 'cross';
+      if (!ok) { toast(item.kind === 'end' ? 'That point is not the end of a line' : item.kind === 'elbow' ? 'That point is not a turn (elbow)' : 'That point is not a branch (tee)'); return false; }
+      if (item.kind === 'end') update((x) => ({ ...x, ends: { ...x.ends, [target.id]: item.id } }));
+      else update((x) => ({ ...x, fits: { ...(x.fits ?? {}), [target.id]: item.id } }));
+      setSel({ kind: 'node', id: target.id });
+    }
+    toast(`${item.label} placed`);
+    return true;
   };
   const undo = () => { if (d.runs.length) { update((x) => deleteSubtree(x, x.runs.length - 1)); setSel(null); setCursor(d.runs.length - 1 >= 0 ? d.runs[d.runs.length - 1].from : 0); } };
-  const onTap = (t: Sel) => {
+  const onTap = (t: Sel, at?: number) => {
+    if (armed) { if (t) { if (place(armed, t, at)) setArmed(null); } else setArmed(null); return; }
     setSel(t);
     if (t?.kind === 'node') setCursor(t.id);
     if (t?.kind === 'run') setCursor(t.id + 1);
@@ -128,9 +155,10 @@ export function IsoSketch() {
     <DrawTools opts={opts} setOpts={setOpts} lenText={lenText} setLenText={setLenText} addDir={addDir} undo={undo} canUndo={d.runs.length > 0}
       cur={cur} isBranch={cur !== d.runs.length} missing={missing} compact={full} />
   );
+  const palette = <Palette armed={armed} setArmed={setArmed} drop={(key, cx, cy) => { const h = canvasApi.current?.hitAt(cx, cy); if (!h) { toast('Drop it on a line or a point of the drawing'); return; } place(key, h.sel, h.t); }} compact={full} />;
 
   const stage = (
-    <IsoCanvas d={d} disp={disp} opts={opts} prefs={prefs} cursor={cur} sel={sel} rot={rot} fitTick={fitTick}
+    <IsoCanvas d={d} disp={disp} opts={opts} prefs={prefs} cursor={cur} sel={sel} rot={rot} fitTick={fitTick} armed={armed} apiRef={canvasApi}
       onView={(v) => setOpts({ view: v })} onTap={onTap} onDraw={drawTo}>
       <div className="isobtns">
         {full && <button className="ibtn" onClick={() => setHide(!hide)}>{hide ? 'Show tools' : 'Hide tools'}</button>}
@@ -139,6 +167,7 @@ export function IsoSketch() {
           {full ? '✕ Close' : <svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>}
         </button>
       </div>
+      {armed && <div className="isoarmed">Tap where the {catalogItem(armed.split(':')[1], armed.split(':')[0] as CatalogItem['kind'])?.label.toLowerCase()} goes · <button className="linkbtn" onClick={() => setArmed(null)}>cancel</button></div>}
     </IsoCanvas>
   );
 
@@ -146,7 +175,7 @@ export function IsoSketch() {
     return (
       <div className={'isofull' + (rot ? ' rot' : '') + (wide ? ' wide' : '') + (hide ? ' hidetools' : '')}>
         {stage}
-        {!hide && <div className="isoside">{editor}{tools}</div>}
+        {!hide && <div className="isoside">{editor}{palette}{tools}</div>}
       </div>
     );
   }
@@ -159,12 +188,57 @@ export function IsoSketch() {
       </div>
       {stage}
       {editor}
+      {palette}
       {tools}
       <Segmented value={panel} onChange={setPanel} options={[['cut', 'Cut list'], ['setup', 'Setup'], ['library', 'Library']]} />
       {panel === 'cut' && <CutPanel d={d} cuts={cuts} prefs={prefs} onShare={async (t) => { const m = await shareText(t); if (m) toast(m); }} />}
       {panel === 'setup' && <SetupPanel d={d} disp={disp} opts={opts} prefs={prefs} update={update} toast={toast} />}
       {panel === 'library' && <Library store={store} setStore={setStore} onOpen={(id) => { setStore((s) => ({ ...s, current: id })); setSel(null); setCursor(0); setFitTick((t) => t + 1); }} />}
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ fittings palette
+function Palette({ armed, setArmed, drop, compact }: { armed: string | null; setArmed: (k: string | null) => void; drop: (key: string, cx: number, cy: number) => void; compact: boolean }) {
+  const [group, setGroup] = usePersistent<string>('isopalette', 'Valves');
+  const [open, setOpen] = usePersistent<boolean>('isopaletteopen', true);
+  const [drag, setDrag] = useState<{ key: string; x: number; y: number; on: boolean } | null>(null);
+  const start = useRef<{ key: string; x: number; y: number } | null>(null);
+  const items = CATALOG.filter((c) => c.group === group);
+  return (
+    <Card className={'palette' + (compact ? ' compact' : '')}>
+      <button className="palhead" onClick={() => setOpen(!open)} aria-expanded={open}><b>Fittings &amp; valves</b><span className="muted small">{open ? 'drag onto the drawing, or tap one then tap the spot  ▴' : 'show  ▾'}</span></button>
+      {open && <>
+      <div className="chiprow">
+        {CATALOG_GROUPS.map((g) => <button key={g} className={'chip' + (g === group ? ' on' : '')} onClick={() => setGroup(g)}>{g}</button>)}
+      </div>
+      <div className="palgrid">
+        {items.map((c) => {
+          const key = c.kind + ':' + c.id;
+          return (
+            <button key={key} className={'palitem' + (armed === key ? ' on' : '')} title={c.label}
+              onPointerDown={(e) => { e.preventDefault(); start.current = { key, x: e.clientX, y: e.clientY }; try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* ignore */ } }}
+              onPointerMove={(e) => {
+                const s0 = start.current; if (!s0) return;
+                if (drag?.on || Math.hypot(e.clientX - s0.x, e.clientY - s0.y) > 8) setDrag({ key, x: e.clientX, y: e.clientY, on: true });
+              }}
+              onPointerUp={(e) => {
+                const s0 = start.current; start.current = null;
+                if (drag?.on) { setDrag(null); drop(key, e.clientX, e.clientY); return; }
+                if (s0) setArmed(armed === key ? null : key);
+              }}
+              onPointerCancel={() => { start.current = null; setDrag(null); }}>
+              <PaletteIcon item={c} />
+              <span>{c.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      </>}
+      {drag?.on && createPortal(
+        <div className="palghost" style={{ left: drag.x, top: drag.y }}><PaletteIcon item={catalogItem(drag.key.split(':')[1], drag.key.split(':')[0] as CatalogItem['kind'])!} /></div>,
+        document.body)}
+    </Card>
   );
 }
 
@@ -183,7 +257,7 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
             <span className="flabel">Draw on</span>
             <Segmented small value={opts.plane} onChange={(p) => setOpts({ plane: p as Plane })} options={(Object.keys(PLANES) as Plane[]).map((k) => [k, PLANES[k].label])} />
           </div>
-          <p className="fhint">Tap the grid to run a line from point {cur}{isBranch ? ' (branch → tee)' : ''}. Tap a point to draw from it, tap a line to edit it.</p>
+          <p className="fhint">Drag from a point to draw a line (drag from empty space starts at point {cur}{isBranch ? ', making a tee' : ''}). Tap a line or point to edit it. Two fingers move and zoom.</p>
         </>
       )}
       {opts.mode === 'orbit' && <p className="fhint">Drag the drawing to turn it in 3D. Drag the compass to swing North; tap it to turn 90°.</p>}
@@ -214,9 +288,11 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
 
 // ------------------------------------------------------------------ canvas
 type Cam = { s: number; tx: number; ty: number };
-function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, onView, onTap, onDraw, children }: {
+export interface CanvasApi { hitAt: (clientX: number, clientY: number) => { sel: Sel; t: number } | null }
+function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onView, onTap, onDraw, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
-  onView: (v: View) => void; onTap: (s: Sel) => void; onDraw: (v: Vec3 | null) => void; children?: React.ReactNode;
+  armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>;
+  onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number) => void; children?: React.ReactNode;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const svg = useRef<SVGSVGElement>(null);
@@ -226,7 +302,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, onView, on
   const P = disp.P;
   const [cam, setCam] = useState<Cam>({ s: 2, tx: 180, ty: 150 });
   const camRef = useRef(cam); camRef.current = cam;
-  const [ghost, setGhost] = useState<Vec3 | null>(null);
+  const [ghost, setGhost] = useState<{ from: number; v: Vec3 } | null>(null);
+  const homing = useRef(false);
 
   useEffect(() => {
     const el = wrap.current; if (!el) return;
@@ -251,15 +328,20 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, onView, on
     const out = P.some((p) => { const q = project(p, view); const x = q[0] * c.s + c.tx, y = q[1] * c.s + c.ty; return x < 30 || x > W - 30 || y < 50 || y > H - 50; });
     if (out) setCam(fitCam());
   }, [P.length, JSON.stringify(P[P.length - 1])]);
-  // keep the drawing centred on screen when the view turns (presets, compass, orbit)
+  // keep the drawing centred on screen when the view turns (presets, compass, orbit); Home refits
   const prevView = useRef(view);
   useEffect(() => {
     const pv = prevView.current; prevView.current = view;
+    if (homing.current) { homing.current = false; setCam(fitCam()); return; }
     if (pv.az === view.az && pv.el === view.el) return;
     const C = P.reduce((a, p) => add(a, p), [0, 0, 0] as Vec3).map((v) => v / P.length) as Vec3;
     const a = project(C, pv), b = project(C, view);
     setCam((c) => ({ ...c, tx: c.tx + (a[0] - b[0]) * c.s, ty: c.ty + (a[1] - b[1]) * c.s }));
   }, [view.az, view.el]);
+  const goHome = () => {
+    if (Math.abs(view.az - ISO_VIEW.az) < 1e-6 && Math.abs(view.el - ISO_VIEW.el) < 1e-6) { setCam(fitCam()); return; }
+    homing.current = true; onView({ ...ISO_VIEW });
+  };
 
   const T3 = (p: Vec3): [number, number] => { const q = project(p, view); return [q[0] * cam.s + cam.tx, q[1] * cam.s + cam.ty]; };
   const toLocal = (e: { clientX: number; clientY: number }) => {
@@ -267,12 +349,12 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, onView, on
     if (rot) return { x: ((e.clientY - r.top) / r.height) * W, y: ((r.right - e.clientX) / r.width) * H };
     return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H };
   };
-  const snap = (pt: { x: number; y: number }): Vec3 | null | 'edge' => {
+  const g = GRID * (disp.k || 1);
+  const snap = (pt: { x: number; y: number }, from: number): Vec3 | null | 'edge' => {
     const pl = PLANES[opts.plane];
-    const o = P[cursor] ?? [0, 0, 0];
+    const o = P[from] ?? [0, 0, 0];
     const q = unproject((pt.x - cam.tx) / cam.s, (pt.y - cam.ty) / cam.s, view, o, pl.n);
     if (!q) return 'edge';
-    const g = GRID * (disp.k || 1);
     const rel: Vec3 = [q[0] - o[0], q[1] - o[1], q[2] - o[2]];
     let ra = dot3(rel, pl.a), rb = dot3(rel, pl.b);
     // within ~12° of a grid axis → straight along that axis
@@ -281,29 +363,54 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, onView, on
     if (!ca && !cb) return null;
     return add(mul(pl.a, ca), mul(pl.b, cb));
   };
+  const runT = (i: number, loc: { x: number; y: number }) => {
+    const r = d.runs[i]; const a = T3(P[r.from]), b = T3(P[i + 1]);
+    const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1;
+    return Math.max(0.12, Math.min(0.88, ((loc.x - a[0]) * dx + (loc.y - a[1]) * dy) / L2));
+  };
+  const targetOf = (el: Element | null): Sel | 'compass' | 'none' => {
+    const t = el?.closest('[data-node],[data-run],[data-compass]');
+    if (!t) return 'none';
+    if (t.hasAttribute('data-compass')) return 'compass';
+    return t.hasAttribute('data-node') ? { kind: 'node', id: Number(t.getAttribute('data-node')) } : { kind: 'run', id: Number(t.getAttribute('data-run')) };
+  };
+  // lets the palette drop a fitting onto the drawing
+  apiRef.current = {
+    hitAt: (cx, cy) => {
+      const el = document.elementFromPoint(cx, cy);
+      if (!el || !svg.current?.contains(el)) return null;
+      const t = targetOf(el);
+      if (t === 'none' || t === 'compass' || !t) return null;
+      return { sel: t, t: t.kind === 'run' ? runT(t.id, toLocal({ clientX: cx, clientY: cy })) : 0.5 };
+    },
+  };
 
-  // pointer handling: tap = select / draw, drag = rotate / pan, pinch = zoom
+  // pointer handling. Draw mode: drag from a point (or anywhere, from the current point) to draw a line.
+  // Rotate mode: drag turns the view. Move mode: drag pans. Two fingers always pan / zoom. Taps select.
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
-  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number } | null>(null);
+  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null } | null>(null);
   const CMP = { x: 40, y: 40 };
   const onDown = (e: React.PointerEvent) => {
     try { svg.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     const loc = toLocal(e);
     ptrs.current.set(e.pointerId, loc);
     const ps = [...ptrs.current.values()];
-    const el = (e.target as Element).closest('[data-node],[data-run],[data-compass]');
-    const target: Sel | 'compass' | 'none' = !el ? 'none' : el.hasAttribute('data-compass') ? 'compass'
-      : el.hasAttribute('data-node') ? { kind: 'node', id: Number(el.getAttribute('data-node')) } : { kind: 'run', id: Number(el.getAttribute('data-run')) };
+    const target = ps.length > 1 ? 'none' : targetOf(e.target as Element);
+    let drawFrom: number | null = null;
+    if (ps.length === 1 && opts.mode === 'draw' && !armed && target !== 'compass') {
+      if (target !== 'none' && target.kind === 'node') drawFrom = target.id;
+      else if (target !== 'none' && target.kind === 'run') {
+        const r = d.runs[target.id]; const a = T3(P[r.from]), b = T3(P[target.id + 1]);
+        drawFrom = Math.hypot(loc.x - a[0], loc.y - a[1]) < Math.hypot(loc.x - b[0], loc.y - b[1]) ? r.from : target.id + 1;
+      } else drawFrom = cursor;
+    }
     const mid = ps.length === 2 ? { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 } : loc;
-    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target: ps.length > 1 ? 'none' : target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x) };
+    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom };
     setGhost(null);
   };
   const onMove = (e: React.PointerEvent) => {
+    if (!ptrs.current.has(e.pointerId)) return;
     const loc = toLocal(e);
-    if (!ptrs.current.has(e.pointerId)) {
-      if (e.pointerType === 'mouse' && opts.mode === 'draw') { const v = snap(loc); setGhost(v && v !== 'edge' ? v : null); }
-      return;
-    }
     ptrs.current.set(e.pointerId, loc);
     const s = st.current; if (!s) return;
     const ps = [...ptrs.current.values()];
@@ -321,6 +428,9 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, onView, on
     if (s.target === 'compass') {
       const a = Math.atan2(loc.y - CMP.y, loc.x - CMP.x);
       onView({ az: normAz(s.view.az + ((a - s.cAng) * 180) / Math.PI), el: s.view.el });
+    } else if (s.drawFrom !== null) {
+      const v = snap(loc, s.drawFrom);
+      setGhost(v && v !== 'edge' ? { from: s.drawFrom, v } : null);
     } else if (opts.mode === 'orbit') {
       onView({ az: normAz(s.view.az - dx * 0.45), el: clampEl(s.view.el + dy * 0.45) });
     } else {
@@ -330,14 +440,22 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, onView, on
   const onUp = (e: React.PointerEvent) => {
     const s = st.current;
     const loc = toLocal(e);
+    const cancelled = e.type === 'pointercancel';
     ptrs.current.delete(e.pointerId);
-    if (ptrs.current.size > 0) { const ps = [...ptrs.current.values()]; st.current = { ...(s ?? { view, cAng: 0, target: 'none' as const }), cam: camRef.current, mid: ps[0], dist: 0, moved: true }; return; }
+    if (ptrs.current.size > 0) { const ps = [...ptrs.current.values()]; st.current = { ...(s ?? { view, cAng: 0, target: 'none' as const }), cam: camRef.current, mid: ps[0], dist: 0, moved: true, drawFrom: null }; setGhost(null); return; }
     st.current = null;
-    if (!s || s.moved) return;
+    setGhost(null);
+    if (!s || cancelled) return;
+    if (s.moved) {
+      if (s.drawFrom !== null && s.target !== 'compass' && s.dist === 0) {
+        const v = snap(loc, s.drawFrom);
+        if (v === 'edge') onDraw(null, s.drawFrom); else if (v) onDraw(v, s.drawFrom);
+      }
+      return;
+    }
     if (s.target === 'compass') { onView({ az: normAz(view.az + 90), el: view.el }); return; }
-    if (s.target !== 'none' && s.target) { onTap(s.target); return; }
-    if (opts.mode === 'draw') { const v = snap(loc); if (v === 'edge') onDraw(null); else if (v) onDraw(v); }
-    else onTap(null);
+    if (s.target !== 'none' && s.target) { onTap(s.target, s.target.kind === 'run' ? runT(s.target.id, loc) : undefined); return; }
+    onTap(null);
   };
   const onWheel = (e: React.WheelEvent) => {
     const p = toLocal(e); const k = Math.exp(-e.deltaY * 0.0015);
@@ -345,17 +463,32 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, onView, on
     setCam({ s: ns, tx: p.x - (p.x - cam.tx) * kk, ty: p.y - (p.y - cam.ty) * kk });
   };
   const zoom = (k: number) => setCam((c) => ({ s: c.s * k, tx: W / 2 - (W / 2 - c.tx) * k, ty: H / 2 - (H / 2 - c.ty) * k }));
+  const gridFrom = ghost ? ghost.from : cursor;
+  const AX = ['E', 'N', 'Up'], AXN = ['W', 'S', 'Dn'];
 
   return (
-    <div className={'isostage mode-' + opts.mode} ref={wrap}>
+    <div className={'isostage mode-' + opts.mode + (armed ? ' armed' : '')} ref={wrap}>
       <svg ref={svg} viewBox={`0 0 ${W} ${H}`} width={W} height={H} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-        onPointerLeave={() => setGhost(null)} onWheel={onWheel} role="img" aria-label={`Isometric sketch ${d.name}`}>
+        onWheel={onWheel} role="img" aria-label={`Isometric sketch ${d.name}`}>
         <HatchDefs />
-        {opts.mode === 'draw' && <PlaneGrid T3={T3} o={P[cursor] ?? [0, 0, 0]} plane={opts.plane} g={GRID * (disp.k || 1)} />}
+        {opts.mode === 'draw' && !armed && <PlaneGrid T3={T3} o={P[gridFrom] ?? [0, 0, 0]} plane={opts.plane} g={g} />}
         <IsoArt d={d} disp={disp} T3={T3} sel={sel} cursor={cursor} opts={opts} prefs={prefs} />
-        {ghost && (() => { const a = T3(P[cursor]), b = T3(add(P[cursor], ghost)); return <g className="iso-ghostg"><line className="iso-ghost" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} /><circle className="iso-ghostpt" cx={b[0]} cy={b[1]} r={4} /></g>; })()}
+        {ghost && (() => {
+          const a = T3(P[ghost.from]), b = T3(add(P[ghost.from], ghost.v));
+          const txt = [0, 1, 2].filter((k) => nz(ghost.v[k])).map((k) => `${Math.round(Math.abs(ghost.v[k]) / g)} ${ghost.v[k] > 0 ? AX[k] : AXN[k]}`).join(' · ');
+          return (
+            <g className="iso-ghostg">
+              <line className="iso-ghost" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />
+              <circle className="iso-ghostpt" cx={b[0]} cy={b[1]} r={5} />
+              <text className="iso-ghosttxt" x={b[0] + 9} y={b[1] - 9}>{txt}</text>
+            </g>
+          );
+        })()}
         <Compass x={CMP.x} y={CMP.y} view={view} interactive />
       </svg>
+      <button className="ibtn home" aria-label="Home view" title="Reset to the standard ISO view" onClick={goHome}>
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 11.5 12 4l9 7.5M5.5 9.5V20h5v-5.5h3V20h5V9.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /></svg>
+      </button>
       {children}
       <div className="isozoom">
         <button className="ibtn" aria-label="Zoom in" onClick={() => zoom(1.3)}>+</button>
@@ -472,35 +605,24 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     }
 
     if (!exportMode) els.push(<line key={'hit' + i} data-run={i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="iso-hit" />);
-    els.push(<line key={'r' + i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className={'iso-pipe' + (selected ? ' sel' : '')} />);
+    els.push(<line key={'r' + i} data-run={exportMode ? undefined : i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className={'iso-pipe' + (selected ? ' sel' : '')} />);
 
-    // inline symbol at the middle
+    // fittings and valves on the line
+    const items = runItems(r);
+    items.forEach((it) => {
+      const c: [number, number] = [a[0] + (b[0] - a[0]) * it.t, a[1] + (b[1] - a[1]) * it.t];
+      const sz = Math.max(4, Math.min(8, L / (3 * Math.max(1, items.length))));
+      els.push(<g key={'it' + it.id} data-run={exportMode ? undefined : i}>{lineSymbol(it.type, c, [ux, uy], sz, 'it' + it.id)}</g>);
+    });
     const m: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    const sz = Math.min(9, L / 4);
-    const along = (t: number, n: number): string => `${(m[0] + ux * t + nx * n).toFixed(1)},${(m[1] + uy * t + ny * n).toFixed(1)}`;
-    if (['gate', 'globe', 'check', 'ball', 'butterfly'].includes(r.inline)) {
-      els.push(<polygon key={'v' + i} className="iso-sym" points={`${along(-sz, -sz * 0.8)} ${along(sz, sz * 0.8)} ${along(sz, -sz * 0.8)} ${along(-sz, sz * 0.8)}`} />);
-      if (r.inline === 'globe' || r.inline === 'ball') els.push(<circle key={'vc' + i} className="iso-symfill" cx={m[0]} cy={m[1]} r={sz * 0.35} />);
-      if (r.inline === 'check') els.push(<line key={'vk' + i} className="iso-sym" x1={m[0] + nx * sz * 1.2} y1={m[1] + ny * sz * 1.2} x2={m[0] - nx * sz * 1.2} y2={m[1] - ny * sz * 1.2} />);
-      if (r.inline === 'butterfly') els.push(<line key={'vb' + i} className="iso-sym" x1={m[0] - ux * sz} y1={m[1] - uy * sz} x2={m[0] + ux * sz} y2={m[1] + uy * sz} />);
-      if (r.inline !== 'check' && r.inline !== 'butterfly') els.push(<line key={'vs' + i} className="iso-sym" x1={m[0]} y1={m[1]} x2={m[0] + nx * sz * 1.4} y2={m[1] + ny * sz * 1.4} />);
-    } else if (r.inline === 'flange') {
-      for (const t of [-2, 2]) els.push(<line key={'f' + i + t} className="iso-sym thick" x1={m[0] + ux * t + nx * sz} y1={m[1] + uy * t + ny * sz} x2={m[0] + ux * t - nx * sz} y2={m[1] + uy * t - ny * sz} />);
-    } else if (r.inline === 'reducer') {
-      els.push(<polygon key={'rd' + i} className="iso-sym" points={`${along(-sz, -sz)} ${along(sz, -sz * 0.5)} ${along(sz, sz * 0.5)} ${along(-sz, sz)}`} />);
-    } else if (r.inline === 'union') {
-      for (const t of [-3, 0, 3]) els.push(<line key={'u' + i + t} className="iso-sym" x1={m[0] + ux * t + nx * sz * 0.8} y1={m[1] + uy * t + ny * sz * 0.8} x2={m[0] + ux * t - nx * sz * 0.8} y2={m[1] + uy * t - ny * sz * 0.8} />);
-    } else if (r.inline === 'spool') {
-      for (const t of [-3, 3]) els.push(<line key={'sp' + i + t} className="iso-sym" x1={m[0] + ux * t + nx * sz - ux * 2} y1={m[1] + uy * t + ny * sz - uy * 2} x2={m[0] + ux * t - nx * sz + ux * 2} y2={m[1] + uy * t - ny * sz + uy * 2} />);
-    }
     // travel dimension on the pipe, or a "needs dimension" marker
     if (opts.dims) {
       if (measured) {
         const txt = formatFtIn(runLength(r), prefs) + (axes.length > 1 ? ' TRAV' : '');
-        const lb = label('d' + i, a, b, txt, 'iso-dim', r.inline !== 'none' ? 16 : 11);
+        const lb = label('d' + i, a, b, txt, 'iso-dim', items.length ? 20 : 11);
         if (lb) els.push(lb);
       } else if (!exportMode && L > 22) {
-        const off = r.inline !== 'none' ? 14 : 0;
+        const off = items.length ? 16 : 0;
         els.push(<g key={'q' + i} data-run={i}><circle className="iso-qbg" cx={m[0] + nx * off} cy={m[1] + ny * off} r={7} /><text className="iso-q" x={m[0] + nx * off} y={m[1] + ny * off + 3.5} textAnchor="middle">?</text></g>);
       }
     }
@@ -515,21 +637,14 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     const legs = nodeLegs(d, n);
     const legScreen = legs.map((l) => { const r = d.runs[l.run]; const other = r.from === n ? S[l.run + 1] : S[r.from]; const [ux, uy] = unit(p, other); return [ux, uy] as const; });
     if (k.kind === 'elbow' || k.kind === 'tee' || k.kind === 'cross') {
-      if (opts.welds) legScreen.forEach(([ux, uy], j) => els.push(<circle key={`w${n}-${j}`} className="iso-weld" cx={p[0] + ux * 7} cy={p[1] + uy * 7} r={2.2} />));
-      if (k.kind !== 'elbow') els.push(<circle key={'t' + n} className="iso-symfill" cx={p[0]} cy={p[1]} r={3} />);
+      const fit = d.fits?.[n];
+      if (opts.welds && fit !== 'thd90') legScreen.forEach(([ux, uy], j) => els.push(<circle key={`w${n}-${j}`} className="iso-weld" cx={p[0] + ux * 7} cy={p[1] + uy * 7} r={2.2} />));
+      els.push(...nodeSymbol(fit, k.kind, p, legScreen, 'ns' + n));
       if (k.kind === 'elbow' && Math.abs(k.angle - 90) > 0.05) els.push(<text key={'ea' + n} className="iso-note" x={p[0] + 7} y={p[1] + 15}>{formatNumber(k.angle, 1)}°</text>);
     } else if (k.kind === 'straight') {
       if (opts.welds) els.push(<circle key={'sw' + n} className="iso-weld" cx={p[0]} cy={p[1]} r={2.2} />);
     } else {
-      const end = d.ends[n] ?? 'open';
-      const [ux, uy] = legScreen[0] ?? [1, 0];
-      const nx = -uy, ny = ux;
-      if (end === 'cap') els.push(<path key={'c' + n} className="iso-sym" d={`M${p[0] + nx * 6},${p[1] + ny * 6} Q${p[0] - ux * 7},${p[1] - uy * 7} ${p[0] - nx * 6},${p[1] - ny * 6}`} />);
-      if (end === 'flange' || end === 'blind') els.push(<line key={'fe' + n} className="iso-sym thick" x1={p[0] + nx * 8} y1={p[1] + ny * 8} x2={p[0] - nx * 8} y2={p[1] - ny * 8} />);
-      if (end === 'blind') els.push(<line key={'fb' + n} className="iso-sym thick" x1={p[0] - ux * 3 + nx * 8} y1={p[1] - uy * 3 + ny * 8} x2={p[0] - ux * 3 - nx * 8} y2={p[1] - uy * 3 - ny * 8} />);
-      if (end === 'plug') els.push(<rect key={'pl' + n} className="iso-symfill" x={p[0] - 3} y={p[1] - 3} width={6} height={6} />);
-      if (end === 'weld') els.push(<g key={'fw' + n}><circle className="iso-weld" cx={p[0]} cy={p[1]} r={3} /><text className="iso-note" x={p[0] + 6} y={p[1] - 6}>FW</text></g>);
-      if (end === 'open' && !exportMode) els.push(<circle key={'oe' + n} className="iso-endpt" cx={p[0]} cy={p[1]} r={2.6} />);
+      els.push(...endSymbol(d.ends[n] ?? 'open', p, legScreen[0] ?? [1, 0], 'e' + n, exportMode));
     }
     if (!exportMode) {
       const isCursor = n === cursor, isSel = sel?.kind === 'node' && sel.id === n;
@@ -623,7 +738,22 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
       )}
       {err && <Msg kind="warn">{err}</Msg>}
       {isMeasured(r) && axes.length > 1 && <p className="fhint">Travel {formatFtIn(runLength(r), prefs)}{axes.length === 2 && tv ? ` · ${formatNumber((Math.atan2(Math.abs(tv[axes[1]]), Math.abs(tv[axes[0]])) * 180) / Math.PI, 2)}° from ${AXIS_NAMES[axes[0]][sv[axes[0]] < 0 ? 1 : 0]}` : ''}</p>}
-      <Select label="On this line" value={r.inline} options={(Object.keys(INLINE_LABEL) as Inline[]).map((k) => [k, INLINE_LABEL[k]])} onChange={(v) => setRun((q) => ({ ...q, inline: v as Inline }))} />
+      <div className="itemlist">
+        <span className="flabel">Fittings &amp; valves on this line</span>
+        {!runItems(r).length && <p className="fhint">None yet — drag one from the palette onto the line.</p>}
+        {runItems(r).map((it) => {
+          const c = catalogItem(it.type, 'line');
+          const setItems = (f: (l: ReturnType<typeof runItems>) => ReturnType<typeof runItems>) => setRun((q) => ({ ...q, inline: 'none', items: f(runItems(q)) }));
+          return (
+            <div key={it.id} className="itemrow">
+              {c && <PaletteIcon item={c} />}
+              <span className="iname">{c?.label ?? it.type}</span>
+              <input type="range" min={0.1} max={0.9} step={0.05} value={it.t} aria-label={`Position of ${c?.label ?? it.type}`} onChange={(e) => { const t = Number(e.target.value); setItems((l) => l.map((q) => (q.id === it.id ? { ...q, t } : q))); }} />
+              <button className="chip danger" aria-label={`Remove ${c?.label ?? it.type}`} onClick={() => setItems((l) => l.filter((q) => q.id !== it.id))}>✕</button>
+            </div>
+          );
+        })}
+      </div>
       <p className="fhint">{cut.ok ? `Cut length ${formatFracIn(cut.cut, prefs)}` : isMeasured(r) ? 'Cut length impossible — fittings longer than the line' : 'Add a dimension to get the cut length.'}{cut.ok && cut.note.length ? ` · ${cut.note.join('; ')}` : ''}</p>
       <div className="actions">
         {isMeasured(r) && r.sketch && <button className="btn" onClick={() => { setTxt({ t: '' }); setRun((q) => { const { meas: _m, ...rest } = q; return { ...rest, sketch: true }; }); }}>Clear dimension</button>}
@@ -645,6 +775,10 @@ function NodeEditor({ d, node, update, onClose }: { d: IsoDrawing; node: number;
     <Card className="isoedit">
       <div className="row-between"><b>Point {node}</b><button className="chip" onClick={onClose}>Done</button></div>
       <p className="fhint">{info}. New lines start from this point.</p>
+      {(k.kind === 'elbow' || k.kind === 'tee' || k.kind === 'cross') && (
+        <Select label="Fitting" value={d.fits?.[node] ?? (k.kind === 'elbow' ? 'lr' : 'tee')} options={CATALOG.filter((c) => c.kind === (k.kind === 'elbow' ? 'elbow' : 'branch')).map((c) => [c.id, c.label])}
+          onChange={(v) => update((x) => ({ ...x, fits: { ...(x.fits ?? {}), [node]: v } }))} />
+      )}
       {(k.kind === 'end' || k.kind === 'start-end') && (
         <Select label="End" value={d.ends[node] ?? 'open'} options={(Object.keys(END_LABEL) as EndType[]).map((x) => [x, END_LABEL[x]])} onChange={(v) => update((x) => ({ ...x, ends: { ...x.ends, [node]: v as EndType } }))} />
       )}
@@ -681,7 +815,7 @@ function CutPanel({ d, cuts, prefs, onShare }: { d: IsoDrawing; cuts: ReturnType
       {cuts.some((c) => c.note.length && !Number.isNaN(c.travel)) && <ul className="fhint">{cuts.filter((c) => c.note.length && !Number.isNaN(c.travel)).map((c) => <li key={c.run}>Line {c.run + 1}: {c.note.join('; ')}</li>)}</ul>}
       <p><b>Total pipe: {formatFtIn(total, prefs)}</b>{missing ? <span className="muted"> · {missing} line{missing > 1 ? 's' : ''} still need a dimension</span> : null}</p>
       <p className="fhint">Deduct = fitting take-outs + root gaps.</p>
-      <Msg kind="info">Dimensions are centerline, fitting center to fitting center. Take-outs assume ASME B16.9 long-radius butt-weld elbows and straight tees in {d.nps}". Valves, flanges and other inline items must be subtracted by hand — they are noted above.</Msg>
+      <Msg kind="info">Dimensions are centerline, fitting center to fitting center. Take-outs use ASME B16.9 butt-weld fittings in {d.nps}" (long-radius elbows and straight tees unless you picked another fitting at a point). Valves, flanges and other items on a line must be subtracted by hand — they are noted above.</Msg>
       <button className="btn" onClick={() => onShare(text)}>Copy / share cut list</button>
     </Card>
   );
@@ -738,7 +872,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
     </Card>
   );
 }
-const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:600 9px sans-serif;fill:#1f7f7a}.iso-legdim{font:600 8px sans-serif;fill:#555}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}`;
+const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:600 9px sans-serif;fill:#1f7f7a}.iso-legdim{font:600 8px sans-serif;fill:#555}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}`;
 
 async function shareImage(d: IsoDrawing, markup: string, W: number, H: number): Promise<string> {
   const svg = markup.replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);
