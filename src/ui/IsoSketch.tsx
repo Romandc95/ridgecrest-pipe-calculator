@@ -56,6 +56,8 @@ export function IsoSketch() {
   const apiFull = useRef(false);
   const [armed, setArmed] = useState<string | null>(null); // catalog key "kind:id" waiting to be placed
   const canvasApi = useRef<CanvasApi | null>(null);
+  const history = useRef<{ id: string; snaps: IsoDrawing[]; last: number; key: string }>({ id: '', snaps: [], last: 0, key: '' });
+  const [, setHistTick] = useState(0);
 
   useEffect(() => {
     const onR = () => setWin({ w: window.innerWidth, h: window.innerHeight });
@@ -74,7 +76,15 @@ export function IsoSketch() {
   const disp = useMemo(() => (d ? displayPositions(d, opts.scaled) : { P: [[0, 0, 0]] as Vec3[], k: 1, vecs: [] as Vec3[] }), [d, opts.scaled]);
   if (!d) return null;
 
-  const update = (f: (d: IsoDrawing) => IsoDrawing) => setStore((s) => ({ ...s, drawings: s.drawings.map((x) => (x.id === d.id ? { ...f(x), updated: Date.now() } : x)) }));
+  if (history.current.id !== d.id) history.current = { id: d.id, snaps: [], last: 0, key: '' };
+  const update = (f: (d: IsoDrawing) => IsoDrawing, mergeKey = '') => {
+    // remember the drawing before each change for Undo; keystrokes in the same field count as one change
+    const h = history.current, now = Date.now();
+    const merge = mergeKey && mergeKey === h.key && now - h.last < 4000 && h.snaps.length;
+    if (!merge) { h.snaps.push(d); if (h.snaps.length > 100) h.snaps.shift(); setHistTick((t) => t + 1); }
+    h.last = now; h.key = mergeKey;
+    setStore((s) => ({ ...s, drawings: s.drawings.map((x) => (x.id === d.id ? { ...f(x), updated: Date.now() } : x)) }));
+  };
   const cur = Math.min(cursor, d.runs.length);
   const addRun = (r: Omit<Run, 'id' | 'from'>, from = cur) => {
     const n = d.runs.length;
@@ -114,7 +124,14 @@ export function IsoSketch() {
     toast(`${item.label} placed`);
     return true;
   };
-  const undo = () => { if (d.runs.length) { update((x) => deleteSubtree(x, x.runs.length - 1)); setSel(null); setCursor(d.runs.length - 1 >= 0 ? d.runs[d.runs.length - 1].from : 0); } };
+  const canUndo = history.current.snaps.length > 0;
+  const undo = () => {
+    const prev = history.current.snaps.pop();
+    if (!prev) return;
+    history.current.last = 0; history.current.key = ''; setHistTick((t) => t + 1);
+    setStore((s) => ({ ...s, drawings: s.drawings.map((x) => (x.id === prev.id ? prev : x)) }));
+    setSel(null); setArmed(null); setCursor(prev.runs.length);
+  };
   const onTap = (t: Sel, at?: number) => {
     if (armed) { if (t) { if (place(armed, t, at)) setArmed(null); } else setArmed(null); return; }
     setSel(t);
@@ -152,7 +169,7 @@ export function IsoSketch() {
     : selNode !== null ? <NodeEditor d={d} node={selNode} update={update} onClose={() => setSel(null)} /> : null;
 
   const tools = (
-    <DrawTools opts={opts} setOpts={setOpts} lenText={lenText} setLenText={setLenText} addDir={addDir} undo={undo} canUndo={d.runs.length > 0}
+    <DrawTools opts={opts} setOpts={setOpts} lenText={lenText} setLenText={setLenText} addDir={addDir} undo={undo} canUndo={canUndo}
       cur={cur} isBranch={cur !== d.runs.length} missing={missing} compact={full} />
   );
   const palette = <Palette armed={armed} setArmed={setArmed} drop={(key, cx, cy) => { const h = canvasApi.current?.hitAt(cx, cy); if (!h) { toast('Drop it on a line or a point of the drawing'); return; } place(key, h.sel, h.t); }} compact={full} />;
@@ -160,6 +177,10 @@ export function IsoSketch() {
   const stage = (
     <IsoCanvas d={d} disp={disp} opts={opts} prefs={prefs} cursor={cur} sel={sel} rot={rot} fitTick={fitTick} armed={armed} apiRef={canvasApi}
       onView={(v) => setOpts({ view: v })} onTap={onTap} onDraw={drawTo}>
+      <button className="ibtn isoundo" onClick={undo} disabled={!canUndo} aria-label="Undo" title="Undo the last change">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <span>Undo</span>
+      </button>
       <div className="isobtns">
         {full && <button className="ibtn" onClick={() => setHide(!hide)}>{hide ? 'Show tools' : 'Hide tools'}</button>}
         {full && portrait && <button className="ibtn" onClick={() => { setLand(!land); setFitTick((t) => t + 1); }}>{land ? 'Portrait' : 'Landscape'}</button>}
@@ -183,7 +204,7 @@ export function IsoSketch() {
   return (
     <div className="tool iso">
       <div className="isohead">
-        <input className="isoname" value={d.name} aria-label="Drawing name" onChange={(e) => update((x) => ({ ...x, name: e.target.value }))} />
+        <input className="isoname" value={d.name} aria-label="Drawing name" onChange={(e) => update((x) => ({ ...x, name: e.target.value }), 'name')} />
         <span className="muted">{d.nps}" · {d.runs.length} lines</span>
       </div>
       {stage}
@@ -717,7 +738,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
 
 // ------------------------------------------------------------------ editors
 function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
-  d: IsoDrawing; i: number; prefs: Prefs; cut: ReturnType<typeof cutList>[number]; update: (f: (d: IsoDrawing) => IsoDrawing) => void; onClose: () => void; onDelete: () => void;
+  d: IsoDrawing; i: number; prefs: Prefs; cut: ReturnType<typeof cutList>[number]; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void; onClose: () => void; onDelete: () => void;
 }) {
   const r = d.runs[i];
   const sv = sketchVec(r);
@@ -730,7 +751,7 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
   });
   const [err, setErr] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
-  const setRun = (f: (r: Run) => Run) => update((x) => ({ ...x, runs: x.runs.map((q, k) => (k === i ? f(q) : q)) }));
+  const setRun = (f: (r: Run) => Run, mergeKey?: string) => update((x) => ({ ...x, runs: x.runs.map((q, k) => (k === i ? f(q) : q)) }), mergeKey);
   const descendants = useMemo(() => { const e = deleteSubtree(d, i); return d.runs.length - e.runs.length - 1; }, [d, i]);
 
   const apply = (next: Record<string, string>) => {
@@ -753,8 +774,8 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
         m = [0, 0, 0]; axes.forEach((k, j) => { m![k] = sign(k) * (vals[j] === null ? Math.sqrt(rem) : (vals[j] as number)); });
       } else { setErr('Enter all the legs, or the travel and all but one leg.'); }
     } else if (known.length) setErr(axes.length > 1 ? 'Enter every leg (or the travel and all but one leg).' : null);
-    if (m && len3(m) > 0) setRun((q) => ({ ...q, meas: m, sketch: true }));
-    else if (!known.length && T === null) setRun((q) => { const { meas: _m, ...rest } = q; return { ...rest, sketch: true }; });
+    if (m && len3(m) > 0) setRun((q) => ({ ...q, meas: m, sketch: true }), 'dim' + r.id);
+    else if (!known.length && T === null) setRun((q) => { const { meas: _m, ...rest } = q; return { ...rest, sketch: true }; }, 'dim' + r.id);
   };
   const flip = (k: number) => setRun((q) => {
     const s = sketchVec(q); s[k] = -s[k];
@@ -797,12 +818,12 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
         {!runItems(r).length && <p className="fhint">None yet — drag one from the palette onto the line.</p>}
         {runItems(r).map((it) => {
           const c = catalogItem(it.type, 'line');
-          const setItems = (f: (l: ReturnType<typeof runItems>) => ReturnType<typeof runItems>) => setRun((q) => ({ ...q, inline: 'none', items: f(runItems(q)) }));
+          const setItems = (f: (l: ReturnType<typeof runItems>) => ReturnType<typeof runItems>, mk?: string) => setRun((q) => ({ ...q, inline: 'none', items: f(runItems(q)) }), mk);
           return (
             <div key={it.id} className="itemrow">
               {c && <PaletteIcon item={c} />}
               <span className="iname">{c?.label ?? it.type}</span>
-              <input type="range" min={0.1} max={0.9} step={0.05} value={it.t} aria-label={`Position of ${c?.label ?? it.type}`} onChange={(e) => { const t = Number(e.target.value); setItems((l) => l.map((q) => (q.id === it.id ? { ...q, t } : q))); }} />
+              <input type="range" min={0.1} max={0.9} step={0.05} value={it.t} aria-label={`Position of ${c?.label ?? it.type}`} onChange={(e) => { const t = Number(e.target.value); setItems((l) => l.map((q) => (q.id === it.id ? { ...q, t } : q)), 'pos' + it.id); }} />
               <button className="chip danger" aria-label={`Remove ${c?.label ?? it.type}`} onClick={() => setItems((l) => l.filter((q) => q.id !== it.id))}>✕</button>
             </div>
           );

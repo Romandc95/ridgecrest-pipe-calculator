@@ -395,3 +395,5 @@ button { cursor: pointer; }
 .isopaper .major { stroke: color-mix(in srgb, var(--muted) 42%, transparent); stroke-width: .8; }
 .isostage .isopaper { pointer-events: none; }
 .isogrid2 line.ax { stroke: color-mix(in srgb, var(--accent) 55%, transparent); stroke-width: 1.1; }
+.ibtn.isoundo { position: absolute; left: 8px; bottom: 8px; gap: 5px; }
+.ibtn:disabled { opacity: .4; }
