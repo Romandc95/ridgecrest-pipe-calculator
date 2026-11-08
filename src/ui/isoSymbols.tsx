@@ -1,5 +1,5 @@
 import React from 'react';
-import { CatalogItem } from '../engine/iso';
+import { CatalogItem, Conn } from '../engine/iso';
 
 type V2 = readonly [number, number];
 /** Builder for points relative to a center m, along u (pipe direction) and n (normal). */
@@ -151,4 +151,34 @@ export function PaletteIcon({ item }: { item: CatalogItem }) {
     body = [<line key="p" className="iso-pipe thin" x1={2} y1={15} x2={18} y2={15} />, ...endSymbol(item.id, [18, 15], [-1, 0], 'i')];
   }
   return <svg className="palicon" viewBox={`0 0 ${W} ${H}`} width={W} height={H} aria-hidden="true">{body}</svg>;
+}
+
+/**
+ * Joint mark at a fitting end, by connection type:
+ * butt weld ●, socket weld ● with a socket bracket, threaded | (one tick), soldered ○, glued ■, flanged ‖.
+ * p = where the joint is, u = unit direction of the pipe there.
+ */
+export function jointMark(conn: Conn, p: V2, u: V2, key: string): React.ReactNode[] {
+  const n: V2 = [u[1], -u[0]];
+  const L = (a: number, b: number, c: number, d: number, cls: string, k: string) =>
+    <line key={key + k} className={cls} x1={p[0] + u[0] * a + n[0] * b} y1={p[1] + u[1] * a + n[1] * b} x2={p[0] + u[0] * c + n[0] * d} y2={p[1] + u[1] * c + n[1] * d} />;
+  switch (conn) {
+    case 'bw': return [<circle key={key} className="iso-weld" cx={p[0]} cy={p[1]} r={2.3} />];
+    case 'sw': return [<circle key={key} className="iso-weld" cx={p[0]} cy={p[1]} r={2} />, L(-2.5, 4, 2.5, 4, 'iso-sym', 'a'), L(-2.5, -4, 2.5, -4, 'iso-sym', 'b')];
+    case 'thd': return [L(0, -4.5, 0, 4.5, 'iso-sym thick', 't')];
+    case 'solder': return [<circle key={key} className="iso-symball" cx={p[0]} cy={p[1]} r={2.6} />];
+    case 'glue': return [<rect key={key} className="iso-symfill" x={p[0] - 2.3} y={p[1] - 2.3} width={4.6} height={4.6} />];
+    case 'flg': return [L(-1.6, -5.5, -1.6, 5.5, 'iso-sym thick', 'f1'), L(1.6, -5.5, 1.6, 5.5, 'iso-sym thick', 'f2')];
+  }
+  return [];
+}
+
+/** Little legend picture of a joint type for buttons. */
+export function JointIcon({ conn }: { conn: Conn }) {
+  return (
+    <svg className="jointicon" viewBox="0 0 26 14" width={26} height={14} aria-hidden="true">
+      <line className="iso-pipe thin" x1={1} y1={7} x2={25} y2={7} />
+      {jointMark(conn, [13, 7], [1, 0], 'j')}
+    </svg>
+  );
 }

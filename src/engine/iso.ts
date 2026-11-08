@@ -83,9 +83,14 @@ export type EndType = string;
 export const END_LABEL: Record<string, string> = Object.fromEntries(CATALOG.filter((c) => c.kind === 'end').map((c) => [c.id, c.label]));
 
 /** A fitting placed on a line, at fraction t (0–1) of the way along it. */
-export interface LineItem { id: string; type: string; t: number }
+/** How fittings join the pipe. */
+export type Conn = 'bw' | 'sw' | 'thd' | 'solder' | 'glue' | 'flg';
+export const CONN_LABEL: Record<Conn, string> = { bw: 'Butt weld', sw: 'Socket weld', thd: 'Threaded', solder: 'Soldered', glue: 'Glued (solvent)', flg: 'Flanged' };
+export const CONN_ORDER: Conn[] = ['bw', 'sw', 'thd', 'solder', 'glue', 'flg'];
+export interface LineItem { id: string; type: string; t: number; conn?: Conn }
 
-export interface Run { id: string; from: number; dx: number; dy: number; dz: number; inline: Inline; label?: string; meas?: Vec3; sketch?: boolean; items?: LineItem[] }
+/** `move`: an invisible jump that starts a new, separate line at another point (no pipe, no cut). */
+export interface Run { id: string; from: number; dx: number; dy: number; dz: number; inline: Inline; label?: string; meas?: Vec3; sketch?: boolean; items?: LineItem[]; move?: boolean }
 /** Items on a run (older drawings kept a single `inline` item). */
 export const runItems = (r: Run): LineItem[] => r.items ?? (r.inline && r.inline !== 'none' ? [{ id: r.id + '-i', type: r.inline, t: 0.5 }] : []);
 export interface IsoNote { id: string; node: number; text: string }
@@ -95,7 +100,11 @@ export interface IsoDrawing {
   runs: Run[]; ends: Record<number, EndType>; notes: IsoNote[];
   /** Fitting chosen at an elbow or branch point (default: LR elbow / straight tee). */
   fits?: Record<number, string>;
+  /** Default joint for the drawing's elbows, tees and straight joints, and per-point overrides. */
+  conn?: Conn;
+  nodeConn?: Record<number, Conn>;
 }
+export const connAt = (d: IsoDrawing, node: number): Conn => d.nodeConn?.[node] ?? d.conn ?? 'bw';
 
 export type Vec3 = [number, number, number];
 export const DIRS: Record<string, { v: Vec3; label: string }> = {
@@ -135,6 +144,7 @@ export type NodeKind = { kind: 'start-end' | 'end' } | { kind: 'straight' } | { 
 export function nodeLegs(d: IsoDrawing, node: number): Array<{ run: number; dir: Vec3 }> {
   const legs: Array<{ run: number; dir: Vec3 }> = [];
   d.runs.forEach((r, i) => {
+    if (r.move) return;
     const v = runVec(r), L = len(v);
     if (L === 0) return;
     if (r.from === node) legs.push({ run: i, dir: [v[0] / L, v[1] / L, v[2] / L] });
@@ -145,7 +155,7 @@ export function nodeLegs(d: IsoDrawing, node: number): Array<{ run: number; dir:
 
 export function nodeKind(d: IsoDrawing, node: number): NodeKind {
   const legs = nodeLegs(d, node);
-  if (legs.length <= 1) return { kind: node === 0 ? 'start-end' : 'end' };
+  if (legs.length <= 1) return { kind: node === 0 || d.runs[node - 1]?.move ? 'start-end' : 'end' };
   if (legs.length === 2) {
     const c = Math.max(-1, Math.min(1, dot(legs[0].dir, legs[1].dir)));
     const between = rad2deg(Math.acos(c)); // 180 = straight through
@@ -158,7 +168,7 @@ export function nodeKind(d: IsoDrawing, node: number): NodeKind {
 }
 
 export interface CutRow {
-  run: number; travel: number; to1: number; to2: number; gaps: number; cut: number; note: string[]; ok: boolean;
+  run: number; travel: number; to1: number; to2: number; gaps: number; cut: number; note: string[]; ok: boolean; skip?: boolean;
 }
 
 /** Take-out at one end of a run, using ASME B16.9 fittings for the drawing's NPS and the fitting chosen at that point. */
@@ -167,6 +177,15 @@ function takeoutAt(d: IsoDrawing, node: number, run: number, note: string[]): { 
   const e = B169[d.nps];
   const fit = d.fits?.[node];
   const lbl = (id: string) => catalogItem(id)?.label ?? id;
+  const conn = connAt(d, node);
+  if (conn !== 'bw' && (k.kind === 'elbow' || k.kind === 'tee' || k.kind === 'cross')) {
+    const what = k.kind === 'elbow' ? 'elbow' : k.kind;
+    note.push(conn === 'flg' ? `flanged ${what}: subtract its center-to-face (and gasket)`
+      : conn === 'thd' ? `threaded ${what}: subtract center-to-end, add thread makeup (Fittings tab)`
+      : `${CONN_LABEL[conn].toLowerCase()} ${what}: subtract center-to-end, add socket depth (Fittings tab)`);
+    return { to: 0, weld: false };
+  }
+  if (conn !== 'bw' && k.kind === 'straight') return { to: 0, weld: false };
   switch (k.kind) {
     case 'elbow': {
       const ang = k.angle;
@@ -220,7 +239,7 @@ function takeoutAt(d: IsoDrawing, node: number, run: number, note: string[]): { 
     default: {
       // run ends: a cap, weld-neck flange, nozzle or field weld is a butt weld; threaded / flanged items are not
       const end = d.ends[node] ?? 'open';
-      return { to: 0, weld: ['weld', 'cap', 'flange', 'nozzle'].includes(end) };
+      return { to: 0, weld: conn === 'bw' && ['weld', 'cap', 'flange', 'nozzle'].includes(end) };
     }
   }
 }
@@ -228,12 +247,13 @@ function takeoutAt(d: IsoDrawing, node: number, run: number, note: string[]): { 
 /** Cut list: center-to-center travel less fitting take-outs and a root gap at every butt weld. */
 export function cutList(d: IsoDrawing): CutRow[] {
   return d.runs.map((r, i) => {
+    if (r.move) return { run: i, travel: 0, to1: 0, to2: 0, gaps: 0, cut: 0, note: [], ok: true, skip: true };
     const note: string[] = [];
     const a = takeoutAt(d, r.from, i, note), b = takeoutAt(d, i + 1, i, note);
     if (!isMeasured(r)) return { run: i, travel: NaN, to1: a.to, to2: b.to, gaps: 0, cut: NaN, note: ['no dimension yet'], ok: false };
     const travel = runLength(r);
     const gaps = (a.weld ? d.gap : 0) + (b.weld ? d.gap : 0);
-    for (const it of runItems(r)) if (it.type !== 'spool') note.push(`subtract the ${(INLINE_LABEL[it.type] ?? it.type).toLowerCase()} length`);
+    for (const it of runItems(r)) if (it.type !== 'spool') note.push(`subtract the ${it.conn && it.conn !== 'bw' ? CONN_LABEL[it.conn].toLowerCase() + ' ' : ''}${(INLINE_LABEL[it.type] ?? it.type).toLowerCase()} length`);
     for (const n of [r.from, i + 1]) {
       const k = nodeKind(d, n).kind;
       if (k !== 'end' && k !== 'start-end') continue;

@@ -127,4 +127,21 @@ describe('ISO route', () => {
     expect(c[0].note.filter((n) => n.startsWith('subtract the')).length).toBe(2);
     expect(c[1].note.join(' ')).toContain('swing check');
   });
+  it('a new start point (move) draws no pipe and makes a separate end', () => {
+    const d = base(); d.runs = [run(0, 60, 0, 0), { ...run(1, 0, 48, 0), move: true }, run(2, 36, 0, 0)];
+    const c = cutList(d);
+    expect(c[1].skip).toBe(true);
+    expect(nodeKind(d, 1).kind).toBe('end');          // the jump doesn't make an elbow
+    expect(nodeKind(d, 2).kind).toBe('start-end');
+    expect(c[2].to1).toBe(0); expect(c[2].gaps).toBe(0); // open start of the new line
+  });
+  it('threaded / flanged joints: no B16.9 take-out and no weld gap, with a note', () => {
+    const d = base(); d.runs = [run(0, 60, 0, 0), run(1, 0, 48, 0)];
+    d.conn = 'thd';
+    const c = cutList(d);
+    expect(c[0].to2).toBe(0); expect(c[0].gaps).toBe(0);
+    expect(c[0].note.join(' ')).toContain('thread makeup');
+    d.conn = 'bw'; d.nodeConn = { 1: 'flg' };
+    expect(cutList(d)[0].note.join(' ')).toContain('flanged elbow');
+  });
 });
