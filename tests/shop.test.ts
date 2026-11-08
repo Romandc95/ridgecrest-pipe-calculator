@@ -292,3 +292,15 @@ describe('ISO per-size settings', () => {
     expect(materials(d).find((m) => m.item === 'Pipe' && m.size === '4')!.spec).toBe('Sch 40');
   });
 });
+
+describe('ISO fitting with no standard length', () => {
+  const run = (from: number, v: [number, number, number], id: string): Run => ({ id, from, dx: v[0] / 4, dy: v[1] / 4, dz: v[2] / 4, inline: 'none', sketch: true, meas: v });
+  it('a flanged flow meter with no length: lines measured to its faces still get a cut', () => {
+    const d: IsoDrawing = { ...newDrawing('t', 'x'), nps: '3', gap: 0.125, runs: [run(0, [0, 0, -38.375], 'a'), run(1, [0, 0, -23], 'b')], inl: { 1: { id: 'f', type: 'flowmeter', t: 0.5, conn: 'flg' } } };
+    const c = cutList(d);
+    expect(Number.isNaN(c[0].cut)).toBe(false);
+    expect(Number.isNaN(c[1].cut)).toBe(false);
+    // 3" Class 150 WN flange Y = 2.69", gasket 1/8", gap 1/8": the pipe stops short of the meter face by Y + gasket + gap
+    expect(Math.abs(c[0].cut - (38.375 - (2.69 + 0.125 + 0.125))) < 1e-6).toBe(true);
+  });
+});

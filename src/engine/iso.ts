@@ -282,7 +282,7 @@ function takeoutAt(d0: IsoDrawing, node: number, run: number, note: string[], si
     note.push(`reducer ${up.nps}"×${red.size ?? '?'}" (${frac(H)}) welded to the elbow`);
     return { to: el.to + H + d.gap, weld: true };
   }
-  const dUp: IsoDrawing = sizes ? { ...d0, nps: sizes[node - 1] ?? d0.nps } : d0; // an inline fitting is the size of the line coming into it
+  const dUp: IsoDrawing = sized(d0, (sizes ?? runSizes(d0))[node - 1] ?? d0.nps); // an inline fitting is the size (and class) of the line coming into it
   const k = nodeKind(d, node);
   const e = B169[d.nps];
   const fit = d.fits?.[node];
@@ -301,7 +301,8 @@ function takeoutAt(d0: IsoDrawing, node: number, run: number, note: string[], si
       // the line runs to the fitting's center; the pipe stops at its face / end, adjusted for the joint
       const L = itemLength(dUp, it), al = joinAllowance(dUp, it);
       const name = (INLINE_LABEL[it.type] ?? it.type).toLowerCase();
-      if (L.len === null) { note.push(`enter the ${name} length (tap it)`); return { to: NaN, weld: false }; }
+      // no length for it (e.g. a flow meter): the line is then measured to its face / end, so the cut doesn't need it
+      if (L.len === null) { if (!note.some((n) => n.startsWith(name + ':'))) note.push(`${name}: measured to its ${itemRef(it) === 'F' ? 'face' : 'end'}${al.note ? '; ' + al.note : ''} (enter its length only if you need the overall)`); return { to: -al.v, weld: false }; }
       if (!note.some((n) => n.startsWith(name + ':'))) note.push(`${name}: ${L.src}${al.note ? '; ' + al.note : ''}`);
       return { to: L.len / 2 - al.v, weld: false };
     }
@@ -554,7 +555,8 @@ export function runSizes(d: IsoDrawing): string[] {
 export function faceAdj(d: IsoDrawing, i: number): number {
   const r = d.runs[i];
   let a = 0;
-  for (const n of [r.from, i + 1]) { const it = inlineAt(d, n); if (it && nodeKind(d, n).kind === 'straight') a += (itemLength(d, it).len ?? 0) / 2; } // only a fitting sitting in a straight run splits the length at its center
+  const sizes = runSizes(d);
+  for (const n of [r.from, i + 1]) { const it = inlineAt(d, n); if (it && nodeKind(d, n).kind === 'straight') a += (itemLength(sized(d, sizes[n - 1] ?? d.nps), it).len ?? 0) / 2; } // only a fitting sitting in a straight run splits the length at its center
   return a;
 }
 /** The length shown for a line: to the faces / ends of inline fittings, center elsewhere. */

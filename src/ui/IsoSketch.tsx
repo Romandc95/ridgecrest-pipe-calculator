@@ -11,7 +11,7 @@ function dimFt(totalIn: number, prefs: Prefs): string {
 }
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
@@ -28,7 +28,7 @@ type Sel = { kind: 'angle'; node: number } | { kind: 'node'; id: number } | { ki
 type Mode = 'draw' | 'orbit' | 'pan';
 const MODE_LABEL: Record<Mode, string> = { draw: 'Drawing', pan: 'Move', orbit: '3D rotate' };
 type Plane = 'EN' | 'EU' | 'NU';
-interface Opts { dims: boolean; welds: boolean; labels: boolean; scaled: boolean; weldmap?: boolean; view: View; mode: Mode; plane: Plane; conn: Conn }
+interface Opts { dims: boolean; welds: boolean; labels: boolean; scaled: boolean; weldmap?: boolean; callouts?: boolean; view: View; mode: Mode; plane: Plane; conn: Conn }
 type ArtOpts = Pick<Opts, 'dims' | 'welds' | 'labels' | 'weldmap'> & { textEdit?: boolean; /** sheet: item numbers per point (match the material list) */ items?: Record<number, number[]>; /** sheet: pipe piece letters (match the cut list) */ spools?: Array<{ run: number; t: number; letter: string }> };
 
 const PLANES: Record<Plane, { n: Vec3; a: Vec3; b: Vec3; label: string }> = {
@@ -387,6 +387,7 @@ export function IsoSketch() {
   const closeText = (id: string) => { const t = d.texts?.find((q) => q.id === id); if (t && !t.text.trim()) setText(id, null); setSel(null); };
   const openDrawing = (id: string) => { setStore((s) => ({ ...s, current: id })); setSel(null); setArmed(null); setCursor(0); setOffOpen(false); setFitTick((t) => t + 1); };
   const newDrawingNow = () => { const nd = newDrawing(`Iso ${store.drawings.length + 1}`, uid()); setStore((s) => ({ drawings: [nd, ...s.drawings], current: nd.id })); openDrawing(nd.id); toast('New drawing'); };
+  const calloutData = (() => { if (opts.callouts === false) return undefined; const sd = sheetData(d, prefs); return { items: sd.items, spools: sd.spools }; })();
   const welds = opts.weldmap ? weldList(d) : [];
   const weldSel = sel?.kind === 'weld' ? welds.findIndex((w) => w.key === sel.key) : -1;
   const textSel = sel?.kind === 'text' ? d.texts?.find((t) => t.id === sel.id) ?? null : null;
@@ -461,6 +462,7 @@ export function IsoSketch() {
           onDelete={() => { setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? null : q)); setSel(null); }} /> } : null}
       startOn={armed === 'start'} onStartBtn={() => setArmed(armed === 'start' ? null : 'start')} onNotice={toast}
       onMode={(m) => setOpts({ mode: m })}
+      callouts={calloutData}
       offsetOn={offOpen} onOffsetBtn={() => { setOffOpen(!offOpen); setSel(null); }} onPlaceText={placeText} onTextMove={moveText}
       onView={(v) => setOpts({ view: v })} onTap={onTap} onDraw={drawTo}>
       <div className="isohist">
@@ -584,7 +586,7 @@ function PointMenu({ d, n, prefs, act }: { d: IsoDrawing; n: number; prefs: Pref
   const hasSize = (pk === 'inline' && isReducer(it!.type)) || (pk === 'tee' && SIZED.includes(cur));
   const curSize = pk === 'inline' ? it!.size : d.fitSize?.[n];
   const hasLen = pk === 'inline' || pk === 'end';
-  const std = pk === 'inline' ? itemLength({ ...d, nps: lineSize }, { ...it!, len: undefined }) : endTakeoff({ ...d, endLen: {} }, n);
+  const std = pk === 'inline' ? itemLength(sized(d, lineSize), { ...it!, len: undefined }) : endTakeoff({ ...d, endLen: {} }, n);
   const own = pk === 'inline' ? it!.len : d.endLen?.[n];
   const [lenT, setLenT] = useState(own != null ? formatFracIn(own, prefs) : '');
   const canMove = pk !== 'elbow';
@@ -855,8 +857,8 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
         </div>
       </div>
       <div className="isotoggles">
-        {(['dims', 'welds', 'labels', 'scaled', 'weldmap'] as const).map((k) => (
-          <label key={k} className={'chip' + (k === 'weldmap' && opts.weldmap ? ' on' : '')}><input type="checkbox" checked={!!opts[k]} onChange={(e) => setOpts({ [k]: e.target.checked })} /> {({ dims: 'Dimensions', welds: 'Joints', labels: 'Point #', scaled: 'To scale', weldmap: 'Weld map' })[k]}</label>
+        {(['dims', 'welds', 'labels', 'callouts', 'scaled', 'weldmap'] as const).map((k) => (
+          <label key={k} className={'chip' + (k === 'weldmap' && opts.weldmap ? ' on' : '')}><input type="checkbox" checked={k === 'callouts' ? opts.callouts !== false : !!opts[k]} onChange={(e) => setOpts({ [k]: e.target.checked })} /> {({ dims: 'Dimensions', welds: 'Joints', labels: 'Point #', callouts: 'Pc / item #', scaled: 'To scale', weldmap: 'Weld map' })[k]}</label>
         ))}
         <button className="chip" onClick={undo} disabled={!canUndo}>‹ Back</button>
         {canRedo && <button className="chip" onClick={redo}>Forward ›</button>}
@@ -870,12 +872,13 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
 // ------------------------------------------------------------------ canvas
 type Cam = { s: number; tx: number; ty: number };
 export interface CanvasApi { hitAt: (clientX: number, clientY: number) => { sel: Sel; t: number } | null }
-function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, onMode, children }: {
+function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, onMode, callouts, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
   armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>; onPick: (v: Vec3 | null) => void;
   onItemDrag: (run: number, id: string, t: number) => void; onInlDrag: (node: number, t: number) => void; menu: { at: Vec3; node: React.ReactNode } | null;
   startOn: boolean; onStartBtn: () => void; onNotice: (m: string) => void;
   onMode?: (m: Mode) => void;
+  callouts?: Pick<ArtOpts, 'items' | 'spools'>;
   offsetOn: boolean; onOffsetBtn: () => void; onPlaceText: (node: number, off: Vec3) => void; onTextMove: (id: string, node: number, off: Vec3) => void;
   onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number, split?: { run: number; t: number }) => void; children?: React.ReactNode;
 }) {
@@ -1151,7 +1154,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         <HatchDefs />
         <IsoPaper W={W} H={H} T3={T3} g={g} />
         {opts.mode === 'draw' && !armed && <PlaneGrid W={W} H={H} T3={T3} o={ghost?.origin ?? P[gridFrom] ?? [0, 0, 0]} g={g} />}
-        <IsoArt d={d} disp={disp} T3={T3} sel={sel} cursor={cursor} opts={{ ...opts, textEdit: armed === 'notes' }} prefs={prefs} />
+        <IsoArt d={d} disp={disp} T3={T3} sel={sel} cursor={cursor} opts={{ ...opts, textEdit: armed === 'notes', ...(opts.callouts !== false ? callouts : {}) }} prefs={prefs} />
         {ghost && (() => {
           const o3 = ghost.origin ?? P[ghost.from];
           const a = T3(o3), b = T3(add(o3, ghost.v));
@@ -1846,7 +1849,7 @@ function SpoolFields({ d, i, prefs, setRun }: { d: IsoDrawing; i: number; prefs:
 function InlineEditor({ d, node, update, onClose, prefs }: { d: IsoDrawing; node: number; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void; onClose: () => void; prefs: Prefs }) {
   const it = inlineAt(d, node)!;
   const c = catalogItem(it.type, 'line');
-  const std = itemLength(d, { ...it, len: undefined });
+  const std = itemLength(sized(d, runSizes(d)[node - 1] ?? d.nps), { ...it, len: undefined });
   const [lenT, setLenT] = useState(it.len != null ? formatFracIn(it.len, prefs) : '');
   const [armed, setArmed] = useState(false);
   const setIt = (f: (q: typeof it) => typeof it, mk?: string) => update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [node]: f(x.inl![node]) } }), mk);
@@ -1925,25 +1928,28 @@ function CutPanel({ d, cuts, prefs, onShare }: { d: IsoDrawing; cuts: ReturnType
   return (
     <Card>
       <h4>Cut list · {d.nps}" · gap {formatFracIn(d.gap, prefs)}</h4>
-      <div className="tablewrap">
-        <table className="dtable">
-          <thead><tr><th>Line</th><th>Length</th><th>Deduct</th><th>Cut</th></tr></thead>
-          <tbody>{cuts.map((c) => Number.isNaN(c.travel) ? (
-            <tr key={c.run} className="todo"><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}{sz(c.run)}</small></th><td colSpan={3}>needs dimension</td></tr>
-          ) : (
-            c.pieces ? (
-              <React.Fragment key={c.run}>
-                <tr><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}{sz(c.run)}</small></th><td>{formatFtIn(c.travel, prefs)} {runRef(d, c.run)}</td><td colSpan={2} className="muted">{c.pieces.length} spools</td></tr>
-                {c.pieces.map((q, k) => (
-                  <tr key={k} className={'piece' + (Number.isNaN(q.cut) ? ' todo' : q.ok ? '' : ' bad')}><th>{c.run + 1}{L(k)}<small> {q.from} → {q.to}</small></th><td colSpan={2}></td><td><b>{Number.isNaN(q.cut) ? 'need length' : q.ok ? formatFtIn(q.cut, prefs) : 'impossible'}</b></td></tr>
-                ))}
-              </React.Fragment>
-            ) : (
-            <tr key={c.run} className={c.ok ? '' : 'bad'}><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}{sz(c.run)}</small></th><td>{formatFtIn(shownLength(d, c.run), prefs)} {runRef(d, c.run)}</td><td>{c.ok ? formatFracIn(shownLength(d, c.run) - c.cut, prefs) : ''}</td><td><b>{c.ok ? formatFtIn(c.cut, prefs) : Number.isNaN(c.cut) ? 'need length' : 'impossible'}</b></td></tr>
-            )
-          ))}</tbody>
-        </table>
-      </div>
+      {(() => {
+        // the same letters as the drawing and the completed sheet: A, B, C … for pipe pieces; # for fittings (material list)
+        const sd = sheetData(d, prefs);
+        return <>
+          <div className="tablewrap">
+            <table className="dtable">
+              <thead><tr><th>Pc</th><th>Line</th><th>Length</th><th>Cut</th></tr></thead>
+              <tbody>{sd.cutRows.map((r) => {
+                const bad = /IMPOSSIBLE/.test(r[3]), todo = r[2] === 'no dimension' || /need/.test(r[3]);
+                return <tr key={r[0]} className={todo ? 'todo' : bad ? 'bad' : ''}><th>{r[0]}</th><td><small>{r[1]}</small></td><td>{r[2] === 'no dimension' ? 'needs dimension' : r[2]}</td><td><b>{r[3] === 'IMPOSSIBLE' ? 'impossible' : r[3]}</b></td></tr>;
+              })}</tbody>
+            </table>
+          </div>
+          <h4>Material</h4>
+          <div className="tablewrap">
+            <table className="dtable">
+              <thead><tr><th>#</th><th>Item</th><th>Size</th><th>Spec</th><th>Qty</th></tr></thead>
+              <tbody>{sd.mat.map((r, k) => <tr key={k}><th>{r[0]}</th><td>{r[1]}</td><td>{r[2]}</td><td><small>{r[3]}</small></td><td>{r[4]}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </>;
+      })()}
       {cuts.some((c) => c.note.length && !Number.isNaN(c.travel)) && <ul className="fhint">{cuts.filter((c) => c.note.length && !Number.isNaN(c.travel)).map((c) => <li key={c.run}>Line {c.run + 1}: {c.note.join('; ')}</li>)}</ul>}
       {(() => {
         // pipe to order, by size, when the drawing has more than one size
@@ -2182,7 +2188,10 @@ function sheetData(d: IsoDrawing, prefs: Prefs) {
   const items: Record<number, number[]> = {};
   let num = 0;
   const pipeLetters = (z: string) => { const ls = spools.filter((sp) => sizes[sp.run] === z).map((sp) => sp.letter); return ls.length > 2 ? `${ls[0]}–${ls[ls.length - 1]}` : ls.join(','); };
-  const mat = materials(d).map((m): TRow => {
+  const firstLetter = (z: string) => { const sp = spools.find((q) => sizes[q.run] === z); return sp ? spools.indexOf(sp) : 1e9; };
+  const mats = materials(d);
+  const pipeRows = mats.filter((m) => m.item === 'Pipe').sort((a, b) => firstLetter(a.size) - firstLetter(b.size));
+  const mat = [...pipeRows, ...mats.filter((m) => m.item !== 'Pipe')].map((m): TRow => {
     const isPipe = m.item === 'Pipe', isWeld = /weld$/i.test(m.item);
     const no = isPipe ? pipeLetters(m.size) : isWeld ? '' : String(++num);
     if (!isPipe && !isWeld) (m.nodes ?? []).forEach((n) => { (items[n] ??= []).includes(num) || items[n].push(num); });
