@@ -465,12 +465,12 @@ button { cursor: pointer; }
 .ibtn.offtab.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .isodock { position: absolute; left: 8px; right: 8px; bottom: 52px; max-height: 76%; overflow-y: auto; z-index: 6; background: var(--surface); border: 1.5px solid var(--accent); border-radius: 12px; box-shadow: 0 8px 26px #0007; padding: 8px; }
 .isodock .offpanel { border: 0; padding: 2px; }
-.iso-wlead { stroke: #d2453d; stroke-width: .8; }
+.iso-wlead { stroke: #d2453d; stroke-width: .6; }
 .iso-wdot { fill: #d2453d; }
-.iso-wbox { fill: var(--surface); stroke: #d2453d; stroke-width: 1.1; }
-.iso-wtxt { font: 800 7.5px sans-serif; fill: #d2453d; }
+.iso-wbox { fill: var(--surface); stroke: #d2453d; stroke-width: .8; }
+.iso-wtxt { font: 800 6.4px sans-serif; fill: #d2453d; }
 .iso-wsten { font: 700 6.5px sans-serif; fill: var(--muted); }
-.iso-wtag.field .iso-wbox { stroke-dasharray: 2.5 1.5; }
+.iso-wtag.field .iso-wbox { stroke-dasharray: 2 1.2; }
 .iso-wtag.sel .iso-wbox { fill: #d2453d; }
 .iso-wtag.sel .iso-wtxt { fill: #fff; }
 .iso-whit { fill: transparent; }
@@ -523,3 +523,4 @@ button { cursor: pointer; }
 .isomodal-card .btn.primary, .sheetacts .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .isomodal-card .card { margin: 0; }
 .sheetfull .sheetbar { opacity: .85; }
+.sheetopt { margin-top: 10px; }

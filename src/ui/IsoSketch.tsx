@@ -1465,34 +1465,68 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     const lx = p[0] + 22, ly = p[1] - 18 - (j % 3) * 12;
     els.push(<g key={'n' + t.id}><line className="iso-leader" x1={p[0]} y1={p[1]} x2={lx - 2} y2={ly + 2} /><text className="iso-note" x={lx} y={ly}>{t.text}</text></g>);
   });
-  // weld map: every weld numbered (W1 …, field welds FW), with the welder stencil when entered
+  // weld map: every weld numbered (W1 …, field welds FW). Tags are placed where they don't sit on a pipe,
+  // a dimension or another tag; the stencil, shop / field and notes are in the weld log and the weld's menu.
   const tags: React.ReactNode[] = [];
-  if (opts.weldmap) weldList(d).forEach((w, j) => {
-    const p = S[w.node]; const r = d.runs[w.run]; if (!p || !r) return;
-    const other = r.from === w.node ? S[w.run + 1] : S[r.from]; if (!other) return;
-    const [ux, uy, L] = unit(p, other);
-    const off = Math.min(L * 0.4, w.where === 'fitting' ? 9 : w.where === 'inline' ? 12 : w.where === 'reducer' ? 24 : w.where === 'end' ? 4 : 0);
-    const c: [number, number] = [p[0] + ux * off, p[1] + uy * off];
-    let nx = -uy, ny = ux; if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; }
-    // put the tag on the side away from the other pipes at that point (so tags at elbows and tees don't stack)
-    let ox = 0, oy = 0;
-    nodeLegs(d, w.node).forEach((l) => { if (l.run === w.run) return; const q = d.runs[l.run]; const o2 = q.from === w.node ? S[l.run + 1] : S[q.from]; if (!o2) return; const [vx, vy] = unit(p, o2); ox += vx; oy += vy; });
-    const side = nx * ox + ny * oy;
-    if (side > 0.2) { nx = -nx; ny = -ny; }
-    const info = d.welds?.[w.key];
-    const tag = `${info?.field ? 'FW' : 'W'}${j + 1}`;
-    const t: [number, number] = [c[0] + nx * 17 + ux * 4, c[1] + ny * 17 + uy * 4];
-    const tw = 6 + tag.length * 5.4;
-    const on = sel?.kind === 'weld' && sel.key === w.key;
-    tags.push(<g key={'wm' + w.key} className={'iso-wtag' + (info?.field ? ' field' : '') + (on ? ' sel' : '')} data-weld={exportMode ? undefined : w.key}>
-      <line className="iso-wlead" x1={c[0]} y1={c[1]} x2={t[0]} y2={t[1]} />
-      <circle className="iso-wdot" cx={c[0]} cy={c[1]} r={2.2} />
-      {!exportMode && <circle className="iso-whit" cx={t[0]} cy={t[1]} r={13} />}
-      <rect className="iso-wbox" x={t[0] - tw / 2} y={t[1] - 6.5} width={tw} height={13} rx={info?.field ? 6.5 : 2} />
-      <text className="iso-wtxt" x={t[0]} y={t[1] + 3} textAnchor="middle">{tag}</text>
-      {info?.stencil && <text className="iso-wsten" x={t[0]} y={t[1] + 14} textAnchor="middle">{info.stencil}</text>}
-    </g>);
-  });
+  if (opts.weldmap) {
+    type Seg = [number, number, number, number, number]; // x1 y1 x2 y2 clearance
+    const segs: Seg[] = [];
+    d.runs.forEach((r, i) => {
+      if (r.move) return; const a = S[r.from], b = S[i + 1]; if (!a || !b) return;
+      segs.push([a[0], a[1], b[0], b[1], 7]);
+      if (opts.dims && isMeasured(r)) {
+        // dimension text sits beside the middle of the line
+        const [ux, uy, L] = unit(a, b); if (L < 12) return;
+        let nx = -uy, ny = ux; if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; }
+        const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, hw = Math.min(L / 2, 34);
+        for (const o of [11, 19, -13]) segs.push([mx + nx * o - ux * hw, my + ny * o - uy * hw, mx + nx * o + ux * hw, my + ny * o + uy * hw, 6]);
+      }
+    });
+    const segDist = (x: number, y: number, g: Seg) => {
+      const dx = g[2] - g[0], dy = g[3] - g[1], L2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((x - g[0]) * dx + (y - g[1]) * dy) / L2));
+      return Math.hypot(x - g[0] - t * dx, y - g[1] - t * dy);
+    };
+    const boxes: Array<[number, number, number, number]> = []; // placed tags: cx cy halfW halfH
+    weldList(d).forEach((w, j) => {
+      const p = S[w.node]; const r = d.runs[w.run]; if (!p || !r) return;
+      const other = r.from === w.node ? S[w.run + 1] : S[r.from]; if (!other) return;
+      const [ux, uy, L] = unit(p, other);
+      const off = Math.min(L * 0.4, w.where === 'fitting' ? 9 : w.where === 'inline' ? 12 : w.where === 'reducer' ? 24 : w.where === 'end' ? 4 : 0);
+      const c: [number, number] = [p[0] + ux * off, p[1] + uy * off];
+      let nx = -uy, ny = ux; if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; }
+      // prefer the side away from the other pipes at that point
+      let ox = 0, oy = 0;
+      nodeLegs(d, w.node).forEach((l) => { if (l.run === w.run) return; const q = d.runs[l.run]; const o2 = q.from === w.node ? S[l.run + 1] : S[q.from]; if (!o2) return; const [vx, vy] = unit(p, o2); ox += vx; oy += vy; });
+      if (nx * ox + ny * oy > 0.2) { nx = -nx; ny = -ny; }
+      const info = d.welds?.[w.key];
+      const tag = `${info?.field ? 'FW' : 'W'}${j + 1}`;
+      const hw = (4 + tag.length * 4.3) / 2, hh = 5;
+      // try spots around the weld; keep the first clear one (or the least crowded)
+      let best: [number, number] = [c[0] + nx * 13, c[1] + ny * 13], bestScore = Infinity;
+      search: for (const dist of [12, 17, 23, 30, 38]) for (const sd of [1, -1]) for (const al of [0, 7, -7, 14, -14]) {
+        const x = c[0] + nx * sd * dist + ux * al, y = c[1] + ny * sd * dist + uy * al;
+        let score = dist * 0.02 + (sd < 0 ? 0.05 : 0);
+        for (const g of segs) { const dd = segDist(x, y, g) - Math.max(hw, hh) * 0.75; if (dd < g[4]) score += (g[4] - dd) * 2; }
+        for (const bx of boxes) { const ovx = hw + bx[2] + 2 - Math.abs(x - bx[0]), ovy = hh + bx[3] + 2 - Math.abs(y - bx[1]); if (ovx > 0 && ovy > 0) score += 20 + ovx * ovy; }
+        if (score < bestScore) { bestScore = score; best = [x, y]; }
+        if (score < 0.5) break search;
+      }
+      const t = best;
+      boxes.push([t[0], t[1], hw, hh]);
+      const on = sel?.kind === 'weld' && sel.key === w.key;
+      // leader from the weld to the near edge of the tag
+      const lx = t[0] - c[0], ly = t[1] - c[1], ll = Math.hypot(lx, ly) || 1;
+      const edge = Math.min(hw / Math.max(1e-6, Math.abs(lx / ll)), hh / Math.max(1e-6, Math.abs(ly / ll)));
+      tags.push(<g key={'wm' + w.key} className={'iso-wtag' + (info?.field ? ' field' : '') + (on ? ' sel' : '')} data-weld={exportMode ? undefined : w.key}>
+        {ll - edge > 2.5 && <line className="iso-wlead" x1={c[0]} y1={c[1]} x2={t[0] - (lx / ll) * edge} y2={t[1] - (ly / ll) * edge} />}
+        <circle className="iso-wdot" cx={c[0]} cy={c[1]} r={1.6} />
+        {!exportMode && <circle className="iso-whit" cx={t[0]} cy={t[1]} r={12} />}
+        <rect className="iso-wbox" x={t[0] - hw} y={t[1] - hh} width={hw * 2} height={hh * 2} rx={info?.field ? hh : 1.5} />
+        <text className="iso-wtxt" x={t[0]} y={t[1] + 2.4} textAnchor="middle">{tag}</text>
+      </g>);
+    });
+  }
   // text notes placed on the drawing
   const kk = disp.k || 1;
   (d.texts ?? []).forEach((t) => {
@@ -1831,7 +1865,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
     </Card>
   );
 }
-const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:600 9px sans-serif;fill:#1f7f7a}.iso-legdim{font:600 8px sans-serif;fill:#555}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:600 7.5px sans-serif;fill:#666}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.8}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:1.1}.iso-wtxt{font:800 7.5px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textbox{fill:none;stroke:none}`;
+const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:600 9px sans-serif;fill:#1f7f7a}.iso-legdim{font:600 8px sans-serif;fill:#555}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:600 7.5px sans-serif;fill:#666}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textbox{fill:none;stroke:none}`;
 
 async function shareImage(d: IsoDrawing, markup: string, W: number, H: number, scale = 3): Promise<string> {
   const svg = markup.replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);
@@ -1953,10 +1987,11 @@ function sheetData(d: IsoDrawing, prefs: Prefs) {
   return { cutRows, total, mat, weldRows, wl };
 }
 
-function SheetSvg({ d, opts, prefs, svgRef }: { d: IsoDrawing; opts: Opts; prefs: Prefs; svgRef?: React.Ref<SVGSVGElement> }) {
+function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true }: { d: IsoDrawing; opts: Opts; prefs: Prefs; svgRef?: React.Ref<SVGSVGElement>; welds?: boolean }) {
   const view = opts.view;
   const disp = displayPositions(d, opts.scaled);
-  const { cutRows, total, mat, weldRows, wl } = sheetData(d, prefs);
+  const { cutRows, total, mat, weldRows: weldRows0, wl } = sheetData(d, prefs);
+  const weldRows = showWelds ? weldRows0 : [];
   const M = 25;
   const RX = 1215, RW = SW - M - 10 - RX; // right column
   const DX = M + 10, DY = M + 10, DW = RX - 10 - DX; // drawing area
@@ -1998,7 +2033,7 @@ function SheetSvg({ d, opts, prefs, svgRef }: { d: IsoDrawing; opts: Opts; prefs
       <rect x={DX} y={DY} width={DW} height={DH} fill="none" stroke="#111" strokeWidth={1.2} />
       <g clipPath="url(#sheetclip)"><g transform={`translate(${DX} ${DY}) scale(${KK})`}>
         <HatchDefs />
-        <IsoArt d={d} disp={disp} T3={T3} sel={null} cursor={-1} opts={{ dims: true, welds: true, labels: false, weldmap: true }} prefs={prefs} exportMode />
+        <IsoArt d={d} disp={disp} T3={T3} sel={null} cursor={-1} opts={{ dims: true, welds: true, labels: false, weldmap: showWelds }} prefs={prefs} exportMode />
         <Compass x={36} y={36} view={view} />
       </g></g>
       <text x={DX + DW - 12} y={DY + 26} textAnchor="end" style={{ font: '800 20px sans-serif', fill: '#1f3b3a', letterSpacing: '2px' }}>ISOMETRIC</text>
@@ -2011,7 +2046,7 @@ function SheetSvg({ d, opts, prefs, svgRef }: { d: IsoDrawing; opts: Opts; prefs
         <rect x={RX} y={tbY} width={RW} height={TB} fill="#fff" stroke="#111" strokeWidth={2} />
         <rect x={RX} y={tbY} width={RW} height={44} fill="#1f3b3a" />
         <text x={RX + 14} y={tbY + 30} style={{ font: '900 23px sans-serif', fill: '#fff', letterSpacing: '1.5px' }}>RIDGECREST INDUSTRIES</text>
-        {[['DRAWING', d.name], ['SIZE', `${d.nps}" NPS · Class ${d.cls ?? 150} · gap ${formatFracIn(d.gap, prefs)}`], ['JOINT', CONN_LABEL[d.conn ?? 'bw']], ['DATE', date], ['STATUS', `COMPLETE · ${d.runs.filter((r) => !r.move).length} lines · ${wl.length} welds`]].map(([k, v], i) => (
+        {[['DRAWING', d.name], ['SIZE', `${d.nps}" NPS · Class ${d.cls ?? 150} · gap ${formatFracIn(d.gap, prefs)}`], ['JOINT', CONN_LABEL[d.conn ?? 'bw']], ['DATE', date], ['STATUS', `COMPLETE · ${d.runs.filter((r) => !r.move).length} lines · ${wl.length} welds${showWelds ? '' : ' (map off)'}`]].map(([k, v], i) => (
           <g key={k}>
             <line x1={RX} x2={RX + RW} y1={tbY + 44 + i * 29} y2={tbY + 44 + i * 29} stroke="#ccd" />
             <text x={RX + 12} y={tbY + 64 + i * 29} style={{ font: '800 12px sans-serif', fill: '#666' }}>{k}</text>
@@ -2028,6 +2063,7 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
   const ref = useRef<SVGSVGElement>(null);
   const [zoom, setZoom] = useState(1);
   const [full, setFull] = useState(false);
+  const [showWelds, setShowWelds] = usePersistent<boolean>('isosheetwelds', true);
   const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
   useEffect(() => { const f = () => setWin({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
   const markup = () => (ref.current ? ref.current.outerHTML.replace('<svg ', `<svg width="${SW}" height="${SH}" `) : '');
@@ -2047,23 +2083,27 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
       <button className="ibtn" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, z / 1.4))}>−</button>
       <button className="ibtn" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(5, z * 1.4))}>+</button>
       <button className="ibtn" onClick={() => setZoom(1)}>Fit</button>
+      {full && <button className="ibtn" onClick={() => setShowWelds(!showWelds)}>{showWelds ? 'Welds: on' : 'Welds: off'}</button>}
       <button className="ibtn" onClick={() => { setFull(!full); setZoom(1); }}>{full ? '✕ Close' : 'Full screen'}</button>
     </div>
   );
   const rot0 = full && win.h > win.w;
   const aw = rot0 ? win.h : win.w, ah = rot0 ? win.w : win.h;
   const fitW = Math.max(200, Math.min(aw - 8, (ah - 8) * SW / SH));
-  const sheet = <div className="sheetscroll"><div className="sheetin" style={full ? { width: fitW * zoom, margin: zoom === 1 ? '0 auto' : undefined } : { width: `${zoom * 100}%` }}><SheetSvg d={d} opts={opts} prefs={prefs} svgRef={ref} /></div></div>;
+  const sheet = <div className="sheetscroll"><div className="sheetin" style={full ? { width: fitW * zoom, margin: zoom === 1 ? '0 auto' : undefined } : { width: `${zoom * 100}%` }}><SheetSvg d={d} opts={opts} prefs={prefs} svgRef={ref} welds={showWelds} /></div></div>;
   const rot = rot0;
   return (
     <>
       <div className="sheetwrap">{!full && sheet}{!full && zoomBar}</div>
       {full && createPortal(<div className={'sheetfull' + (rot ? ' rot' : '')}><div className="sheetfull-in">{sheet}{zoomBar}</div></div>, document.body)}
+      <div className="sheetopt">
+        <Segmented small value={showWelds ? 'on' : 'off'} onChange={(v) => setShowWelds(v === 'on')} options={[['on', 'Weld map on'], ['off', 'Weld map off']]} />
+      </div>
       <div className="chiprow sheetacts">
         <button className="btn primary" onClick={share}>Share as image</button>
         <button className="btn" onClick={print}>Print 11×17</button>
       </div>
-      <p className="fhint">Completed drawings are locked. ✎ Edit (top) reopens it; tap ✓ Complete again when you're done.</p>
+      <p className="fhint">Weld map off hides the weld numbers and the weld log, for a clean drawing to view, share or print. Completed drawings are locked. ✎ Edit (top) reopens it; tap ✓ Complete again when you're done.</p>
     </>
   );
 }
