@@ -13,6 +13,8 @@ import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, l
 import { B169, npsNumber } from '../engine/fittings';
 import { FLANGE_CLASSES, FlangeClass } from '../engine/refdata';
 const npsVal = (n: string) => npsNumber(n) ?? 0;
+/** A reducer that gets bigger going downstream (an expander) — drawn the other way round. */
+const expands = (up: string | undefined, down: string | undefined) => !!up && !!down && npsVal(down) > npsVal(up);
 
 type Prefs = ReturnType<typeof useApp>['settings']['prefs'];
 interface IsoStore { drawings: IsoDrawing[]; current: string | null }
@@ -1487,14 +1489,18 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         // reducer welded onto the elbow, drawn on the line coming in
         const ui = legScreen[li]; const c: [number, number] = [p[0] + ui[0] * 15, p[1] + ui[1] * 15];
         if (sel?.kind === 'node' && sel.id === n && !exportMode) els.push(<circle key={'ih' + n} className="iso-itemsel" cx={c[0]} cy={c[1]} r={12} />);
-        els.push(...lineSymbol(er.type, c, [-ui[0], -ui[1]], 6, 'er' + n));
+        // narrow end toward the smaller pipe: the elbow side when it reduces, the incoming pipe when it gets bigger
+        els.push(...lineSymbol(er.type, c, expands(sizes[n - 1] ?? d.nps, er.size) ? [ui[0], ui[1]] : [-ui[0], -ui[1]], 6, 'er' + n));
         if (er.size && opts.dims) callouts.push({ key: 'ers' + n, text: `${sizes[n - 1] ?? d.nps}"×${er.size}"`, at: c, dir: [-ui[1], ui[0]], dist: 11 });
       }
       if (k.kind === 'elbow' && Math.abs(k.angle - 90) > 0.05) { const bx = -(legScreen[0][0] + legScreen[1][0]), by = -(legScreen[0][1] + legScreen[1][1]), bl = Math.hypot(bx, by) || 1; callouts.push({ key: 'ea' + n, text: `${formatNumber(k.angle, 1)}°`, at: [p[0], p[1]], dir: [bx / bl, by / bl], dist: 11, cls: 'iso-note' }); }
     } else if (k.kind === 'straight') {
       const it = inlineAt(d, n);
       if (it && legScreen.length === 2) {
-        const u = legScreen[1];
+        // the leg leaving the point is downstream; a reducer's narrow end points at the smaller pipe
+        const di = legs.findIndex((l) => l.run !== n - 1);
+        const down = legScreen[di >= 0 ? di : 1], upL = legScreen[di >= 0 ? 1 - di : 0];
+        const u = isReducer(it.type) && it.type !== 'swage' ? (expands(sizes[n - 1] ?? d.nps, it.size) ? upL : down) : legScreen[1];
         const sz = 7;
         // stem points the same real-world way whatever the view
         const rv = runVec(d.runs[legs[0].run]);
@@ -1516,7 +1522,11 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       if (er && legScreen[0]) {
         // reducer on the end of a line
         if (sel?.kind === 'node' && sel.id === n && !exportMode) els.push(<circle key={'ih' + n} className="iso-itemsel" cx={p[0] - legScreen[0][0] * 7} cy={p[1] - legScreen[0][1] * 7} r={12} />);
-        els.push(...endSymbol(er.type === 'eccreducer' ? 'eccreducer' : 'reducer', p, legScreen[0], 'er' + n));
+        if (expands(sizes[n - 1] ?? d.nps, er.size)) {
+          // gets bigger at the end: wide side outward
+          const o: [number, number] = [-legScreen[0][0], -legScreen[0][1]];
+          els.push(...lineSymbol(er.type === 'eccreducer' ? 'eccreducer' : 'reducer', [p[0] + o[0] * 6.5, p[1] + o[1] * 6.5], [-o[0], -o[1]], 6.5, 'er' + n));
+        } else els.push(...endSymbol(er.type === 'eccreducer' ? 'eccreducer' : 'reducer', p, legScreen[0], 'er' + n));
         if (er.size && opts.dims) callouts.push({ key: 'ers' + n, text: `${sizes[n - 1] ?? d.nps}"×${er.size}"`, at: [p[0] - legScreen[0][0] * 7, p[1] - legScreen[0][1] * 7], dir: [-legScreen[0][0], -legScreen[0][1]], dist: 16 });
         if (opts.welds) els.push(...jointMark(er.conn ?? 'bw', p, legScreen[0], 'erj' + n));
       } else els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode, connAt(d, n)));
