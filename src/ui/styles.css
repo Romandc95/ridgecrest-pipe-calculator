@@ -571,3 +571,20 @@ button { cursor: pointer; }
 .iso-dropmark circle:last-child { fill: var(--accent); }
 .isostage .iso-dropmark { pointer-events: none; }
 .toast { cursor: pointer; }
+/* text boxes */
+.ibtn.texttab { position: absolute; top: 238px; left: 8px; gap: 3px; padding: 0 8px 0 5px; font-size: 12px; }
+.ibtn.texttab.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.iso-textborder { fill: var(--surface); fill-opacity: .85; stroke: var(--text); stroke-width: 1; }
+.isosheet .iso-textborder { fill: #fff; stroke: #111; }
+.textstyle { display: flex; flex-direction: column; gap: 8px; }
+.textstyle .chip.tsb { display: inline-flex; align-items: center; gap: 5px; }
+.tsrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tsrow .ibtn { min-width: 36px; justify-content: center; font-weight: 800; }
+.tssize { min-width: 22px; text-align: center; }
+.tscolor { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--line); padding: 0; }
+.tscolor.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+.textdock { bottom: 52px; top: auto; padding: 6px 8px; max-height: none; overflow-x: auto; overflow-y: hidden; }
+.textdock .textstyle { flex-direction: row; align-items: center; gap: 6px; width: max-content; }
+.textdock .chiprow, .textdock .tsrow { flex-wrap: nowrap; }
+.textdock .tsl, .textdock .tsrow .flabel { display: none; }
+.textdock .chip.tsb { padding: 4px 7px; }

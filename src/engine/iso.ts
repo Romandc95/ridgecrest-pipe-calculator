@@ -176,7 +176,10 @@ export function drawingSizes(d: IsoDrawing): string[] {
 export interface DrawingInfo { customer?: string; site?: string; jobNo?: string; system?: string }
 export interface WeldInfo { stencil?: string; field?: boolean; notes?: string }
 /** Text on the drawing, anchored to a point (node) with an offset in sketch units so it follows the drawing. */
-export interface TextNote { id: string; node: number; off: Vec3; text: string }
+export type TextBorder = 'none' | 'box' | 'round' | 'cloud';
+/** Text box style: border, font size (drawing px, 9 = normal) and colour ('' = the drawing's text colour). */
+export interface TextStyle { border?: TextBorder; size?: number; color?: string }
+export interface TextNote extends TextStyle { id: string; node: number; off: Vec3; text: string }
 /** The inline fitting at a point, if that point is still a straight joint. */
 export const inlineAt = (d: IsoDrawing, node0: number): LineItem | null => {
   const node = d.links?.[node0] ?? node0;

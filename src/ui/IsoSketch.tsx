@@ -17,7 +17,7 @@ function ftHint(text: string, prefs: Prefs): string | undefined {
 }
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, pipeOrder, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, pipeOrder, TextStyle, TextBorder, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
@@ -87,6 +87,7 @@ export function IsoSketch() {
   const [offOpen, setOffOpen] = useState(false); // offset tab on the drawing
   const [dots, setDots] = useState(false); // ⋮ menu
   const [modal, setModal] = useState<null | 'name' | 'complete' | 'drawings'>(null);
+  const [textStyle, setTextStyle] = usePersistent<TextStyle>('isotextstyle', { border: 'none', size: 9, color: '' }); // the style for the next text box
   useEffect(() => setMore(false), [JSON.stringify(sel)]);
   const history = useRef<{ id: string; snaps: IsoDrawing[]; redo: IsoDrawing[]; last: number; key: string }>({ id: '', snaps: [], redo: [], last: 0, key: '' });
   const [, setHistTick] = useState(0);
@@ -396,7 +397,7 @@ export function IsoSketch() {
 
   const placeText = (node: number, off: Vec3) => {
     const id = uid();
-    update((x) => ({ ...x, texts: [...(x.texts ?? []), { id, node, off, text: '' }] }));
+    update((x) => ({ ...x, texts: [...(x.texts ?? []), { id, node, off, text: '', ...textStyle }] }));
     setArmed('notes'); setSel({ kind: 'text', id });
   };
   const moveText = (id: string, node: number, off: Vec3) => update((x) => ({ ...x, texts: (x.texts ?? []).map((t) => (t.id === id ? { ...t, node, off } : t)) }), 'tmove' + id);
@@ -452,7 +453,7 @@ export function IsoSketch() {
       onItemDrag={(run, id, t) => setItem(run, id, (q) => (q.id === id ? { ...q, t, at: undefined } : q), 'drag' + id)}
       menu={sel?.kind === 'angle' && offsetAt(d, sel.node) ? { at: disp.P[sel.node], node: <AnglePop key={'ap' + sel.node + ':' + d.updated} d={d} node={sel.node} onSet={(a) => { const nd = setOffsetAngle(d, sel.node, a); if (nd) { update(() => nd); toast(`Offset now ${formatNumber(a, 2)}°`); } else toast('Enter an angle between 1° and 89°'); }} onClose={() => setSel(null)} /> }
         : weldSel >= 0 ? { at: disp.P[welds[weldSel].node], node: <WeldPop key={'wp' + welds[weldSel].key} d={d} w={welds[weldSel]} num={weldSel + 1} update={update} onClose={() => setSel(null)} /> }
-        : textSel && disp.P[textSel.node] ? { at: add(disp.P[textSel.node], mul(textSel.off, disp.k || 1)), node: <TextPop key={'tp' + textSel.id} text={textSel.text} onText={(v) => setText(textSel.id, v)} onDelete={() => { setText(textSel.id, null); setSel(null); }} onClose={() => closeText(textSel.id)} /> }
+        : textSel && disp.P[textSel.node] ? { at: add(disp.P[textSel.node], mul(textSel.off, disp.k || 1)), node: <TextPop key={'tp' + textSel.id} note={textSel} onText={(v) => setText(textSel.id, v)} onStyle={(p) => { setTextStyle((o) => ({ ...o, ...p })); update((x) => ({ ...x, texts: (x.texts ?? []).map((q) => (q.id === textSel.id ? { ...q, ...p } : q)) })); }} onDelete={() => { setText(textSel.id, null); setSel(null); }} onClose={() => closeText(textSel.id)} /> }
         : selNode !== null && pointKind(d, selNode) && !more ? { at: disp.P[selNode], node: <PointMenu key={'pm' + selNode} d={d} n={selNode} prefs={prefs}
           act={{
             close: () => setSel(null), more: () => setMore(true),
@@ -480,6 +481,7 @@ export function IsoSketch() {
           onDelete={() => { setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? null : q)); setSel(null); }} /> } : null}
       startOn={armed === 'start'} onStartBtn={() => setArmed(armed === 'start' ? null : 'start')} onNotice={toast}
       onMode={(m) => setOpts({ mode: m })}
+      onTextBtn={() => { if (armed === 'text') { setArmed(null); return; } setArmed('text'); setSel(null); setOffOpen(false); }}
       callouts={calloutData}
       offsetOn={offOpen} onOffsetBtn={() => { setOffOpen(!offOpen); setSel(null); }} onPlaceText={placeText} onTextMove={moveText}
       onView={(v) => setOpts({ view: v })} onTap={onTap} onDraw={drawTo}>
@@ -498,7 +500,10 @@ export function IsoSketch() {
           {full ? '✕ Close' : <svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>}
         </button>
       </div>
-      {armed && <div className="isoarmed"><span className="armtxt">{armed === 'start' ? 'Drag on the paper to draw a new line (or tap to set its start)' : armed === 'text' ? 'Tap the drawing where the note goes' : armed === 'notes' ? 'Drag a note to move · tap to edit' : armed.startsWith('mv:') ? 'Tap where it should go' : armed.startsWith('move:') ? 'Tap a line where it should go' : `Tap where the ${CONN_LABEL[opts.conn].toLowerCase()} ${catalogItem(armed.split(':')[1], armed.split(':')[0] as CatalogItem['kind'])?.label.toLowerCase()} goes`}</span><button className="linkbtn" onClick={() => { setArmed(null); if (sel?.kind === 'text') closeText(sel.id); }}>{armed === 'notes' ? 'done' : 'cancel'}</button></div>}
+      {armed && <div className="isoarmed"><span className="armtxt">{armed === 'start' ? 'Drag on the paper to draw a new line (or tap to set its start)' : armed === 'text' ? 'Set the style below, then tap where the text goes' : armed === 'notes' ? 'Drag a note to move · tap to edit' : armed.startsWith('mv:') ? 'Tap where it should go' : armed.startsWith('move:') ? 'Tap a line where it should go' : `Tap where the ${CONN_LABEL[opts.conn].toLowerCase()} ${catalogItem(armed.split(':')[1], armed.split(':')[0] as CatalogItem['kind'])?.label.toLowerCase()} goes`}</span><button className="linkbtn" onClick={() => { setArmed(null); if (sel?.kind === 'text') closeText(sel.id); }}>{armed === 'notes' ? 'done' : 'cancel'}</button></div>}
+      {armed === 'text' && <div className="isodock textdock" onPointerDown={(e) => e.stopPropagation()}>
+        <TextStyleBar st={textStyle} onChange={(p) => setTextStyle((o) => ({ ...o, ...p }))} />
+      </div>}
       {offOpen && <div className="isodock" onPointerDown={(e) => e.stopPropagation()}>
         <OffsetPanel key={heading + cur} heading={heading} prefs={prefs} from={cur} onAdd={(o) => { addOffset(o); setOffOpen(false); }} onClose={() => setOffOpen(false)} />
       </div>}
@@ -533,7 +538,7 @@ export function IsoSketch() {
             {dotItem('My Drawings', () => setModal('drawings'))}
             {dotItem('New Drawing', newDrawingNow)}
             {dotItem('Name Drawing', () => setModal('name'))}
-            {dotItem('Add text note', () => { setArmed('text'); setSel(null); setOffOpen(false); }, !!d.done)}
+            {dotItem('Add text box', () => { setArmed('text'); setSel(null); setOffOpen(false); }, !!d.done)}
             {dotItem(armed === 'notes' ? 'Done editing notes' : 'Edit / move notes', () => { setArmed(armed === 'notes' ? null : 'notes'); setSel(null); if (!d.texts?.length) toast('No text notes yet — use Add text note'); }, !!d.done || (!d.texts?.length && armed !== 'notes'))}
           </div>
         </>}
@@ -904,13 +909,14 @@ function dropHint(key: string): string {
   const [kind] = key.split(':');
   return kind === 'elbow' ? 'Drop elbows on a turn in the drawing' : kind === 'end' ? 'Drop end fittings on the end of a line' : kind === 'branch' ? 'Drop branch fittings on a line or a tee point' : 'Drop it on a straight line';
 }
-function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, onMode, callouts, children }: {
+function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, onMode, callouts, onTextBtn, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
   armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>; onPick: (v: Vec3 | null) => void;
   onItemDrag: (run: number, id: string, t: number) => void; onInlDrag: (node: number, t: number) => void; menu: { at: Vec3; node: React.ReactNode } | null;
   startOn: boolean; onStartBtn: () => void; onNotice: (m: string) => void;
   onMode?: (m: Mode) => void;
   callouts?: Pick<ArtOpts, 'items' | 'spools'>;
+  onTextBtn?: () => void;
   offsetOn: boolean; onOffsetBtn: () => void; onPlaceText: (node: number, off: Vec3) => void; onTextMove: (id: string, node: number, off: Vec3) => void;
   onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number, split?: { run: number; t: number }, link?: DrawLink, start?: Vec3) => void; children?: React.ReactNode;
 }) {
@@ -1303,6 +1309,10 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       <button className={'ibtn offtab' + (offsetOn ? ' on' : '')} aria-label="Add offset" title="Add an offset (angled run) from the current point" onClick={onOffsetBtn}>
         <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 18h6l6-12h6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /><path d="M9 18l6-12" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="2 2" /></svg>
         <span>Offset</span>
+      </button>
+      <button className={'ibtn texttab' + (armed === 'text' ? ' on' : '')} aria-label="Add text box" title="Add a text box to the drawing" onClick={onTextBtn}>
+        <svg viewBox="0 0 24 24" width="20" height="20"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M8 9h8M12 9v8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+        <span>Text</span>
       </button>
       {menu && (() => {
         const [x, y] = T3(menu.at);
@@ -1798,18 +1808,24 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       </g>);
     });
   }
-  // text notes placed on the drawing
+  // text boxes placed on the drawing: border (none / box / rounded / cloud), font size and colour
   const kk = disp.k || 1;
   (d.texts ?? []).forEach((t) => {
     const base = P[t.node]; if (!base) return;
     const q = T3(add(base, mul(t.off, kk)));
-    const lines = (t.text || (exportMode ? '' : 'Note…')).split('\n');
+    const lines = (t.text || (exportMode ? '' : 'Text…')).split('\n');
     if (!lines.join('').trim()) return;
-    const w = Math.max(...lines.map((x) => x.length)) * 5.3 + 10, h = lines.length * 11 + 6;
+    const fs = t.size ?? 9, lh = fs * 1.22, pad = fs * 0.55;
+    const w = Math.max(...lines.map((x) => x.length)) * fs * 0.58 + pad * 2, h = lines.length * lh + pad * 1.4;
+    const x0 = q[0] - pad, y0 = q[1] - fs - pad * 0.5;
     const on = sel?.kind === 'text' && sel.id === t.id;
+    const col = t.color || undefined;
     tags.push(<g key={'tx' + t.id} className={'iso-textg' + (opts.textEdit ? ' edit' : '') + (on ? ' sel' : '')} data-text={exportMode ? undefined : t.id}>
-      {!exportMode && <rect className="iso-textbox" x={q[0] - 5} y={q[1] - 11} width={w} height={h} rx={3} />}
-      {lines.map((ln, k) => <text key={k} className={'iso-textnote' + (t.text ? '' : ' ph')} x={q[0]} y={q[1] + k * 11}>{ln}</text>)}
+      {!exportMode && <rect className="iso-textbox" x={x0 - 2} y={y0 - 2} width={w + 4} height={h + 4} rx={3} />}
+      {t.border === 'box' && <rect className="iso-textborder" x={x0} y={y0} width={w} height={h} style={col ? { stroke: col } : undefined} />}
+      {t.border === 'round' && <rect className="iso-textborder" x={x0} y={y0} width={w} height={h} rx={Math.min(h / 2, fs)} style={col ? { stroke: col } : undefined} />}
+      {t.border === 'cloud' && <path className="iso-textborder" d={cloudPath(x0, y0, w, h, fs)} style={col ? { stroke: col } : undefined} />}
+      {lines.map((ln, k) => <text key={k} className={'iso-textnote' + (t.text ? '' : ' ph')} x={q[0]} y={q[1] + k * lh} style={{ fontSize: `${fs}px`, ...(col ? { fill: col } : {}) }}>{ln}</text>)}
     </g>);
   });
   return <g>{under}{els}{tags}</g>;
@@ -2162,7 +2178,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
     </Card>
   );
 }
-const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:700 10px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}.iso-legdim{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-dimlead{stroke:#0a4f4a;stroke-width:.5;stroke-dasharray:1.5 1.5}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-fit{font:800 6.8px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:2.4px;stroke-linejoin:round}.iso-note{paint-order:stroke;stroke:#fff;stroke-width:2.4px}.iso-spoolbox{fill:#fff;stroke:#1f3b3a;stroke-width:.9}.iso-spooltxt{font:800 6.6px sans-serif;fill:#1f3b3a}.iso-spoollead{stroke:#1f3b3a;stroke-width:.5}.iso-ballc{fill:#fff;stroke:#111;stroke-width:.9}.iso-balltxt{font:800 6.4px sans-serif;fill:#111}.iso-balllead{stroke:#111;stroke-width:.5}.iso-textbox{fill:none;stroke:none}`;
+const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:700 10px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}.iso-legdim{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-dimlead{stroke:#0a4f4a;stroke-width:.5;stroke-dasharray:1.5 1.5}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textborder{fill:#fff;stroke:#111;stroke-width:1}.iso-fit{font:800 6.8px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:2.4px;stroke-linejoin:round}.iso-note{paint-order:stroke;stroke:#fff;stroke-width:2.4px}.iso-spoolbox{fill:#fff;stroke:#1f3b3a;stroke-width:.9}.iso-spooltxt{font:800 6.6px sans-serif;fill:#1f3b3a}.iso-spoollead{stroke:#1f3b3a;stroke-width:.5}.iso-ballc{fill:#fff;stroke:#111;stroke-width:.9}.iso-balltxt{font:800 6.4px sans-serif;fill:#111}.iso-balllead{stroke:#111;stroke-width:.5}.iso-textbox{fill:none;stroke:none}`;
 
 async function shareImage(d: IsoDrawing, markup: string, W: number, H: number, scale = 3): Promise<string> {
   const svg = markup.replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);
@@ -2201,13 +2217,54 @@ function WeldPop({ d, w, num, update, onClose }: { d: IsoDrawing; w: Weld; num: 
   );
 }
 
-function TextPop({ text, onText, onDelete, onClose }: { text: string; onText: (v: string) => void; onDelete: () => void; onClose: () => void }) {
+/** A cloud outline (revision-cloud style) round a box: scallops along each side. */
+function cloudPath(x: number, y: number, w: number, h: number, fs: number): string {
+  const r = Math.max(3, fs * 0.55);
+  const pts: Array<[number, number]> = [];
+  const side = (ax: number, ay: number, bx: number, by: number) => { const L = Math.hypot(bx - ax, by - ay); const n = Math.max(1, Math.round(L / (r * 1.8))); for (let i = 0; i < n; i++) pts.push([ax + ((bx - ax) * i) / n, ay + ((by - ay) * i) / n]); };
+  const m = r * 0.4; // the scallops sit just outside the box
+  side(x - m, y - m, x + w + m, y - m); side(x + w + m, y - m, x + w + m, y + h + m); side(x + w + m, y + h + m, x - m, y + h + m); side(x - m, y + h + m, x - m, y - m);
+  let dd = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const rr = Math.hypot(b[0] - a[0], b[1] - a[1]) / 2 + 0.01;
+    dd += ` A${rr.toFixed(1)},${rr.toFixed(1)} 0 0 1 ${b[0].toFixed(1)},${b[1].toFixed(1)}`;
+  }
+  return dd + ' Z';
+}
+
+const TEXT_COLORS: Array<[string, string]> = [['', 'Default'], ['#d2453d', 'Red'], ['#2f6fdb', 'Blue'], ['#2f9e57', 'Green'], ['#e08a1e', 'Orange'], ['#8b5cf6', 'Purple']];
+const TEXT_BORDERS: Array<[TextBorder, string]> = [['none', 'No border'], ['box', 'Box'], ['round', 'Rounded'], ['cloud', 'Cloud']];
+/** Border, font size and colour for a text box (used before placing and when editing one). */
+function TextStyleBar({ st, onChange }: { st: TextStyle; onChange: (p: TextStyle) => void }) {
+  const size = st.size ?? 9;
+  return (
+    <div className="textstyle">
+      <div className="chiprow">{TEXT_BORDERS.map(([k, l]) => (
+        <button key={k} title={l} aria-label={l} className={'chip tsb' + ((st.border ?? 'none') === k ? ' on' : '')} onClick={() => onChange({ border: k })}>
+          <svg viewBox="0 0 30 18" width="26" height="16" aria-hidden="true">{k === 'box' ? <rect x="3" y="3" width="24" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" /> : k === 'round' ? <rect x="3" y="3" width="24" height="12" rx="6" fill="none" stroke="currentColor" strokeWidth="1.6" /> : k === 'cloud' ? <path d={cloudPath(5, 5, 20, 8, 5)} fill="none" stroke="currentColor" strokeWidth="1.3" /> : <text x="15" y="13" textAnchor="middle" fontSize="10" fontWeight="800" fill="currentColor">Aa</text>}</svg><span className="tsl">{l}</span>
+        </button>))}
+      </div>
+      <div className="tsrow">
+        <span className="flabel">Size</span>
+        <button className="ibtn" aria-label="Smaller text" onClick={() => onChange({ size: Math.max(5, Math.round((size - 1) * 2) / 2) })}>A−</button>
+        <b className="tssize">{size}</b>
+        <button className="ibtn" aria-label="Bigger text" onClick={() => onChange({ size: Math.min(40, Math.round((size + 1) * 2) / 2) })}>A+</button>
+        <span className="flabel">Colour</span>
+        {TEXT_COLORS.map(([c, l]) => <button key={l} className={'tscolor' + ((st.color ?? '') === c ? ' on' : '')} title={l} aria-label={`${l} text`} style={{ background: c || 'var(--text)' }} onClick={() => onChange({ color: c })} />)}
+      </div>
+    </div>
+  );
+}
+
+function TextPop({ note, onText, onStyle, onDelete, onClose }: { note: { text: string } & TextStyle; onText: (v: string) => void; onStyle: (p: TextStyle) => void; onDelete: () => void; onClose: () => void }) {
   return (
     <div className="itemmenu-in">
-      <div className="row-between"><b>Text note</b><button className="linkbtn" onClick={onClose}>Done</button></div>
-      <textarea className="isotext" rows={3} autoFocus value={text} placeholder="Type the note…" onChange={(e) => onText(e.target.value)} />
-      <span className="fhint">Drag the note on the drawing to move it.</span>
-      <button className="btn danger" onClick={onDelete}>Delete note</button>
+      <div className="row-between"><b>Text box</b><button className="linkbtn" onClick={onClose}>Done</button></div>
+      <textarea className="isotext" rows={3} autoFocus value={note.text} placeholder="Type the text…" onChange={(e) => onText(e.target.value)} />
+      <TextStyleBar st={note} onChange={onStyle} />
+      <span className="fhint">Drag the text box on the drawing to move it (⋮ → Edit / move notes).</span>
+      <button className="btn danger" onClick={onDelete}>Delete text box</button>
     </div>
   );
 }
