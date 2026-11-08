@@ -4,10 +4,16 @@ import { Field, Msg, Select, Segmented, Card, Grid, useApp } from './components'
 import { usePersistent, uid, shareText } from './store';
 import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber, splitFtIn } from '../engine/format';
-/** Measurements on the drawing: feet and inches joined by a dash, and a 0 before a fraction with no whole inches — 10'-6-1/8", 1'-0-1/2". */
+/** Measurements on the drawing: feet and inches joined by a dash, a 0 before a fraction with no whole inches — 10'-6 1/8", 1'-0 1/2"; inches are always shown as feet and inches (67 5/8 → 5'-7 5/8"). */
 function dimFt(totalIn: number, prefs: Prefs): string {
   const p = splitFtIn(totalIn, prefs.fracDen, true, prefs.fracMode === 'std');
-  return `${p.neg ? '−' : ''}${p.feet}'-${p.inch}${p.num ? `-${p.num}/${p.den}` : ''}"`;
+  return `${p.neg ? '−' : ''}${p.feet}'-${p.inch}${p.num ? ` ${p.num}/${p.den}` : ''}"`;
+}
+/** Under a length box: what an entry in inches reads as in feet and inches, e.g. 67 5/8 → = 5'-7 5/8". */
+function ftHint(text: string, prefs: Prefs): string | undefined {
+  if (!text || text.includes("'")) return undefined;
+  const r = tryParse(parseLength, text);
+  return r && r.ok && Math.abs(r.v) >= 12 ? `= ${dimFt(r.v, prefs)}` : undefined;
 }
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
@@ -652,7 +658,7 @@ function LengthPop({ d, i, prefs, update, onClose, onMore }: { d: IsoDrawing; i:
   const axes = [0, 1, 2].filter((k) => nz(sv[k]));
   const adj = faceAdj(d, i);
   const ref = runRef(d, i);
-  const [txt, setTxt] = useState(isMeasured(r) ? formatFtIn(shownLength(d, i), prefs) : '');
+  const [txt, setTxt] = useState(isMeasured(r) ? dimFt(shownLength(d, i), prefs).replace('−', '-') : '');
   const [err, setErr] = useState<string | null>(null);
   const set = (v: string) => {
     setTxt(v); setErr(null);
@@ -666,7 +672,7 @@ function LengthPop({ d, i, prefs, update, onClose, onMore }: { d: IsoDrawing; i:
   return (
     <div className="itemmenu-in">
       <div className="row-between"><b>Line {i + 1} · {describeRun(r)}</b><button className="chip" aria-label="Close" onClick={onClose}>✕</button></div>
-      <Field label={`${axes.length > 1 ? 'Travel' : 'Length'} (${ref})`} value={txt} onChange={set} parse={parseLength} placeholder="e.g. 4' 6" />
+      <Field label={`${axes.length > 1 ? 'Travel' : 'Length'} (${ref})`} value={txt} onChange={set} parse={parseLength} placeholder="e.g. 4' 6 or 54" hint={ftHint(txt, prefs)} />
       {err && <p className="fhint">{err}</p>}
       <div className="menubtns two"><button className="btn primary" onClick={onClose}>Done</button><button className="btn" onClick={onMore}>More…</button></div>
     </div>
@@ -814,9 +820,9 @@ function OffsetPanel({ heading, prefs, onAdd, onClose, from }: { heading: string
         <Select label="Heading (run)" value={h} options={ALL_DIRS.map((k) => [k, label(k)])} onChange={(v) => { setH(v); setRoll('none'); }} />
         <Field label="Fitting angle (°)" value={ang} onChange={setAng} placeholder="45" />
         <Select label="Offset toward" value={toward} options={perp.map((k) => [k, label(k)])} onChange={(v) => { setTo(v); setRoll('none'); }} />
-        <Field label="Offset (optional)" value={off} onChange={setOff} parse={parseLength} placeholder="sketch only" />
+        <Field label="Offset (optional)" value={off} onChange={setOff} parse={parseLength} placeholder="sketch only" hint={ftHint(off, prefs)} />
         <Select label="Roll toward" value={rollDir ?? 'none'} options={[['none', 'No roll'], ...rollDirs.map((k) => [k, label(k)] as [string, string])]} onChange={setRoll} />
-        {rollDir && <Field label="Roll (optional)" value={rollAmt} onChange={setRollAmt} parse={parseLength} placeholder="sketch only" />}
+        {rollDir && <Field label="Roll (optional)" value={rollAmt} onChange={setRollAmt} parse={parseLength} placeholder="sketch only" hint={ftHint(rollAmt, prefs)} />}
       </Grid>
       <div className="chiprow">{['11.25', '22.5', '30', '45', '60'].map((a) => <button key={a} className={'chip' + (ang === a ? ' on' : '')} onClick={() => setAng(a)}>{a}°</button>)}</div>
       {bad ? <Msg kind="warn">{bad}</Msg> : known
@@ -851,7 +857,7 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
         </div>
       </div>
       <div className="dirbar">
-        <Field label="Length (optional)" value={lenText} onChange={setLenText} parse={parseLength} placeholder="e.g. 5' 6" />
+        <Field label="Length (optional)" value={lenText} onChange={setLenText} parse={parseLength} placeholder="e.g. 5' 6 or 66" hint={ftHint(lenText, prefs)} />
         <div className="dirpad">
           {DIR_ORDER.map((k) => <button key={k} className="btn dir" aria-label={DIRS[k].label} onClick={() => addDir(k)}>{DIR_SHORT[k]}</button>)}
         </div>
@@ -1763,7 +1769,7 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
       <div className="row-between"><b>Line {i + 1}: {describeRun(r)}</b><button className="chip" onClick={onClose}>Done</button></div>
       {axes.length === 1 ? (
         <Grid>
-          <Field label={`Length (${runRef(d, i)})`} value={txt[axes[0]] ?? ''} onChange={(v) => apply({ ...txt, [axes[0]]: v })} parse={parseLength} placeholder="add dimension" />
+          <Field label={`Length (${runRef(d, i)})`} value={txt[axes[0]] ?? ''} onChange={(v) => apply({ ...txt, [axes[0]]: v })} parse={parseLength} placeholder="add dimension" hint={ftHint(txt[axes[0]] ?? '', prefs)} />
           <Select label="Direction" value={curDir!} options={(['N', 'S', 'E', 'W', 'U', 'D'] as const).map((k) => [k, DIRS[k].label])} onChange={turn} />
         </Grid>
       ) : (
@@ -1772,11 +1778,11 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
           <Grid>
             {axes.map((k) => (
               <div key={k} className="legfield">
-                <Field label={AXIS_NAMES[k][sv[k] < 0 ? 1 : 0]} value={txt[k] ?? ''} onChange={(v) => apply({ ...txt, [k]: v })} parse={parseLength} placeholder="leg" />
+                <Field label={AXIS_NAMES[k][sv[k] < 0 ? 1 : 0]} value={txt[k] ?? ''} onChange={(v) => apply({ ...txt, [k]: v })} parse={parseLength} placeholder="leg" hint={ftHint(txt[k] ?? '', prefs)} />
                 <button className="chip" onClick={() => flip(k)}>⇄ {AXIS_NAMES[k][sv[k] < 0 ? 0 : 1]}</button>
               </div>
             ))}
-            <Field label="Travel" value={txt.t} onChange={(v) => apply({ ...txt, t: v })} parse={parseLength} placeholder={tv ? formatFtIn(runLength(r), prefs) : 'optional'} />
+            <Field label="Travel" value={txt.t} onChange={(v) => apply({ ...txt, t: v })} parse={parseLength} placeholder={tv ? dimFt(runLength(r), prefs) : 'optional'} hint={ftHint(txt.t ?? '', prefs)} />
           </Grid>
         </>
       )}

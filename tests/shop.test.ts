@@ -304,3 +304,12 @@ describe('ISO fitting with no standard length', () => {
     expect(Math.abs(c[0].cut - (38.375 - (2.69 + 0.125 + 0.125))) < 1e-6).toBe(true);
   });
 });
+
+describe('drawing notation in length boxes', () => {
+  it("5'-7 5/8\" reads as 67-5/8\"", async () => {
+    const { parseLength } = await import('../src/engine/parse');
+    expect(parseLength(`5'-7 5/8"`)).toBe(67.625);
+    expect(parseLength(`4'-0"`)).toBe(48);
+    expect(parseLength('67 5/8')).toBe(67.625);
+  });
+});

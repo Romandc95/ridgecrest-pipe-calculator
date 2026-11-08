@@ -190,6 +190,7 @@
 ✓ ISO offset angle › 45° offset of 12" set becomes 30°: run along = 12/tan30, set unchanged, next line follows
 ✓ ISO per-size settings › the size after a reducer uses its own gap, class and schedule; unset = main
 ✓ ISO fitting with no standard length › a flanged flow meter with no length: lines measured to its faces still get a cut
+✓ drawing notation in length boxes › 5'-7 5/8" reads as 67-5/8"
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -243,4 +244,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-244 passed, 0 failed, 244 total
+245 passed, 0 failed, 245 total

@@ -127,7 +127,8 @@ export function parseMeasurement(src: string): Q {
 
 /** Parse requiring a length (unitless numbers are taken as inches). */
 export function parseLength(src: string): number {
-  const q = parseMeasurement(src);
+  // a length box also takes drawing notation: 5'-7 5/8" (a dash after the feet is a separator here, not a minus)
+  const q = parseMeasurement(src.replace(/(\d(?:\.\d+)?)\s*(?:'|ft)\s*-\s*(?=\d)/g, "$1' "));
   if (q.kind === 'num' && q.unit === 'none') return q.v;
   if (q.kind !== 'len' || q.dim !== 1) throw new CalcError('DIM', 'Enter a length, e.g. 24", 2\' 0", 610 mm.');
   return q.v;
