@@ -179,6 +179,7 @@
 ✓ ISO route › splitting a line keeps what hangs off its end attached, shares out the measurement, and a branch makes a tee
 ✓ ISO route › a flanged valve on a line: B16.10 face-to-face, WN flanges + gasket, two spools; your length overrides
 ✓ ISO route › threaded valve: pipe gains thread makeup each side; cap end deducts cap E; your end take-off overrides
+✓ ISO route › a 10 ft line with a flanged valve in the middle shows two C-F spools on the drawing
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -232,4 +233,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-233 passed, 0 failed, 233 total
+234 passed, 0 failed, 234 total

@@ -311,7 +311,7 @@ export function cutList(d: IsoDrawing): CutRow[] {
       const end = d.ends[n] ?? 'open';
       if (endTakeoff(d, n)?.len === null) note.push(`${END_LABEL[end].toLowerCase()} at the end: enter its length (tap the point) if the line is dimensioned to its end`);
     }
-    const items = runItems(r).slice().sort((x, y) => x.t - y.t);
+    const items = runItems(r).slice().sort((x, y) => itemPos(r, x) - itemPos(r, y));
     if (!items.length) {
       const cut = travel - a.to - b.to - gaps;
       return { run: i, travel, to1: a.to, to2: b.to, gaps, cut, note, ok: cut > 0 };
@@ -322,7 +322,7 @@ export function cutList(d: IsoDrawing): CutRow[] {
     for (const it of items) {
       const L = itemLength(d, it);
       const al = joinAllowance(d, it);
-      const pos = it.at ?? it.t * travel;
+      const pos = itemPos(r, it);
       const name = (INLINE_LABEL[it.type] ?? it.type).toLowerCase();
       if (L.len === null) note.push(`enter the ${name} length (tap it)`);
       else note.push(`${name}: ${L.src}${al.note ? '; ' + al.note : ''}`);
@@ -355,6 +355,32 @@ export function itemLength(d: IsoDrawing, it: LineItem): { len: number | null; s
     if (v != null) return { len: v, src: `B16.10 Class ${cls} RF face-to-face ${frac(v)}` };
   }
   return { len: null, src: '' };
+}
+
+/** One piece of a dimensioned line between its end points and the faces of the fittings on it (positions in inches from the start). */
+export interface Segment { a: number; b: number; len: number; kind: 'C-C' | 'C-F' | 'F-F' | 'F-C'; known: boolean; item?: string }
+/** Where an item's center is along its line (inches from the start point). */
+export const itemPos = (r: Run, it: LineItem) => it.at ?? it.t * runLength(r);
+/**
+ * The spools of a dimensioned line with fittings on it, as drawn dimensions: start center → first fitting face (C-F),
+ * face to face between fittings (F-F), last face → end center (F-C). null when the line has no fittings or no dimension.
+ */
+export function runSegments(d: IsoDrawing, i: number): Segment[] | null {
+  const r = d.runs[i];
+  if (!r || r.move || !isMeasured(r)) return null;
+  const items = runItems(r).slice().sort((x, y) => itemPos(r, x) - itemPos(r, y));
+  if (!items.length) return null;
+  const travel = runLength(r);
+  const segs: Segment[] = [];
+  let prev = 0, prevKnown = true, first = true;
+  for (const it of items) {
+    const L = itemLength(d, it).len;
+    const pos = itemPos(r, it), half = (L ?? 0) / 2;
+    segs.push({ a: prev, b: pos - half, len: pos - half - prev, kind: first ? 'C-F' : 'F-F', known: prevKnown && L !== null, item: it.id });
+    prev = pos + half; prevKnown = L !== null; first = false;
+  }
+  segs.push({ a: prev, b: travel, len: travel - prev, kind: 'F-C', known: prevKnown });
+  return segs;
 }
 
 /** What each pipe end next to a line fitting gains (+) or loses (−) for its joint. */

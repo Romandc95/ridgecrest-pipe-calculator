@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { miter, cope, thermalExpansion } from '../src/engine/shop';
-import { newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength } from '../src/engine/iso';
+import { newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments } from '../src/engine/iso';
 import { flange, valveFaceToFace, nptMakeup } from '../src/engine/refdata';
 
 describe('miter (segmented elbow)', () => {
@@ -178,5 +178,15 @@ describe('ISO route', () => {
     expect(cutList(d)[0].to2).toBe(2.5); // B16.9 cap E, 4"
     d.endLen = { 1: 3 };
     expect(cutList(d)[0].to2).toBe(3);
+  });
+  it('a 10 ft line with a flanged valve in the middle shows two C-F spools on the drawing', () => {
+    const d = base(); d.runs = [{ ...run(0, 120, 0, 0), sketch: true, meas: [120, 0, 0], items: [{ id: 'v', type: 'gate', t: 0.5, conn: 'flg' }] }];
+    const v = valveFaceToFace(150, 'gate', '4')!;
+    const sg = runSegments(d, 0)!;
+    expect(sg.length).toBe(2);
+    expect(sg[0].kind).toBe('C-F'); expect(sg[1].kind).toBe('F-C');
+    expect(sg[0].len).toBeCloseTo(60 - v / 2, 9); expect(sg[1].len).toBeCloseTo(60 - v / 2, 9);
+    d.runs[0].items![0].at = 40; // valve center moved to 3'-4" from the start
+    expect(runSegments(d, 0)![0].len).toBeCloseTo(40 - v / 2, 9);
   });
 });

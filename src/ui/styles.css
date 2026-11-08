@@ -445,3 +445,13 @@ button { cursor: pointer; }
 .menubtns .btn { height: 34px; font-size: 12.5px; padding: 0 4px; }
 .menubtns .btn.danger { grid-column: auto; }
 .menubtns .btn { white-space: nowrap; font-size: 12px; gap: 3px; }
+.iso-dim.seg { font-size: 9.5px; }
+.iso-dim.unk { fill: var(--warn); }
+.iso-dimsub { font: 600 8.5px sans-serif; fill: var(--muted); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+.iso-dimtick { stroke: var(--dim); stroke-width: .9; }
+.isostage .iso-dimtick { pointer-events: none; }
+.spools { display: flex; flex-direction: column; gap: 6px; border: 1px dashed var(--line); border-radius: 10px; padding: 8px; }
+.spoolrow { display: grid; grid-template-columns: 92px 1fr auto; align-items: center; gap: 8px; font-size: 13px; }
+.spoolrow .sname { font-weight: 700; color: var(--muted); }
+.spoolin { height: 38px; border-radius: 9px; border: 1.5px solid var(--line); background: var(--surface2); padding: 0 10px; font: 600 15px var(--mono); color: var(--text); min-width: 0; }
+.spoolin:focus { border-color: var(--accent); outline: none; }

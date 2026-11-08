@@ -6,7 +6,7 @@ import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
@@ -133,7 +133,16 @@ export function IsoSketch() {
     if (item.kind === 'branch') return placeBranch(item, target, t);
     if (item.kind === 'line') {
       if (target.kind !== 'run') { toast(`Drop the ${item.label.toLowerCase()} on a line`); return false; }
-      update((x) => ({ ...x, runs: x.runs.map((q, k) => (k === target.id ? { ...q, inline: 'none', items: [...runItems(q), { id: uid(), type: item.id, t, conn: opts.conn }].sort((a, b) => a.t - b.t) } : q)) }));
+      update((x) => ({ ...x, runs: x.runs.map((q, k) => {
+        if (k !== target.id) return q;
+        const items = runItems(q);
+        // on a dimensioned line the fitting's center lands on a whole inch from the start
+        const at = isMeasured(q) ? Math.round(t * runLength(q)) : undefined;
+        // give a short sketched line room for its spool dimensions (the sketch only — measurements don't change)
+        const sl = Math.hypot(q.dx, q.dy, q.dz), want = GRID * (2 + 2 * (items.length + 1));
+        const grow = q.sketch && sl > 0 && sl < want ? want / sl : 1;
+        return { ...q, dx: q.dx * grow, dy: q.dy * grow, dz: q.dz * grow, inline: 'none', items: [...items, { id: uid(), type: item.id, t, conn: opts.conn, ...(at != null ? { at } : {}) }].sort((a, b) => a.t - b.t) };
+      }) }));
       setSel({ kind: 'run', id: target.id });
     } else {
       if (target.kind !== 'node') { toast(`Drop the ${item.label.toLowerCase()} on a ${item.kind === 'end' ? 'line end' : item.kind === 'elbow' ? 'turn' : 'tee point'}`); return false; }
@@ -293,7 +302,7 @@ export function IsoSketch() {
 
   const stage = (
     <IsoCanvas d={d} disp={disp} opts={opts} prefs={prefs} cursor={cur} sel={sel} rot={rot} fitTick={fitTick} armed={armed} apiRef={canvasApi} onPick={startAt}
-      onItemDrag={(run, id, t) => setItem(run, id, (q) => (q.id === id ? { ...q, t } : q), 'drag' + id)}
+      onItemDrag={(run, id, t) => setItem(run, id, (q) => (q.id === id ? { ...q, t, at: undefined } : q), 'drag' + id)}
       menu={itemSel ? { run: itemSel.run, t: runItems(d.runs[itemSel.run]).find((q) => q.id === itemSel.id)!.t,
         node: <ItemMenu key={itemSel.id} d={d} prefs={prefs} item={runItems(d.runs[itemSel.run]).find((q) => q.id === itemSel.id)!} onClose={() => setSel(null)}
           onLen={(v) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, len: v } : q), 'len' + itemSel.id)}
@@ -945,7 +954,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
   const unit = (a: [number, number], b: [number, number]) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [dx / L, dy / L, L] as const; };
   const label = (key: string, a: [number, number], b: [number, number], text: string, cls: string, off = 11) => {
     const [ux, uy, L] = unit(a, b);
-    if (L < 16) return null;
+    if (L < 12) return null;
     let nx = -uy, ny = ux;
     if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; } // keep labels above / left of the line
     const lx = (a[0] + b[0]) / 2 + nx * off, ly = (a[1] + b[1]) / 2 + ny * off;
@@ -1006,7 +1015,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     const sl = Math.hypot(sp1[0] - sp0[0], sp1[1] - sp0[1]);
     const stemScreen: [number, number] | undefined = sl > 0.5 ? [(sp1[0] - sp0[0]) / sl, (sp1[1] - sp0[1]) / sl] : undefined;
     items.forEach((it) => {
-      const c: [number, number] = [a[0] + (b[0] - a[0]) * it.t, a[1] + (b[1] - a[1]) * it.t];
+      const ft = measured && it.at != null ? Math.max(0.02, Math.min(0.98, it.at / (runLength(r) || 1))) : it.t; // a set center position wins
+      const c: [number, number] = [a[0] + (b[0] - a[0]) * ft, a[1] + (b[1] - a[1]) * ft];
       const sz = Math.max(4, Math.min(8, L / (3 * Math.max(1, items.length))));
       const isSelItem = sel?.kind === 'item' && sel.id === it.id;
       if (isSelItem && !exportMode) els.push(<circle key={'ih' + it.id} className="iso-itemsel" cx={c[0]} cy={c[1]} r={sz * 1.9} />);
@@ -1022,7 +1032,21 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     const m: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
     // travel dimension on the pipe, or a "needs dimension" marker
     if (opts.dims) {
-      if (measured) {
+      const segs = measured ? runSegments(d, i) : null;
+      if (segs) {
+        // the line is broken into spools by its fittings: dimension each piece (C-F, F-F, F-C) and show the overall C-C on the other side
+        const tr = runLength(r) || 1;
+        const at = (x: number): [number, number] => [a[0] + (b[0] - a[0]) * (x / tr), a[1] + (b[1] - a[1]) * (x / tr)];
+        let dnx = -uy, dny = ux; if (dny > 0 || (Math.abs(dny) < 1e-6 && dnx > 0)) { dnx = -dnx; dny = -dny; }
+        segs.forEach((g, k) => {
+          const p1 = at(g.a), p2 = at(g.b);
+          const lb = label('sg' + i + '-' + k, p1, p2, `${g.known ? '' : '≈'}${formatFtIn(Math.max(0, g.len), prefs)} ${g.kind}`, 'iso-dim seg' + (g.known ? '' : ' unk'), 19);
+          if (lb) els.push(lb);
+          for (const q of k === 0 ? [p1, p2] : [p2]) els.push(<line key={`tk${i}-${k}-${q[0].toFixed(0)}`} className="iso-dimtick" x1={q[0] + dnx * 4} y1={q[1] + dny * 4} x2={q[0] + dnx * 25} y2={q[1] + dny * 25} />);
+        });
+        const lb = label('d' + i, a, b, `${formatFtIn(runLength(r), prefs)} ${axes.length > 1 ? 'TRAV' : 'C-C'}`, 'iso-dimsub', -13);
+        if (lb) els.push(lb);
+      } else if (measured) {
         const txt = formatFtIn(runLength(r), prefs) + (axes.length > 1 ? ' TRAV' : '');
         const lb = label('d' + i, a, b, txt, 'iso-dim', items.length ? 20 : 11);
         if (lb) els.push(lb);
@@ -1156,6 +1180,7 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
       )}
       {err && <Msg kind="warn">{err}</Msg>}
       {isMeasured(r) && axes.length > 1 && <p className="fhint">Travel {formatFtIn(runLength(r), prefs)}{axes.length === 2 && tv ? ` · ${formatNumber((Math.atan2(Math.abs(tv[axes[1]]), Math.abs(tv[axes[0]])) * 180) / Math.PI, 2)}° from ${AXIS_NAMES[axes[0]][sv[axes[0]] < 0 ? 1 : 0]}` : ''}</p>}
+      {runSegments(d, i) && <SpoolFields d={d} i={i} prefs={prefs} setRun={setRun} />}
       <div className="itemlist">
         <span className="flabel">Fittings &amp; valves on this line</span>
         {!runItems(r).length && <p className="fhint">None yet — drag one from the palette onto the line.</p>}
@@ -1170,13 +1195,13 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
                   {CONN_ORDER.map((k) => <option key={k} value={k}>{CONN_LABEL[k]}</option>)}
                 </select>
               </span>
-              <input type="range" min={0.1} max={0.9} step={0.05} value={it.t} aria-label={`Position of ${c?.label ?? it.type}`} onChange={(e) => { const t = Number(e.target.value); setItems((l) => l.map((q) => (q.id === it.id ? { ...q, t } : q)), 'pos' + it.id); }} />
+              <input type="range" min={0.1} max={0.9} step={0.05} value={it.t} aria-label={`Position of ${c?.label ?? it.type}`} onChange={(e) => { const t = Number(e.target.value); setItems((l) => l.map((q) => (q.id === it.id ? { ...q, t, at: undefined } : q)), 'pos' + it.id); }} />
               <button className="chip danger" aria-label={`Remove ${c?.label ?? it.type}`} onClick={() => setItems((l) => l.filter((q) => q.id !== it.id))}>✕</button>
             </div>
           );
         })}
       </div>
-      <p className="fhint">{cut.ok ? `Cut length ${formatFracIn(cut.cut, prefs)}` : isMeasured(r) ? 'Cut length impossible — fittings longer than the line' : 'Add a dimension to get the cut length.'}{cut.ok && cut.note.length ? ` · ${cut.note.join('; ')}` : ''}</p>
+      <p className="fhint">{cut.pieces ? `Cut: ${cut.pieces.map((q, k) => `${i + 1}${String.fromCharCode(97 + k)} ${Number.isNaN(q.cut) ? '?' : formatFtIn(q.cut, prefs)}`).join(' · ')}` : cut.ok ? `Cut length ${formatFracIn(cut.cut, prefs)}` : isMeasured(r) ? 'Cut length impossible — fittings longer than the line' : 'Add a dimension to get the cut length.'}{cut.ok && cut.note.length ? ` · ${cut.note.join('; ')}` : ''}</p>
       <div className="actions">
         {isMeasured(r) && r.sketch && <button className="btn" onClick={() => { setTxt({ t: '' }); setRun((q) => { const { meas: _m, ...rest } = q; return { ...rest, sketch: true }; }); }}>Clear dimension</button>}
         {descendants > 0 && !armed
@@ -1184,6 +1209,38 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
           : <button className="btn danger" onClick={onDelete}>{descendants > 0 ? `Delete + ${descendants} after it` : 'Delete line'}</button>}
       </div>
     </Card>
+  );
+}
+
+/** Spool lengths of a line with fittings on it; typing one moves the fitting so that spool comes out to that length. */
+function SpoolFields({ d, i, prefs, setRun }: { d: IsoDrawing; i: number; prefs: Prefs; setRun: (f: (r: Run) => Run, mergeKey?: string) => void }) {
+  const r = d.runs[i];
+  const segs = runSegments(d, i)!;
+  const items = runItems(r).slice().sort((x, y) => itemPos(r, x) - itemPos(r, y));
+  const [txt, setTxt] = useState<Record<number, string>>({});
+  const L = runLength(r);
+  const setSeg = (k: number, v: string) => {
+    setTxt((o) => ({ ...o, [k]: v }));
+    const p = tryParse(parseLength, v); if (!p || !p.ok || p.v < 0) return;
+    // spool k ends at the near face of item k: its center = start of the spool + spool + half its length
+    const it = items[k]; const half = (itemLength(d, it).len ?? 0) / 2;
+    const at = segs[k].a + p.v + half;
+    if (at + half > L) return;
+    setRun((q) => ({ ...q, items: runItems(q).map((z) => (z.id === it.id ? { ...z, at, t: Math.max(0.02, Math.min(0.98, at / L)) } : z)) }), 'spool' + i + '-' + k);
+  };
+  return (
+    <div className="spools">
+      <span className="flabel">Spools (type one to move the fitting)</span>
+      {segs.map((g, k) => (
+        <div key={k} className="spoolrow">
+          <span className="sname">{i + 1}{String.fromCharCode(97 + k)} · {g.kind}</span>
+          {k < items.length
+            ? <input className="spoolin" value={txt[k] ?? formatFtIn(Math.max(0, g.len), prefs)} aria-label={`Spool ${k + 1} ${g.kind}`} onChange={(e) => setSeg(k, e.target.value)} onBlur={() => setTxt((o) => { const n = { ...o }; delete n[k]; return n; })} />
+            : <b>{formatFtIn(Math.max(0, g.len), prefs)}</b>}
+          {!g.known && <span className="muted small">needs fitting length</span>}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1324,7 +1381,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
     </Card>
   );
 }
-const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:600 9px sans-serif;fill:#1f7f7a}.iso-legdim{font:600 8px sans-serif;fill:#555}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-pipe.nofill{fill:none}`;
+const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:600 9px sans-serif;fill:#1f7f7a}.iso-legdim{font:600 8px sans-serif;fill:#555}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:600 7.5px sans-serif;fill:#666}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-pipe.nofill{fill:none}`;
 
 async function shareImage(d: IsoDrawing, markup: string, W: number, H: number): Promise<string> {
   const svg = markup.replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);
