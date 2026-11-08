@@ -6,7 +6,7 @@ import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, weldList, materials, Weld, WeldInfo, DrawingInfo,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
@@ -18,7 +18,7 @@ const expands = (up: string | undefined, down: string | undefined) => !!up && !!
 
 type Prefs = ReturnType<typeof useApp>['settings']['prefs'];
 interface IsoStore { drawings: IsoDrawing[]; current: string | null }
-type Sel = { kind: 'node'; id: number } | { kind: 'run'; id: number } | { kind: 'item'; run: number; id: string } | { kind: 'dim'; run: number } | { kind: 'weld'; key: string } | { kind: 'text'; id: string } | null;
+type Sel = { kind: 'angle'; node: number } | { kind: 'node'; id: number } | { kind: 'run'; id: number } | { kind: 'item'; run: number; id: string } | { kind: 'dim'; run: number } | { kind: 'weld'; key: string } | { kind: 'text'; id: string } | null;
 type Mode = 'draw' | 'orbit' | 'pan';
 type Plane = 'EN' | 'EU' | 'NU';
 interface Opts { dims: boolean; welds: boolean; labels: boolean; scaled: boolean; weldmap?: boolean; view: View; mode: Mode; plane: Plane; conn: Conn }
@@ -424,7 +424,8 @@ export function IsoSketch() {
     <IsoCanvas d={d} disp={disp} opts={opts} prefs={prefs} cursor={cur} sel={sel} rot={rot} fitTick={fitTick} armed={armed} apiRef={canvasApi} onPick={startAt}
       onInlDrag={() => {}}
       onItemDrag={(run, id, t) => setItem(run, id, (q) => (q.id === id ? { ...q, t, at: undefined } : q), 'drag' + id)}
-      menu={weldSel >= 0 ? { at: disp.P[welds[weldSel].node], node: <WeldPop key={'wp' + welds[weldSel].key} d={d} w={welds[weldSel]} num={weldSel + 1} update={update} onClose={() => setSel(null)} /> }
+      menu={sel?.kind === 'angle' && offsetAt(d, sel.node) ? { at: disp.P[sel.node], node: <AnglePop key={'ap' + sel.node + ':' + d.updated} d={d} node={sel.node} onSet={(a) => { const nd = setOffsetAngle(d, sel.node, a); if (nd) { update(() => nd); toast(`Offset now ${formatNumber(a, 2)}°`); } else toast('Enter an angle between 1° and 89°'); }} onClose={() => setSel(null)} /> }
+        : weldSel >= 0 ? { at: disp.P[welds[weldSel].node], node: <WeldPop key={'wp' + welds[weldSel].key} d={d} w={welds[weldSel]} num={weldSel + 1} update={update} onClose={() => setSel(null)} /> }
         : textSel && disp.P[textSel.node] ? { at: add(disp.P[textSel.node], mul(textSel.off, disp.k || 1)), node: <TextPop key={'tp' + textSel.id} text={textSel.text} onText={(v) => setText(textSel.id, v)} onDelete={() => { setText(textSel.id, null); setSel(null); }} onClose={() => closeText(textSel.id)} /> }
         : selNode !== null && pointKind(d, selNode) && !more ? { at: disp.P[selNode], node: <PointMenu key={'pm' + selNode} d={d} n={selNode} prefs={prefs}
           act={{
@@ -981,9 +982,10 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     return Math.max(0.12, Math.min(0.88, ((loc.x - a[0]) * dx + (loc.y - a[1]) * dy) / L2));
   };
   const targetOf = (el: Element | null): Sel | 'compass' | 'none' => {
-    const t = el?.closest('[data-weld],[data-text],[data-item],[data-dim],[data-node],[data-run],[data-compass]');
+    const t = el?.closest('[data-angle],[data-weld],[data-text],[data-item],[data-dim],[data-node],[data-run],[data-compass]');
     if (!t) return 'none';
     if (t.hasAttribute('data-compass')) return 'compass';
+    if (t.hasAttribute('data-angle')) return { kind: 'angle', node: Number(t.getAttribute('data-angle')) };
     if (t.hasAttribute('data-weld')) return { kind: 'weld', key: t.getAttribute('data-weld')! };
     if (t.hasAttribute('data-text')) return { kind: 'text', id: t.getAttribute('data-text')! };
     if (t.hasAttribute('data-dim')) return { kind: 'dim', run: Number(t.getAttribute('data-dim')) };
@@ -1471,7 +1473,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
   });
 
   // fitting callouts (sizes, RED TEE, WOL …): queued, then placed clear of the measurements, pipes and symbols
-  const callouts: Array<{ key: string; text: string; at: [number, number]; dir: [number, number]; dist: number; cls?: string }> = [];
+  const callouts: Array<{ key: string; text: string; at: [number, number]; dir: [number, number]; dist: number; cls?: string; angleAt?: number }> = [];
   // nodes
   const nNodes = d.runs.length + 1;
   for (let n = 0; n < nNodes; n++) {
@@ -1498,7 +1500,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         els.push(...lineSymbol(er.type, c, expands(sizes[n - 1] ?? d.nps, er.size) ? [ui[0], ui[1]] : [-ui[0], -ui[1]], 6, 'er' + n));
         if (er.size && opts.dims) callouts.push({ key: 'ers' + n, text: `${sizes[n - 1] ?? d.nps}"×${er.size}"`, at: c, dir: [-ui[1], ui[0]], dist: 11 });
       }
-      if (k.kind === 'elbow' && Math.abs(k.angle - 90) > 0.05) { const bx = -(legScreen[0][0] + legScreen[1][0]), by = -(legScreen[0][1] + legScreen[1][1]), bl = Math.hypot(bx, by) || 1; callouts.push({ key: 'ea' + n, text: `${formatNumber(k.angle, 1)}°`, at: [p[0], p[1]], dir: [bx / bl, by / bl], dist: 11, cls: 'iso-note' }); }
+      if (k.kind === 'elbow' && Math.abs(k.angle - 90) > 0.05) { const bx = -(legScreen[0][0] + legScreen[1][0]), by = -(legScreen[0][1] + legScreen[1][1]), bl = Math.hypot(bx, by) || 1; callouts.push({ key: 'ea' + n, text: `${formatNumber(k.angle, 1)}°`, at: [p[0], p[1]], dir: [bx / bl, by / bl], dist: 11, cls: 'iso-note', angleAt: !exportMode && offsetAt(d, n) ? n : undefined }); }
     } else if (k.kind === 'straight') {
       const it = inlineAt(d, n);
       if (it && legScreen.length === 2) {
@@ -1555,7 +1557,10 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       if (sc > 1 && fs0 > 5) continue;
       placed.push([x - hw, y, x + hw, y, hh]);
       const dd = Math.hypot(x - c.at[0], y - c.at[1]);
-      els.push(<g key={c.key}>
+      const tapA = c.angleAt !== undefined;
+      const onA = tapA && sel?.kind === 'angle' && sel.node === c.angleAt;
+      els.push(<g key={c.key} className={tapA ? 'iso-angtap' + (onA ? ' sel' : '') : undefined} data-angle={tapA ? c.angleAt : undefined}>
+        {tapA && <rect className="iso-angbox" x={x - hw - 3} y={y - hh - 2.5} width={hw * 2 + 6} height={hh * 2 + 5} rx={hh + 2.5} />}
         {dd > c.dist * 1.25 && <line className="iso-dimlead" x1={c.at[0]} y1={c.at[1]} x2={x} y2={y + (y > c.at[1] ? -hh : hh)} />}
         <text className={c.cls ?? 'iso-fit'} x={x} y={y} textAnchor="middle" dominantBaseline="middle" style={{ fontSize: `${fs0}px` }}>{c.text}</text>
       </g>);
@@ -2369,5 +2374,26 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
       </div>
       <p className="fhint">Pinch to zoom and drag to move around the sheet; double-tap to zoom in there (double-tap again for the whole sheet). Weld map off hides the weld numbers and the weld log, for a clean drawing to view, share or print. Completed drawings are locked — ✎ Edit (top) reopens it.</p>
     </>
+  );
+}
+
+/** Tap an offset's angle to change it: the offset (set) stays, the run and travel are worked out again. */
+function AnglePop({ d, node, onSet, onClose }: { d: IsoDrawing; node: number; onSet: (a: number) => void; onClose: () => void }) {
+  const k = nodeKind(d, node);
+  const cur = k.kind === 'elbow' ? k.angle : 45;
+  const [v, setV] = useState(formatNumber(cur, 2));
+  const n = Number(v);
+  const ok = n > 0.5 && n < 89.5;
+  return (
+    <div className="itemmenu-in">
+      <div className="row-between"><b>Offset angle</b><button className="linkbtn" onClick={onClose}>Done</button></div>
+      <div className="chiprow">
+        {[11.25, 22.5, 30, 45, 60].map((a) => <button key={a} className={'chip' + (Math.abs(cur - a) < 0.01 ? ' on' : '')} onClick={() => { setV(String(a)); onSet(a); }}>{a}°</button>)}
+      </div>
+      <label className="field"><span className="flabel">Angle (degrees)</span>
+        <span className="finput"><input inputMode="decimal" value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && ok) onSet(n); }} /></span></label>
+      <button className="btn primary" disabled={!ok} onClick={() => onSet(n)}>Set angle</button>
+      <span className="fhint">The offset stays the same; the run and travel change to suit the new angle, and the lines after it move with it.</span>
+    </div>
   );
 }

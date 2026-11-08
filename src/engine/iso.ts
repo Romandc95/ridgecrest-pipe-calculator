@@ -566,6 +566,47 @@ export function mergeAt(d: IsoDrawing, node: number): IsoDrawing {
     ...(d.texts ? { texts: d.texts.map((t) => (t.node === node ? { ...t, node: remap(A.from) } : { ...t, node: remap(t.node) })) } : {}) };
 }
 
+// ---------------------------------------------------------------- offset angle
+const isAxial = (v: Vec3) => { const L = len(v) || 1; return [0, 1, 2].filter((k) => Math.abs(v[k]) / L > 1e-6).length <= 1; };
+/** The angled (offset) line at an elbow, and the line it turns off. */
+export function offsetAt(d: IsoDrawing, node: number): { run: number; other: number } | null {
+  const k = nodeKind(d, node);
+  if (k.kind !== 'elbow') return null;
+  const legs = nodeLegs(d, node);
+  const diag = legs.filter((l) => !isAxial(runVec(d.runs[l.run])));
+  if (!diag.length) return null;
+  const pick = diag.find((l) => d.runs[l.run].from === node) ?? diag[0];
+  const other = legs.find((l) => l !== pick)!;
+  return { run: pick.run, other: other.run };
+}
+/**
+ * Change the angle of an offset. The offset (set — how far it moves across, including any roll) stays the same;
+ * the run along the line and the travel are worked out again for the new angle, and everything after it moves with it.
+ */
+export function setOffsetAngle(d: IsoDrawing, node: number, angle: number): IsoDrawing | null {
+  if (!(angle > 0.5 && angle < 89.5)) return null;
+  const at = offsetAt(d, node); if (!at) return null;
+  const r = d.runs[at.run];
+  // heading = the axis the offset runs along: the line it turns off if that line is square, else its biggest part
+  const ov = runVec(d.runs[at.other]);
+  const axes: Vec3[] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const rv = runVec(r);
+  let h: Vec3 | null = null;
+  if (isAxial(ov)) { const a = axes.find((x) => Math.abs(dot(x, ov)) > 1e-6)!; if (Math.abs(dot(a, rv)) > 1e-6) h = a; }
+  if (!h) h = axes.reduce((b, x) => (Math.abs(dot(x, rv)) > Math.abs(dot(b, rv)) ? x : b), axes[0]);
+  const t = Math.tan((angle * Math.PI) / 180);
+  const redo = (v: Vec3): Vec3 => {
+    const along = dot(v, h!); const sgn = along < 0 ? -1 : 1;
+    const o: Vec3 = [v[0] - h![0] * along, v[1] - h![1] * along, v[2] - h![2] * along];
+    const set = len(o); if (set === 0) return v;
+    const run = (set / t) * sgn;
+    return [o[0] + h![0] * run, o[1] + h![1] * run, o[2] + h![2] * run];
+  };
+  const sk = redo([r.dx, r.dy, r.dz]);
+  const runs = d.runs.map((x, i) => (i !== at.run ? x : { ...x, dx: sk[0], dy: sk[1], dz: sk[2], ...(x.meas ? { meas: redo(x.meas) } : {}) }));
+  return { ...d, runs };
+}
+
 // ---------------------------------------------------------------- weld map
 export interface Weld { key: string; node: number; run: number; side: 'a' | 'b'; conn: Conn; where: 'fitting' | 'inline' | 'joint' | 'end' | 'reducer' }
 /** Flanged joints count as welds too: the pipe side is a weld-neck flange butt-welded to the pipe. */

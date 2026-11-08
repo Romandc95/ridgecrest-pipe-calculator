@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { miter, cope, thermalExpansion } from '../src/engine/shop';
-import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef, runSizes, weldList, materials } from '../src/engine/iso';
+import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef, runSizes, weldList, materials, setOffsetAngle, offsetAt } from '../src/engine/iso';
 import { flange, valveFaceToFace, nptMakeup } from '../src/engine/refdata';
 
 describe('miter (segmented elbow)', () => {
@@ -261,5 +261,21 @@ describe('ISO weld map and materials', () => {
     const d = base(); d.runs = [run(0, 60, 0, 0, 'a')]; d.ends = { 1: 'blind' };
     const m = materials(d).map((r) => r.item);
     expect(m.includes('WN flange') && m.includes('Blind flange') && m.includes('Gasket') && m.includes('Stud bolt set')).toBe(true);
+  });
+});
+
+describe('ISO offset angle', () => {
+  const run = (from: number, v: [number, number, number], id: string): Run => ({ id, from, dx: v[0] / 4, dy: v[1] / 4, dz: v[2] / 4, inline: 'none', sketch: true, meas: v });
+  it('45° offset of 12" set becomes 30°: run along = 12/tan30, set unchanged, next line follows', () => {
+    const d: IsoDrawing = { ...newDrawing('t', 'x'), runs: [run(0, [48, 0, 0], 'a'), run(1, [12, 0, 12], 'b'), run(2, [48, 0, 0], 'c')] };
+    expect(offsetAt(d, 1)!.run).toBe(1);
+    const e = setOffsetAngle(d, 1, 30)!;
+    const m = e.runs[1].meas!;
+    expect(Math.abs(m[2] - 12) < 1e-9).toBe(true);
+    expect(Math.abs(m[0] - 12 / Math.tan(Math.PI / 6)) < 1e-9).toBe(true);
+    expect(Math.abs(Math.hypot(m[0], m[2]) - 24) < 1e-9).toBe(true); // travel = set / sin 30
+    const at2 = setOffsetAngle(d, 2, 60)!; // tapping the other elbow edits the same offset
+    expect(Math.abs(at2.runs[1].meas![0] - 12 / Math.tan(Math.PI / 3)) < 1e-9).toBe(true);
+    expect(setOffsetAngle(d, 1, 90)).toBe(null);
   });
 });

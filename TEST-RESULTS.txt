@@ -187,6 +187,7 @@
 ✓ ISO weld map and materials › threaded drawing has no welds; field welds counted apart
 ✓ ISO weld map and materials › flanged valve: two WN flange welds, 2 flanges, 2 gaskets, 2 bolt sets
 ✓ ISO weld map and materials › blind flange end lists WN + blind + gasket + bolts
+✓ ISO offset angle › 45° offset of 12" set becomes 30°: run along = 12/tan30, set unchanged, next line follows
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -240,4 +241,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-241 passed, 0 failed, 241 total
+242 passed, 0 failed, 242 total

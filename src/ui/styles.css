@@ -540,3 +540,9 @@ button { cursor: pointer; }
   .app.tab-iso .sheetwrap .sheetbox { aspect-ratio: auto; height: min(calc((100vw - 60px) * 0.647), calc(100dvh - 300px)); min-height: 400px; }
   .app.tab-iso .sheetopt, .app.tab-iso .sheetacts { max-width: 720px; }
 }
+.iso-angbox { fill: var(--surface); stroke: var(--accent); stroke-width: .9; stroke-dasharray: 2 1.5; }
+.iso-angtap { cursor: pointer; }
+.isostage .iso-angtap .iso-angbox { pointer-events: all; }
+.iso-angtap.sel .iso-angbox { fill: var(--accent); stroke-dasharray: none; }
+.iso-angtap.sel text { fill: var(--accent-ink); }
+.itemmenu-in .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
