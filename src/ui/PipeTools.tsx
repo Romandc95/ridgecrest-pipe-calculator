@@ -36,7 +36,7 @@ export function PipeTools() {
 const PIPE_DEFAULTS = { mat: 'steel', type: 'Std', nps: '2', manual: '', mOD: '', mWall: '', fluid: '62.42796', fluidU: 'pcf' };
 function usePipe(id: string) {
   const [inp, set, reset] = useTool(id, PIPE_DEFAULTS);
-  const mat = inp.mat as Material;
+  const mat = (Object.prototype.hasOwnProperty.call(MATERIALS, inp.mat) ? inp.mat : PIPE_DEFAULTS.mat) as Material;
   const types = typesFor(mat);
   const type = types.includes(inp.type) ? inp.type : types[0] ?? '';
   const sizes = sizesFor(mat, type);
@@ -59,7 +59,7 @@ function PipePicker({ p, fluid = false }: { p: ReturnType<typeof usePipe>; fluid
   return (
     <>
       <Grid>
-        <Select label="Material" value={inp.mat} options={MATERIAL_ORDER.map((m) => [m, MATERIALS[m].label])} onChange={(v) => set('mat', v)} />
+        <Select label="Material" value={mat} options={MATERIAL_ORDER.map((m) => [m, MATERIALS[m].label])} onChange={(v) => set('mat', v)} />
         {types.length ? <Select label="Schedule / type" value={type} options={types.map((t) => [t, t])} onChange={(v) => set('type', v)} /> : <div />}
         {types.length && !useManual ? <Select label="Nominal size (NPS)" value={nps} options={sizes.map((s) => [s, `${s}"`])} onChange={(v) => set('nps', v)} /> : null}
       </Grid>
@@ -160,7 +160,8 @@ function FlowTool() {
 
 // ---- Pressure / force / area ---------------------------------------------------------
 function PFATool() {
-  const [inp, set, reset] = useTool('pfa', { P: '', Pu: 'psi', F: '', Fu: 'lbf', A: '' });
+  const [inp0, set, reset] = useTool('pfa', { P: '', Pu: 'psi', F: '', Fu: 'lbf', A: '' });
+  const inp = { ...inp0, Pu: Object.prototype.hasOwnProperty.call(PRESS_TO_PSI, inp0.Pu) ? inp0.Pu : 'psi', Fu: inp0.Fu === 'N' ? 'N' : 'lbf' };
   const r = attempt(() => {
     const P = val(plain, inp.P), F = val(plain, inp.F), Aq = val(parseMeasurement, inp.A);
     const A = Aq ? (Aq.kind === 'len' && Aq.dim === 2 ? Aq.v : Aq.kind === 'num' ? Aq.v : NaN) : undefined;
@@ -204,7 +205,8 @@ function PFATool() {
 
 // ---- Pressure loss ---------------------------------------------------------------------
 function LossTool() {
-  const [inp, set, reset] = useTool('loss', { Q: '', Qu: 'gpm', L: '' });
+  const [inp0, set, reset] = useTool('loss', { Q: '', Qu: 'gpm', L: '' });
+  const inp = { ...inp0, Qu: Object.prototype.hasOwnProperty.call(FLOW_TO_CFS, inp0.Qu) ? inp0.Qu : 'gpm' };
   const p = usePipe('losspipe');
   const r = attempt(() => {
     if (!p.pipe.ok) throw new CalcError('DATA', p.pipe.err);

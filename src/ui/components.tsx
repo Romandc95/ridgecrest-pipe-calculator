@@ -16,10 +16,42 @@ export interface AppCtxT {
 export const AppCtx = createContext<AppCtxT>(null as unknown as AppCtxT);
 export const useApp = () => useContext(AppCtx);
 
+/** Tool ids rendered on the current screen — cleared by the error screen's reset. */
+export const usedTools = new Set<string>();
+
+/** Catches a crash inside one section so the rest of the app keeps working, shows the
+ *  error, and offers to clear that screen's saved inputs (a bad saved value would
+ *  otherwise crash it again every time it opens). */
+export class SectionBoundary extends React.Component<{ name: string; onReset: (ids: string[]) => void; children: React.ReactNode }, { err: Error | null }> {
+  state = { err: null as Error | null };
+  static getDerivedStateFromError(err: Error) { return { err }; }
+  componentDidCatch(err: Error, info: { componentStack?: string | null }) { console.error('[section crash]', this.props.name, err, info?.componentStack); }
+  render() {
+    const e = this.state.err;
+    if (!e) return this.props.children;
+    const detail = `${this.props.name}: ${e.message}\n${(e.stack ?? '').split('\n').slice(0, 6).join('\n')}`;
+    return (
+      <div className="card crashcard">
+        <h3>Something went wrong on this screen</h3>
+        <p>The rest of the app still works. Try again, or reset this screen’s saved entries.</p>
+        <pre className="crashmsg">{e.message}</pre>
+        <div className="actions">
+          <button className="btn" onClick={() => this.setState({ err: null })}>Try again</button>
+          <button className="btn" onClick={() => { this.props.onReset([...usedTools]); usedTools.clear(); this.setState({ err: null }); }}>Reset this screen</button>
+          <button className="btn ghost" onClick={() => { void shareText(detail); }}>Copy error</button>
+        </div>
+      </div>
+    );
+  }
+}
+
 /** Persistent input state for a guided tool. */
 export function useTool(id: string, defaults: Record<string, string>): [Record<string, string>, (k: string, v: string) => void, () => void] {
   const { tools, setToolField, replaceTool } = useApp();
-  const v = { ...defaults, ...(tools[id] ?? {}) };
+  usedTools.add(id);
+  const v: Record<string, string> = { ...defaults };
+  // stored values that are not strings (old or damaged saves) fall back to the default instead of crashing
+  for (const [k, x] of Object.entries(tools[id] ?? {})) if (typeof x === 'string') v[k] = x;
   return [v, (k, val) => setToolField(id, k, val), () => replaceTool(id, { ...defaults })];
 }
 

@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useEffect, useMemo, useState } from 'react';
-import { AppCtx, AppCtxT } from './components';
+import { AppCtx, AppCtxT, SectionBoundary, usedTools } from './components';
 import { usePersistent, DEFAULT_SETTINGS, Settings, SavedItem, Job, uid } from './store';
 import { Calculator } from './Calculator';
 import { LayoutTools } from './LayoutTools';
@@ -89,17 +89,19 @@ export function App() {
           </button>
         </header>
         <main className="content">
-          {tab === 'calc' && <Calculator onOpenPrefs={() => { setJobsSection('settings'); setTab('jobs'); }} />}
-          {tab === 'layout' && <LayoutTools />}
-          {tab === 'fittings' && <FittingTools />}
-          {tab === 'iso' && <IsoSketch />}
-          {tab === 'pipe' && <PipeTools />}
-          {tab === 'data' && <DataTools />}
-          {tab === 'jobs' && <JobsView items={items} setItems={setItems} jobs={jobs} setJobs={setJobs} open={open} section={jobsSection} setSection={setJobsSection} />}
+          <SectionBoundary key={tab} name={TAB_LABEL[tab]} onReset={(ids) => setTools((p) => { const n = { ...p }; for (const i of ids) delete n[i]; return n; })}>
+            {tab === 'calc' && <Calculator onOpenPrefs={() => { setJobsSection('settings'); setTab('jobs'); }} />}
+            {tab === 'layout' && <LayoutTools />}
+            {tab === 'fittings' && <FittingTools />}
+            {tab === 'iso' && <IsoSketch />}
+            {tab === 'pipe' && <PipeTools />}
+            {tab === 'data' && <DataTools />}
+            {tab === 'jobs' && <JobsView items={items} setItems={setItems} jobs={jobs} setJobs={setJobs} open={open} section={jobsSection} setSection={setJobsSection} />}
+          </SectionBoundary>
         </main>
         <nav className="tabs" aria-label="Sections">
           {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
-            <button key={t} className={t === tab ? 'on' : ''} onClick={() => setTab(t)} aria-current={t === tab ? 'page' : undefined}>
+            <button key={t} className={t === tab ? 'on' : ''} onClick={() => { if (t !== tab) usedTools.clear(); setTab(t); }} aria-current={t === tab ? 'page' : undefined}>
               {ICONS[t]}<span>{TAB_LABEL[t]}</span>
             </button>
           ))}
