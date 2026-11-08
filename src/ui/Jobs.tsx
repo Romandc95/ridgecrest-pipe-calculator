@@ -168,6 +168,7 @@ function Help() {
           <li><b>Edit:</b> tap a point to draw or branch from it (a branch makes a tee). Tap any line to dimension it, change its direction, add a valve or flange, or delete it. Lines with a yellow ? still need a dimension.</li>
           <li><b>Offsets</b> are shown with their legs dashed and the offset triangle hatched. Enter each leg, or the travel and all but one leg.</li>
           <li><b>To scale</b> redraws the sketch using your dimensions. <b>Rotate 3D</b>: drag to turn the drawing; View buttons jump to ISO, plan or elevations; the Home button under the compass resets to the standard ISO view. Drag the compass to swing North, tap it to turn 90°.</li>
+          <li><b>Undo</b> (lower-left corner of the drawing) steps back through your last 100 changes — lines, dimensions, fittings and deletes.</li>
           <li><b>Full screen</b> (corner button) opens the drawing landscape with the tools at the side; Hide tools leaves just the drawing.</li>
           <li>The Cut list subtracts B16.9 long-radius elbow and tee take-outs for the size in Setup plus a root gap at every butt weld. Drawings are saved on this device (Library); Setup → Share drawing as image makes a PNG of the current view.</li>
         </ul>
