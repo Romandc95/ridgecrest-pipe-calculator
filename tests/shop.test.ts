@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { miter, cope, thermalExpansion } from '../src/engine/shop';
-import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef, runSizes } from '../src/engine/iso';
+import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef, runSizes, weldList, materials } from '../src/engine/iso';
 import { flange, valveFaceToFace, nptMakeup } from '../src/engine/refdata';
 
 describe('miter (segmented elbow)', () => {
@@ -227,5 +227,39 @@ describe('ISO route', () => {
     const c = cutList(d);
     expect(c[0].to2).toBeCloseTo(3 + 4 + 0.125, 9);  // 2" LR elbow 3 + 4" reducer H 4 + weld gap between them
     expect(c[1].to1).toBe(3);                          // 2" LR elbow on the line out
+  });
+});
+
+describe('ISO weld map and materials', () => {
+  const run = (from: number, dx: number, dy: number, dz: number, id: string): Run => ({ id, from, dx, dy, dz, inline: 'none' });
+  const base = (): IsoDrawing => ({ ...newDrawing('t', 'x'), nps: '4', gap: 0.125 });
+  it('two butt-weld elbows and a flanged end → 5 welds, keys stable', () => {
+    const d = base(); d.runs = [run(0, 60, 0, 0, 'a'), run(1, 0, 48, 0, 'b'), run(2, 0, 0, 36, 'c')]; d.ends = { 3: 'flange' };
+    const w = weldList(d);
+    expect(w.length).toBe(5);
+    expect(w.map((x) => x.key)).toEqual(['a:b', 'b:a', 'b:b', 'c:a', 'c:b']);
+  });
+  it('threaded drawing has no welds; field welds counted apart', () => {
+    const d = base(); d.runs = [run(0, 60, 0, 0, 'a'), run(1, 0, 48, 0, 'b')]; d.conn = 'thd';
+    expect(weldList(d).length).toBe(0);
+    d.conn = 'bw'; d.welds = { 'a:b': { field: true, stencil: 'RC1' } };
+    const m = materials(d);
+    expect(m.find((r) => r.item === 'Butt weld' && r.spec === 'field')!.qty).toBe(1);
+    expect(m.find((r) => r.item === 'Butt weld' && r.spec === 'shop')!.qty).toBe(1);
+    expect(m.find((r) => r.item.startsWith('LR elbow 90'))!.qty).toBe(1);
+    expect(m.find((r) => r.item === 'Pipe')!.unit).toBe('ft');
+  });
+  it('flanged valve: two WN flange welds, 2 flanges, 2 gaskets, 2 bolt sets', () => {
+    const d = base(); d.runs = [run(0, 60, 0, 0, 'a'), run(1, 60, 0, 0, 'b')]; d.inl = { 1: { id: 'v', type: 'gate', t: 0.5, conn: 'flg' } };
+    expect(weldList(d).filter((w) => w.node === 1).length).toBe(2);
+    const m = materials(d);
+    expect(m.find((r) => r.item === 'WN flange')!.qty).toBe(2);
+    expect(m.find((r) => r.item === 'Gasket')!.qty).toBe(2);
+    expect(m.find((r) => r.item === 'Gate valve')!.qty).toBe(1);
+  });
+  it('blind flange end lists WN + blind + gasket + bolts', () => {
+    const d = base(); d.runs = [run(0, 60, 0, 0, 'a')]; d.ends = { 1: 'blind' };
+    const m = materials(d).map((r) => r.item);
+    expect(m.includes('WN flange') && m.includes('Blind flange') && m.includes('Gasket') && m.includes('Stud bolt set')).toBe(true);
   });
 });

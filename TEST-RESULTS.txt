@@ -183,6 +183,10 @@
 ✓ ISO route › a valve breaks the line like a tee: two lines measured to the valve faces, cut between them, and it can be merged back
 ✓ ISO route › a reducer with a size changes the line size after it; take-outs follow the size
 ✓ ISO route › a reducer at an elbow: the line in deducts the reducer + the smaller elbow; the line out is the small size
+✓ ISO weld map and materials › two butt-weld elbows and a flanged end → 5 welds, keys stable
+✓ ISO weld map and materials › threaded drawing has no welds; field welds counted apart
+✓ ISO weld map and materials › flanged valve: two WN flange welds, 2 flanges, 2 gaskets, 2 bolt sets
+✓ ISO weld map and materials › blind flange end lists WN + blind + gasket + bolts
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -236,4 +240,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-237 passed, 0 failed, 237 total
+241 passed, 0 failed, 241 total

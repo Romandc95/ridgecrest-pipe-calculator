@@ -6,7 +6,7 @@ import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, weldList, materials, Weld, WeldInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
@@ -16,11 +16,11 @@ const npsVal = (n: string) => npsNumber(n) ?? 0;
 
 type Prefs = ReturnType<typeof useApp>['settings']['prefs'];
 interface IsoStore { drawings: IsoDrawing[]; current: string | null }
-type Sel = { kind: 'node'; id: number } | { kind: 'run'; id: number } | { kind: 'item'; run: number; id: string } | { kind: 'dim'; run: number } | null;
+type Sel = { kind: 'node'; id: number } | { kind: 'run'; id: number } | { kind: 'item'; run: number; id: string } | { kind: 'dim'; run: number } | { kind: 'weld'; key: string } | { kind: 'text'; id: string } | null;
 type Mode = 'draw' | 'orbit' | 'pan';
 type Plane = 'EN' | 'EU' | 'NU';
-interface Opts { dims: boolean; welds: boolean; labels: boolean; scaled: boolean; view: View; mode: Mode; plane: Plane; conn: Conn }
-type ArtOpts = Pick<Opts, 'dims' | 'welds' | 'labels'>;
+interface Opts { dims: boolean; welds: boolean; labels: boolean; scaled: boolean; weldmap?: boolean; view: View; mode: Mode; plane: Plane; conn: Conn }
+type ArtOpts = Pick<Opts, 'dims' | 'welds' | 'labels' | 'weldmap'> & { textEdit?: boolean };
 
 const PLANES: Record<Plane, { n: Vec3; a: Vec3; b: Vec3; label: string }> = {
   EN: { n: [0, 0, 1], a: [1, 0, 0], b: [0, 1, 0], label: 'Flat' },
@@ -68,6 +68,9 @@ export function IsoSketch() {
   const [armed, setArmed] = useState<string | null>(null); // catalog key "kind:id" waiting to be placed
   const canvasApi = useRef<CanvasApi | null>(null);
   const [more, setMore] = useState(false); // show the full point / line panel under the drawing
+  const [offOpen, setOffOpen] = useState(false); // offset tab on the drawing
+  const [dots, setDots] = useState(false); // ⋮ menu
+  const [modal, setModal] = useState<null | 'name' | 'complete' | 'drawings'>(null);
   useEffect(() => setMore(false), [JSON.stringify(sel)]);
   const history = useRef<{ id: string; snaps: IsoDrawing[]; redo: IsoDrawing[]; last: number; key: string }>({ id: '', snaps: [], redo: [], last: 0, key: '' });
   const [, setHistTick] = useState(0);
@@ -335,6 +338,8 @@ export function IsoSketch() {
     toast('New start point — drag from it to draw');
   };
   const onTap = (t: Sel, at?: number) => {
+    if (armed === 'notes') { setSel(t?.kind === 'text' ? t : null); return; }
+    if (armed === 'text') return;
     if (armed === 'start') { if (t?.kind === 'node') { setArmed(null); setCursor(t.id); setSel(t); toast(`Drawing from point ${t.id}`); } return; }
     if (armed?.startsWith('mv:')) {
       const n = Number(armed.slice(3));
@@ -362,6 +367,20 @@ export function IsoSketch() {
     if (t?.kind === 'run') setCursor(t.id + 1);
   };
   const itemSel = sel?.kind === 'item' && d.runs[sel.run] && runItems(d.runs[sel.run]).some((q) => q.id === sel.id) ? sel : null;
+
+  const placeText = (node: number, off: Vec3) => {
+    const id = uid();
+    update((x) => ({ ...x, texts: [...(x.texts ?? []), { id, node, off, text: '' }] }));
+    setArmed('notes'); setSel({ kind: 'text', id });
+  };
+  const moveText = (id: string, node: number, off: Vec3) => update((x) => ({ ...x, texts: (x.texts ?? []).map((t) => (t.id === id ? { ...t, node, off } : t)) }), 'tmove' + id);
+  const setText = (id: string, text: string | null) => update((x) => ({ ...x, texts: (x.texts ?? []).flatMap((t) => (t.id !== id ? [t] : text === null ? [] : [{ ...t, text }])) }), text === null ? '' : 'ttext' + id);
+  const closeText = (id: string) => { const t = d.texts?.find((q) => q.id === id); if (t && !t.text.trim()) setText(id, null); setSel(null); };
+  const openDrawing = (id: string) => { setStore((s) => ({ ...s, current: id })); setSel(null); setArmed(null); setCursor(0); setOffOpen(false); setFitTick((t) => t + 1); };
+  const newDrawingNow = () => { const nd = newDrawing(`Iso ${store.drawings.length + 1}`, uid()); setStore((s) => ({ drawings: [nd, ...s.drawings], current: nd.id })); openDrawing(nd.id); toast('New drawing'); };
+  const welds = opts.weldmap ? weldList(d) : [];
+  const weldSel = sel?.kind === 'weld' ? welds.findIndex((w) => w.key === sel.key) : -1;
+  const textSel = sel?.kind === 'text' ? d.texts?.find((t) => t.id === sel.id) ?? null : null;
 
   const enterFull = () => {
     setFull(true); setLand(true); setFitTick((t) => t + 1);
@@ -403,7 +422,9 @@ export function IsoSketch() {
     <IsoCanvas d={d} disp={disp} opts={opts} prefs={prefs} cursor={cur} sel={sel} rot={rot} fitTick={fitTick} armed={armed} apiRef={canvasApi} onPick={startAt}
       onInlDrag={() => {}}
       onItemDrag={(run, id, t) => setItem(run, id, (q) => (q.id === id ? { ...q, t, at: undefined } : q), 'drag' + id)}
-      menu={selNode !== null && pointKind(d, selNode) && !more ? { at: disp.P[selNode], node: <PointMenu key={'pm' + selNode} d={d} n={selNode} prefs={prefs}
+      menu={weldSel >= 0 ? { at: disp.P[welds[weldSel].node], node: <WeldPop key={'wp' + welds[weldSel].key} d={d} w={welds[weldSel]} num={weldSel + 1} update={update} onClose={() => setSel(null)} /> }
+        : textSel && disp.P[textSel.node] ? { at: add(disp.P[textSel.node], mul(textSel.off, disp.k || 1)), node: <TextPop key={'tp' + textSel.id} text={textSel.text} onText={(v) => setText(textSel.id, v)} onDelete={() => { setText(textSel.id, null); setSel(null); }} onClose={() => closeText(textSel.id)} /> }
+        : selNode !== null && pointKind(d, selNode) && !more ? { at: disp.P[selNode], node: <PointMenu key={'pm' + selNode} d={d} n={selNode} prefs={prefs}
           act={{
             close: () => setSel(null), more: () => setMore(true),
             joint: (c) => inlineAt(d, selNode) ? update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], conn: c } } })) : update((x) => ({ ...x, nodeConn: { ...(x.nodeConn ?? {}), [selNode]: c } })),
@@ -429,6 +450,7 @@ export function IsoSketch() {
           onConn={(c) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, conn: c } : q))}
           onDelete={() => { setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? null : q)); setSel(null); }} /> } : null}
       startOn={armed === 'start'} onStartBtn={() => setArmed(armed === 'start' ? null : 'start')} onNotice={toast}
+      offsetOn={offOpen} onOffsetBtn={() => { setOffOpen(!offOpen); setSel(null); }} onPlaceText={placeText} onTextMove={moveText}
       onView={(v) => setOpts({ view: v })} onTap={onTap} onDraw={drawTo}>
       <div className="isohist">
         <button className="ibtn" onClick={undo} disabled={!canUndo} aria-label="Back" title="Step back one change">
@@ -445,7 +467,10 @@ export function IsoSketch() {
           {full ? '✕ Close' : <svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>}
         </button>
       </div>
-      {armed && <div className="isoarmed">{armed === 'start' ? 'Tap the paper for the new start point' : armed.startsWith('move:') ? 'Tap a line where it should go' : `Tap where the ${CONN_LABEL[opts.conn].toLowerCase()} ${catalogItem(armed.split(':')[1], armed.split(':')[0] as CatalogItem['kind'])?.label.toLowerCase()} goes`} · <button className="linkbtn" onClick={() => setArmed(null)}>cancel</button></div>}
+      {armed && <div className="isoarmed"><span className="armtxt">{armed === 'start' ? 'Tap the paper for the new start point' : armed === 'text' ? 'Tap the drawing where the note goes' : armed === 'notes' ? 'Drag a note to move · tap to edit' : armed.startsWith('mv:') ? 'Tap where it should go' : armed.startsWith('move:') ? 'Tap a line where it should go' : `Tap where the ${CONN_LABEL[opts.conn].toLowerCase()} ${catalogItem(armed.split(':')[1], armed.split(':')[0] as CatalogItem['kind'])?.label.toLowerCase()} goes`}</span><button className="linkbtn" onClick={() => { setArmed(null); if (sel?.kind === 'text') closeText(sel.id); }}>{armed === 'notes' ? 'done' : 'cancel'}</button></div>}
+      {offOpen && <div className="isodock" onPointerDown={(e) => e.stopPropagation()}>
+        <OffsetPanel key={heading + cur} heading={heading} prefs={prefs} from={cur} onAdd={(o) => { addOffset(o); setOffOpen(false); }} onClose={() => setOffOpen(false)} />
+      </div>}
     </IsoCanvas>
   );
 
@@ -458,12 +483,53 @@ export function IsoSketch() {
     );
   }
 
+  const dotItem = (label: string, f: () => void, dis = false) => <button className="dotitem" disabled={dis} onClick={() => { setDots(false); f(); }}>{label}</button>;
+  const head = (
+    <div className="isohead">
+      {d.done ? <b className="isoname ro">{d.name}</b>
+        : <input className="isoname" value={d.name} aria-label="Drawing name" onChange={(e) => update((x) => ({ ...x, name: e.target.value }), 'name')} />}
+      <span className="muted">{d.nps}" · {d.runs.filter((r) => !r.move).length} lines</span>
+      {d.done
+        ? <button className="chip" onClick={() => { update((x) => ({ ...x, done: false })); toast('Editing — tap Complete when done'); }}>✎ Edit</button>
+        : <button className="chip done" onClick={() => setModal('complete')} disabled={!d.runs.some((r) => !r.move)}>✓ Complete</button>}
+      <div className="isomore">
+        <button className="ibtn dots" aria-label="Drawing menu" aria-expanded={dots} onClick={() => setDots(!dots)}>
+          <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="5" r="2" fill="currentColor" /><circle cx="12" cy="12" r="2" fill="currentColor" /><circle cx="12" cy="19" r="2" fill="currentColor" /></svg>
+        </button>
+        {dots && <>
+          <div className="dotback" onClick={() => setDots(false)} />
+          <div className="dotmenu" role="menu">
+            {dotItem('My Drawings', () => setModal('drawings'))}
+            {dotItem('New Drawing', newDrawingNow)}
+            {dotItem('Name Drawing', () => setModal('name'))}
+            {dotItem('Add text note', () => { setArmed('text'); setSel(null); setOffOpen(false); }, !!d.done)}
+            {dotItem(armed === 'notes' ? 'Done editing notes' : 'Edit / move notes', () => { setArmed(armed === 'notes' ? null : 'notes'); setSel(null); if (!d.texts?.length) toast('No text notes yet — use Add text note'); }, !!d.done || (!d.texts?.length && armed !== 'notes'))}
+          </div>
+        </>}
+      </div>
+    </div>
+  );
+  const modals = <>
+    {modal === 'drawings' && <IsoModal title="My Drawings" onClose={() => setModal(null)}><Library store={store} setStore={setStore} onOpen={(id) => { openDrawing(id); setModal(null); }} /></IsoModal>}
+    {modal === 'name' && <NameModal title="Name drawing" name={d.name} action="Save name" onClose={() => setModal(null)} onSave={(n) => { update((x) => ({ ...x, name: n })); setModal(null); toast('Renamed'); }} />}
+    {modal === 'complete' && <NameModal title="Complete drawing" name={d.name} action="Save & complete" note="The drawing is saved and shown as an 11×17 iso sheet with its material breakdown, cut list and weld log. Confirm the name:"
+      onClose={() => setModal(null)} onSave={(n) => { update((x) => ({ ...x, name: n, done: true, doneAt: Date.now() })); setModal(null); setSel(null); setArmed(null); setOffOpen(false); toast('Saved — drawing complete'); }} />}
+  </>;
+
+  if (d.done) {
+    return (
+      <div className="tool iso">
+        {head}
+        <SheetView d={d} opts={opts} prefs={prefs} toast={toast} />
+        {modals}
+      </div>
+    );
+  }
+
   return (
     <div className="tool iso">
-      <div className="isohead">
-        <input className="isoname" value={d.name} aria-label="Drawing name" onChange={(e) => update((x) => ({ ...x, name: e.target.value }), 'name')} />
-        <span className="muted">{d.nps}" · {d.runs.filter((r) => !r.move).length} lines</span>
-      </div>
+      {head}
+      {modals}
       {stage}
       {editor}
       {palette}
@@ -471,7 +537,7 @@ export function IsoSketch() {
       <Segmented value={panel} onChange={setPanel} options={[['cut', 'Cut list'], ['setup', 'Setup'], ['library', 'Library']]} />
       {panel === 'cut' && <CutPanel d={d} cuts={cuts} prefs={prefs} onShare={async (t) => { const m = await shareText(t); if (m) toast(m); }} />}
       {panel === 'setup' && <SetupPanel d={d} disp={disp} opts={opts} prefs={prefs} update={update} toast={toast} />}
-      {panel === 'library' && <Library store={store} setStore={setStore} onOpen={(id) => { setStore((s) => ({ ...s, current: id })); setSel(null); setCursor(0); setFitTick((t) => t + 1); }} />}
+      {panel === 'library' && <Library store={store} setStore={setStore} onOpen={openDrawing} />}
     </div>
   );
 }
@@ -704,7 +770,7 @@ const OPP: Record<string, string> = { N: 'S', S: 'N', E: 'W', W: 'E', U: 'D', D:
 const AXIS_OF: Record<string, number> = { E: 0, W: 0, N: 1, S: 1, U: 2, D: 2 };
 const ALL_DIRS = ['N', 'S', 'E', 'W', 'U', 'D'];
 
-function OffsetPanel({ heading, prefs, onAdd, onClose }: { heading: string; prefs: Prefs; onAdd: (o: OffsetSpec) => void; onClose: () => void }) {
+function OffsetPanel({ heading, prefs, onAdd, onClose, from }: { heading: string; prefs: Prefs; onAdd: (o: OffsetSpec) => void; onClose: () => void; from?: number }) {
   const [h, setH] = useState(heading);
   const perp = ALL_DIRS.filter((k) => AXIS_OF[k] !== AXIS_OF[h]);
   const [to, setTo] = useState(perp.includes('U') ? 'U' : perp[0]);
@@ -725,7 +791,7 @@ function OffsetPanel({ heading, prefs, onAdd, onClose }: { heading: string; pref
   const label = (k: string) => DIRS[k].label;
   return (
     <div className="offpanel">
-      <div className="row-between"><b>Add offset from this point</b><button className="chip" onClick={onClose}>Close</button></div>
+      <div className="row-between"><b>Add offset from point {from ?? ''}</b><button className="chip" onClick={onClose}>Close</button></div>
       <Grid>
         <Select label="Heading (run)" value={h} options={ALL_DIRS.map((k) => [k, label(k)])} onChange={(v) => { setH(v); setRoll('none'); }} />
         <Field label="Fitting angle (°)" value={ang} onChange={setAng} placeholder="45" />
@@ -748,14 +814,13 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
   undo: () => void; canUndo: boolean; redo: () => void; canRedo: boolean; heading: string; addOffset: (o: OffsetSpec) => void; prefs: Prefs;
   cur: number; isBranch: boolean; missing: number; compact: boolean; startPoint: () => void; placingStart: boolean;
 }) {
-  const [offOpen, setOffOpen] = useState(false);
   const presetOn = VIEW_PRESETS.find((p) => Math.abs(normAz(p.v.az - opts.view.az)) < 0.5 && Math.abs(p.v.el - opts.view.el) < 0.5)?.id ?? '';
   return (
     <Card className={'isotools' + (compact ? ' compact' : '')}>
       <Segmented small value={opts.mode} onChange={(m) => setOpts({ mode: m as Mode })} options={[['draw', '✎ Draw'], ['orbit', '⟳ Rotate 3D'], ['pan', '✥ Move']]} />
       {opts.mode === 'draw' && (
         <>
-          <p className="fhint">Drag from a point to draw a line — it follows the 30° / 150° / vertical paper lines. Start on any point except a turn (or the middle of a line) to branch off it; from empty space it continues from point {cur}{isBranch ? ', making a tee' : ''}. Use Add offset for angled runs. Tap a line or point to edit it. Two fingers: pinch to zoom, slide to move. Spin arrows (or the compass) turn the drawing.</p>
+          <p className="fhint">Drag from a point to draw a line — it follows the 30° / 150° / vertical paper lines. Start on any point except a turn (or the middle of a line) to branch off it; from empty space it continues from point {cur}{isBranch ? ', making a tee' : ''}. Use the offset tab on the drawing for angled runs. Tap a line or point to edit it. Two fingers: pinch to zoom, slide to move. Spin arrows (or the compass) turn the drawing.</p>
         </>
       )}
       {opts.mode === 'orbit' && <p className="fhint">Drag the drawing to tilt and turn it in 3D. The spin arrows under the compass turn it to the next compass direction.</p>}
@@ -767,9 +832,6 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
           <button className="chip" onClick={() => setOpts({ view: { ...opts.view, az: normAz(opts.view.az + 90) } })} title="Turn North 90°">N ⟳ 90°</button>
         </div>
       </div>
-      {offOpen
-        ? <OffsetPanel key={heading + cur} heading={heading} prefs={prefs} onAdd={(o) => { addOffset(o); setOffOpen(false); }} onClose={() => setOffOpen(false)} />
-        : <button className="btn offbtn" onClick={() => setOffOpen(true)}>⟋ Add offset from point {cur}</button>}
       <div className="dirbar">
         <Field label="Length (optional)" value={lenText} onChange={setLenText} parse={parseLength} placeholder="e.g. 5' 6" />
         <div className="dirpad">
@@ -777,12 +839,13 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
         </div>
       </div>
       <div className="isotoggles">
-        {(['dims', 'welds', 'labels', 'scaled'] as const).map((k) => (
-          <label key={k} className="chip"><input type="checkbox" checked={opts[k]} onChange={(e) => setOpts({ [k]: e.target.checked })} /> {({ dims: 'Dimensions', welds: 'Joints', labels: 'Point #', scaled: 'To scale' })[k]}</label>
+        {(['dims', 'welds', 'labels', 'scaled', 'weldmap'] as const).map((k) => (
+          <label key={k} className={'chip' + (k === 'weldmap' && opts.weldmap ? ' on' : '')}><input type="checkbox" checked={!!opts[k]} onChange={(e) => setOpts({ [k]: e.target.checked })} /> {({ dims: 'Dimensions', welds: 'Joints', labels: 'Point #', scaled: 'To scale', weldmap: 'Weld map' })[k]}</label>
         ))}
         <button className="chip" onClick={undo} disabled={!canUndo}>‹ Back</button>
         {canRedo && <button className="chip" onClick={redo}>Forward ›</button>}
       </div>
+      {opts.weldmap && <p className="fhint">Weld map: every weld is numbered (W1, W2 … field welds FW). Tap a weld number for the welder stencil, shop / field and notes.</p>}
       {opts.scaled && missing > 0 && <p className="fhint">{missing} line{missing > 1 ? 's' : ''} without a dimension {missing > 1 ? 'are' : 'is'} drawn at the drawing's average scale.</p>}
     </Card>
   );
@@ -791,11 +854,12 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
 // ------------------------------------------------------------------ canvas
 type Cam = { s: number; tx: number; ty: number };
 export interface CanvasApi { hitAt: (clientX: number, clientY: number) => { sel: Sel; t: number } | null }
-function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, children }: {
+function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
   armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>; onPick: (v: Vec3 | null) => void;
   onItemDrag: (run: number, id: string, t: number) => void; onInlDrag: (node: number, t: number) => void; menu: { at: Vec3; node: React.ReactNode } | null;
   startOn: boolean; onStartBtn: () => void; onNotice: (m: string) => void;
+  offsetOn: boolean; onOffsetBtn: () => void; onPlaceText: (node: number, off: Vec3) => void; onTextMove: (id: string, node: number, off: Vec3) => void;
   onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number, split?: { run: number; t: number }) => void; children?: React.ReactNode;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -889,15 +953,32 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     const v = [0, 1, 2].map((k) => Math.round((q[k] - o[k]) / g) * g) as Vec3;
     return len3(v) > 0 ? v : null;
   };
+  /** A point on the paper (no grid snap) on the axis plane through o that faces the viewer most. */
+  const pickAbs = (pt: { x: number; y: number }, o: Vec3): Vec3 | null => {
+    const { C } = viewBasis(view);
+    const axes: Vec3[] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    const n = axes.reduce((b, a) => (Math.abs(dot3(a, C)) > Math.abs(dot3(b, C)) ? a : b), axes[2]);
+    return unproject((pt.x - cam.tx) / cam.s, (pt.y - cam.ty) / cam.s, view, o, n);
+  };
+  const kk = disp.k || 1;
+  const textAt = (pt: { x: number; y: number }): { node: number; off: Vec3 } | null => {
+    // anchor a note to the nearest point on screen, so it follows the drawing
+    let node = 0, nd = Infinity;
+    P.forEach((p, n) => { if (n > d.runs.length) return; const q = T3(p); const dd = Math.hypot(pt.x - q[0], pt.y - q[1]); if (dd < nd) { nd = dd; node = n; } });
+    const q = pickAbs(pt, P[node]); if (!q) return null;
+    return { node, off: mul([q[0] - P[node][0], q[1] - P[node][1], q[2] - P[node][2]], 1 / kk) };
+  };
   const runT = (i: number, loc: { x: number; y: number }) => {
     const r = d.runs[i]; const a = T3(P[r.from]), b = T3(P[i + 1]);
     const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1;
     return Math.max(0.12, Math.min(0.88, ((loc.x - a[0]) * dx + (loc.y - a[1]) * dy) / L2));
   };
   const targetOf = (el: Element | null): Sel | 'compass' | 'none' => {
-    const t = el?.closest('[data-item],[data-dim],[data-node],[data-run],[data-compass]');
+    const t = el?.closest('[data-weld],[data-text],[data-item],[data-dim],[data-node],[data-run],[data-compass]');
     if (!t) return 'none';
     if (t.hasAttribute('data-compass')) return 'compass';
+    if (t.hasAttribute('data-weld')) return { kind: 'weld', key: t.getAttribute('data-weld')! };
+    if (t.hasAttribute('data-text')) return { kind: 'text', id: t.getAttribute('data-text')! };
     if (t.hasAttribute('data-dim')) return { kind: 'dim', run: Number(t.getAttribute('data-dim')) };
     if (t.hasAttribute('data-item')) return { kind: 'item', run: Number(t.getAttribute('data-run')), id: t.getAttribute('data-item')! };
     return t.hasAttribute('data-node') ? { kind: 'node', id: Number(t.getAttribute('data-node')) } : { kind: 'run', id: Number(t.getAttribute('data-run')) };
@@ -917,7 +998,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   // pointer handling. Draw mode: drag from a point (or anywhere, from the current point) to draw a line.
   // Rotate mode: drag turns the view. Move mode: drag pans. Two fingers always pan / zoom. Taps select.
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
-  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean; itemDrag?: boolean; split?: { run: number; t: number; origin: Vec3 }; blocked?: boolean; inlDrag?: number | null } | null>(null);
+  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean; itemDrag?: boolean; split?: { run: number; t: number; origin: Vec3 }; blocked?: boolean; inlDrag?: number | null; textDrag?: { id: string; node: number; dx: number; dy: number } | null } | null>(null);
   const gestureTurn = useRef(false); // a two-finger twist moves the camera itself; skip the re-centring below
   const CMP = { x: 40, y: 40 };
   const onDown = (e: React.PointerEvent) => {
@@ -948,8 +1029,13 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       const endRed = !!inlF && isReducer(inlF.type) && nodeKind(d, drawFrom!).kind !== 'straight';
       if (drawFrom !== null && !split && (nodeKind(d, drawFrom).kind === 'elbow' || (inlF && !endRed))) { drawFrom = null; blocked = true; } // no lines off a turn or a valve (a reducer on an end is fine)
     }
+    let textDrag: { id: string; node: number; dx: number; dy: number } | null = null;
+    if (ps.length === 1 && armed === 'notes' && target !== 'none' && target !== 'compass' && target?.kind === 'text') {
+      const tn = d.texts?.find((q) => q.id === target.id);
+      if (tn && P[tn.node]) { const q = T3(add(P[tn.node], mul(tn.off, kk))); textDrag = { id: tn.id, node: tn.node, dx: q[0] - loc.x, dy: q[1] - loc.y }; }
+    }
     const mid = ps.length === 2 ? { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 } : loc;
-    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom: inlDrag !== null ? null : drawFrom, itemDrag, split, blocked: inlDrag !== null ? false : blocked, inlDrag,
+    st.current = { textDrag, cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom: inlDrag !== null ? null : drawFrom, itemDrag, split, blocked: inlDrag !== null ? false : blocked, inlDrag,
       ang: ps.length === 2 ? Math.atan2(ps[1].y - ps[0].y, ps[1].x - ps[0].x) : undefined, twist: false };
     setGhost(null);
   };
@@ -978,6 +1064,10 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       const raw = s.view.az + ((a - s.cAng) * 180) / Math.PI;
       const az = normAz(ISO_VIEW.az + 90 * Math.round((raw - ISO_VIEW.az) / 90));
       if (Math.abs(normAz(az - view.az)) > 1e-6) onView({ az, el: s.view.el });
+    } else if (s.textDrag) {
+      // move a text note (re-anchored to the nearest point)
+      const at = textAt({ x: loc.x + s.textDrag.dx, y: loc.y + s.textDrag.dy });
+      if (at) onTextMove(s.textDrag.id, at.node, at.off);
     } else if (s.inlDrag != null) {
       // slide a valve along its line: the two lines either side trade length, the total stays put
       const sd = sidesOf(d, s.inlDrag);
@@ -1018,6 +1108,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     }
     if (s.target === 'compass') { onView({ az: stepAz(view.az, 1), el: view.el }); return; }
     if (armed === 'start' && (s.target === 'none' || s.target.kind !== 'node')) { onPick(pickPoint(loc)); return; }
+    if (armed === 'text') { const at = textAt(loc); if (at) onPlaceText(at.node, at.off); else onNotice('Turn the view a little to place the note'); return; }
     if (s.target !== 'none' && s.target) { onTap(s.target, s.target.kind === 'run' ? runT(s.target.id, loc) : s.target.kind === 'item' || s.target.kind === 'dim' ? runT(s.target.run, loc) : undefined); return; }
     onTap(null);
   };
@@ -1037,7 +1128,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         <HatchDefs />
         <IsoPaper W={W} H={H} T3={T3} g={g} />
         {opts.mode === 'draw' && !armed && <PlaneGrid W={W} H={H} T3={T3} o={ghost?.origin ?? P[gridFrom] ?? [0, 0, 0]} g={g} />}
-        <IsoArt d={d} disp={disp} T3={T3} sel={sel} cursor={cursor} opts={opts} prefs={prefs} />
+        <IsoArt d={d} disp={disp} T3={T3} sel={sel} cursor={cursor} opts={{ ...opts, textEdit: armed === 'notes' }} prefs={prefs} />
         {ghost && (() => {
           const o3 = ghost.origin ?? P[ghost.from];
           const a = T3(o3), b = T3(add(o3, ghost.v));
@@ -1065,6 +1156,10 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       </button>
       <button className={'ibtn startpt' + (startOn ? ' on' : '')} aria-label="New start point" title="New start point — then tap the paper" onClick={onStartBtn}>
         <svg viewBox="0 0 24 24" width="20" height="20"><path d="M11 21.5c-.3 0-.6-.1-.8-.4C7.6 18 4.5 14.3 4.5 10.7a6.5 6.5 0 0 1 9.7-5.7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /><path d="M17.3 10.4c.1.1.2.2.2.3 0 3.6-3.1 7.3-5.7 10.4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /><circle cx="11" cy="10.7" r="1.9" fill="currentColor" /><path d="M18 2.5v6M15 5.5h6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>
+      </button>
+      <button className={'ibtn offtab' + (offsetOn ? ' on' : '')} aria-label="Add offset" title="Add an offset (angled run) from the current point" onClick={onOffsetBtn}>
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 18h6l6-12h6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /><path d="M9 18l6-12" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="2 2" /></svg>
+        <span>Offset</span>
       </button>
       {menu && (() => {
         const [x, y] = T3(menu.at);
@@ -1186,7 +1281,7 @@ function Compass({ x, y, view, interactive }: { x: number; y: number; view: View
 
 /** Drawing content in screen coordinates. Shared by the canvas and the image export. */
 export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
-  d: IsoDrawing; disp: { P: Vec3[]; vecs: Vec3[] }; T3: (p: Vec3) => [number, number]; sel: Sel; cursor: number; opts: ArtOpts; prefs: Prefs; exportMode?: boolean;
+  d: IsoDrawing; disp: { P: Vec3[]; vecs: Vec3[]; k?: number }; T3: (p: Vec3) => [number, number]; sel: Sel; cursor: number; opts: ArtOpts; prefs: Prefs; exportMode?: boolean;
 }) {
   const { P, vecs } = disp;
   const S = P.map(T3);
@@ -1370,7 +1465,49 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     const lx = p[0] + 22, ly = p[1] - 18 - (j % 3) * 12;
     els.push(<g key={'n' + t.id}><line className="iso-leader" x1={p[0]} y1={p[1]} x2={lx - 2} y2={ly + 2} /><text className="iso-note" x={lx} y={ly}>{t.text}</text></g>);
   });
-  return <g>{under}{els}</g>;
+  // weld map: every weld numbered (W1 …, field welds FW), with the welder stencil when entered
+  const tags: React.ReactNode[] = [];
+  if (opts.weldmap) weldList(d).forEach((w, j) => {
+    const p = S[w.node]; const r = d.runs[w.run]; if (!p || !r) return;
+    const other = r.from === w.node ? S[w.run + 1] : S[r.from]; if (!other) return;
+    const [ux, uy, L] = unit(p, other);
+    const off = Math.min(L * 0.4, w.where === 'fitting' ? 9 : w.where === 'inline' ? 12 : w.where === 'reducer' ? 24 : w.where === 'end' ? 4 : 0);
+    const c: [number, number] = [p[0] + ux * off, p[1] + uy * off];
+    let nx = -uy, ny = ux; if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; }
+    // put the tag on the side away from the other pipes at that point (so tags at elbows and tees don't stack)
+    let ox = 0, oy = 0;
+    nodeLegs(d, w.node).forEach((l) => { if (l.run === w.run) return; const q = d.runs[l.run]; const o2 = q.from === w.node ? S[l.run + 1] : S[q.from]; if (!o2) return; const [vx, vy] = unit(p, o2); ox += vx; oy += vy; });
+    const side = nx * ox + ny * oy;
+    if (side > 0.2) { nx = -nx; ny = -ny; }
+    const info = d.welds?.[w.key];
+    const tag = `${info?.field ? 'FW' : 'W'}${j + 1}`;
+    const t: [number, number] = [c[0] + nx * 17 + ux * 4, c[1] + ny * 17 + uy * 4];
+    const tw = 6 + tag.length * 5.4;
+    const on = sel?.kind === 'weld' && sel.key === w.key;
+    tags.push(<g key={'wm' + w.key} className={'iso-wtag' + (info?.field ? ' field' : '') + (on ? ' sel' : '')} data-weld={exportMode ? undefined : w.key}>
+      <line className="iso-wlead" x1={c[0]} y1={c[1]} x2={t[0]} y2={t[1]} />
+      <circle className="iso-wdot" cx={c[0]} cy={c[1]} r={2.2} />
+      {!exportMode && <circle className="iso-whit" cx={t[0]} cy={t[1]} r={13} />}
+      <rect className="iso-wbox" x={t[0] - tw / 2} y={t[1] - 6.5} width={tw} height={13} rx={info?.field ? 6.5 : 2} />
+      <text className="iso-wtxt" x={t[0]} y={t[1] + 3} textAnchor="middle">{tag}</text>
+      {info?.stencil && <text className="iso-wsten" x={t[0]} y={t[1] + 14} textAnchor="middle">{info.stencil}</text>}
+    </g>);
+  });
+  // text notes placed on the drawing
+  const kk = disp.k || 1;
+  (d.texts ?? []).forEach((t) => {
+    const base = P[t.node]; if (!base) return;
+    const q = T3(add(base, mul(t.off, kk)));
+    const lines = (t.text || (exportMode ? '' : 'Note…')).split('\n');
+    if (!lines.join('').trim()) return;
+    const w = Math.max(...lines.map((x) => x.length)) * 5.3 + 10, h = lines.length * 11 + 6;
+    const on = sel?.kind === 'text' && sel.id === t.id;
+    tags.push(<g key={'tx' + t.id} className={'iso-textg' + (opts.textEdit ? ' edit' : '') + (on ? ' sel' : '')} data-text={exportMode ? undefined : t.id}>
+      {!exportMode && <rect className="iso-textbox" x={q[0] - 5} y={q[1] - 11} width={w} height={h} rx={3} />}
+      {lines.map((ln, k) => <text key={k} className={'iso-textnote' + (t.text ? '' : ' ph')} x={q[0]} y={q[1] + k * 11}>{ln}</text>)}
+    </g>);
+  });
+  return <g>{under}{els}{tags}</g>;
 }
 
 // ------------------------------------------------------------------ editors
@@ -1646,7 +1783,7 @@ function Library({ store, setStore, onOpen }: { store: IsoStore; setStore: (f: (
       <button className="btn primary" onClick={() => { const d = newDrawing(`Iso ${store.drawings.length + 1}`, uid()); setStore((s) => ({ drawings: [d, ...s.drawings], current: d.id })); onOpen(d.id); }}>New drawing</button>
       {store.drawings.map((x) => (
         <div key={x.id} className={'item' + (x.id === store.current ? ' cur' : '')}>
-          <div className="ihead"><b>{x.name}</b><span className="muted">{x.runs.length} lines · {new Date(x.updated).toLocaleDateString()}</span></div>
+          <div className="ihead"><b>{x.name}{x.done && <span className="badge ok">Complete</span>}</b><span className="muted">{x.runs.length} lines · {new Date(x.updated).toLocaleDateString()}</span></div>
           <div className="iact">
             <button className="chip" onClick={() => onOpen(x.id)}>Open</button>
             <button className="chip" onClick={() => { const c = { ...JSON.parse(JSON.stringify(x)), id: uid(), name: x.name + ' copy', created: Date.now(), updated: Date.now() }; setStore((s) => ({ ...s, drawings: [c, ...s.drawings] })); }}>Duplicate</button>
@@ -1656,7 +1793,7 @@ function Library({ store, setStore, onOpen }: { store: IsoStore; setStore: (f: (
           </div>
         </div>
       ))}
-      <p className="fhint">Drawings are saved on this device. Rename a drawing by tapping its name above the sketch.</p>
+      <p className="fhint">Drawings are saved on this device as you work. Rename one with ⋮ → Name Drawing; Complete locks it as an 11×17 sheet.</p>
     </Card>
   );
 }
@@ -1694,13 +1831,13 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
     </Card>
   );
 }
-const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:600 9px sans-serif;fill:#1f7f7a}.iso-legdim{font:600 8px sans-serif;fill:#555}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:600 7.5px sans-serif;fill:#666}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-pipe.nofill{fill:none}`;
+const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:600 9px sans-serif;fill:#1f7f7a}.iso-legdim{font:600 8px sans-serif;fill:#555}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:600 7.5px sans-serif;fill:#666}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.8}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:1.1}.iso-wtxt{font:800 7.5px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textbox{fill:none;stroke:none}`;
 
-async function shareImage(d: IsoDrawing, markup: string, W: number, H: number): Promise<string> {
+async function shareImage(d: IsoDrawing, markup: string, W: number, H: number, scale = 3): Promise<string> {
   const svg = markup.replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);
   const blob = await new Promise<Blob | null>((res) => {
     const img = new Image();
-    img.onload = () => { const c = document.createElement('canvas'); c.width = W * 3; c.height = H * 3; c.getContext('2d')!.drawImage(img, 0, 0, W * 3, H * 3); c.toBlob((b) => res(b), 'image/png'); };
+    img.onload = () => { const c = document.createElement('canvas'); c.width = W * scale; c.height = H * scale; const g2 = c.getContext('2d')!; g2.fillStyle = '#fff'; g2.fillRect(0, 0, c.width, c.height); g2.drawImage(img, 0, 0, W * scale, H * scale); c.toBlob((b) => res(b), 'image/png'); };
     img.onerror = () => res(null);
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   });
@@ -1713,4 +1850,220 @@ async function shareImage(d: IsoDrawing, markup: string, W: number, H: number): 
     const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
     return 'Image saved';
   } catch { return 'Sharing images is not available here'; }
+}
+
+// ------------------------------------------------------------------ weld map, text notes, dialogs
+function WeldPop({ d, w, num, update, onClose }: { d: IsoDrawing; w: Weld; num: number; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void; onClose: () => void }) {
+  const info: WeldInfo = d.welds?.[w.key] ?? {};
+  const set = (p: Partial<WeldInfo>, mk?: string) => update((x) => ({ ...x, welds: { ...(x.welds ?? {}), [w.key]: { ...(x.welds?.[w.key] ?? {}), ...p } } }), mk);
+  const where = { fitting: 'fitting weld', inline: 'valve / fitting weld', joint: 'pipe-to-pipe weld', end: 'end fitting weld', reducer: 'reducer-to-elbow weld' }[w.where];
+  return (
+    <div className="itemmenu-in weldpop">
+      <div className="row-between"><b>{info.field ? 'FW' : 'W'}{num} · {w.conn === 'sw' ? 'Socket weld' : 'Butt weld'}</b><button className="linkbtn" onClick={onClose}>Done</button></div>
+      <span className="fhint">Point {w.node}, line {w.run + 1} — {where}</span>
+      <label className="field"><span className="flabel">Welder stencil</span>
+        <span className="finput"><input value={info.stencil ?? ''} placeholder="e.g. RC-12" autoCapitalize="characters" autoCorrect="off" spellCheck={false} onChange={(e) => set({ stencil: e.target.value }, 'wst' + w.key)} /></span></label>
+      <Segmented small value={info.field ? 'field' : 'shop'} onChange={(v) => set({ field: v === 'field' })} options={[['shop', 'Shop weld'], ['field', 'Field weld']]} />
+      <label className="field"><span className="flabel">Notes</span>
+        <textarea className="isotext" rows={3} value={info.notes ?? ''} placeholder="Rod, process, inspection, date…" onChange={(e) => set({ notes: e.target.value }, 'wno' + w.key)} /></label>
+    </div>
+  );
+}
+
+function TextPop({ text, onText, onDelete, onClose }: { text: string; onText: (v: string) => void; onDelete: () => void; onClose: () => void }) {
+  return (
+    <div className="itemmenu-in">
+      <div className="row-between"><b>Text note</b><button className="linkbtn" onClick={onClose}>Done</button></div>
+      <textarea className="isotext" rows={3} autoFocus value={text} placeholder="Type the note…" onChange={(e) => onText(e.target.value)} />
+      <span className="fhint">Drag the note on the drawing to move it.</span>
+      <button className="btn danger" onClick={onDelete}>Delete note</button>
+    </div>
+  );
+}
+
+function IsoModal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return createPortal(
+    <div className="isomodal" onClick={onClose}>
+      <div className="isomodal-card" role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className="row-between"><h3>{title}</h3><button className="chip" onClick={onClose}>Close</button></div>
+        {children}
+      </div>
+    </div>, document.body);
+}
+
+function NameModal({ title, name, action, note, onSave, onClose }: { title: string; name: string; action: string; note?: string; onSave: (n: string) => void; onClose: () => void }) {
+  const [v, setV] = useState(name);
+  const ok = v.trim().length > 0;
+  return (
+    <IsoModal title={title} onClose={onClose}>
+      {note && <p className="fhint">{note}</p>}
+      <label className="field"><span className="flabel">Drawing name</span>
+        <span className="finput"><input value={v} autoFocus onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && ok) onSave(v.trim()); }} /></span></label>
+      <button className="btn primary" disabled={!ok} onClick={() => onSave(v.trim())}>{action}</button>
+    </IsoModal>
+  );
+}
+
+// ------------------------------------------------------------------ completed drawing: 11×17 sheet
+const SW = 1700, SH = 1100; // 17" × 11" in hundredths of an inch
+type TRow = Array<string>;
+function svgTable(key: string, x: number, y: number, w: number, hMax: number, title: string, cols: Array<{ h: string; w: number; r?: boolean }>, rows0: TRow[]): React.ReactNode {
+  const head = 30;
+  let rh = Math.min(24, (hMax - head) / Math.max(1, rows0.length + 1));
+  let rows = rows0;
+  if (rh < 13) { rh = 13; const fit = Math.floor((hMax - head) / rh) - 2; rows = [...rows0.slice(0, fit), [`… ${rows0.length - fit} more (see shared cut list)`]]; }
+  const fs = Math.max(9, rh * 0.6);
+  const xs: number[] = []; let acc = x; cols.forEach((c) => { xs.push(acc); acc += c.w * w; });
+  const out: React.ReactNode[] = [];
+  out.push(<rect key="b" x={x} y={y} width={w} height={head + rh * (rows.length + 1) + 4} fill="#fff" stroke="#111" strokeWidth={1.5} />);
+  out.push(<rect key="tb" x={x} y={y} width={w} height={head} fill="#1f3b3a" />);
+  out.push(<text key="t" x={x + 10} y={y + head * 0.68} fill="#fff" style={{ font: '800 17px sans-serif', letterSpacing: '1px' }}>{title}</text>);
+  const y1 = y + head;
+  out.push(<rect key="hb" x={x} y={y1} width={w} height={rh} fill="#e8efee" />);
+  cols.forEach((c, k) => out.push(<text key={'h' + k} x={c.r ? xs[k] + c.w * w - 6 : xs[k] + 6} y={y1 + rh * 0.7} textAnchor={c.r ? 'end' : 'start'} style={{ font: `800 ${fs}px sans-serif`, fill: '#333' }}>{c.h}</text>));
+  rows.forEach((r, i) => {
+    const yy = y1 + rh * (i + 1);
+    if (i % 2) out.push(<rect key={'z' + i} x={x} y={yy} width={w} height={rh} fill="#f6f8f8" />);
+    out.push(<line key={'l' + i} x1={x} x2={x + w} y1={yy} y2={yy} stroke="#ccd" strokeWidth={0.6} />);
+    r.forEach((cell, k) => {
+      const c = cols[k] ?? cols[0];
+      const maxCh = r.length === 1 ? 200 : Math.floor((c.w * w - 10) / (fs * 0.55));
+      const txt = cell.length > maxCh ? cell.slice(0, Math.max(1, maxCh - 1)) + '…' : cell;
+      out.push(<text key={'c' + i + '-' + k} x={c.r ? xs[k] + c.w * w - 6 : xs[k] + 6} y={yy + rh * 0.7} textAnchor={c.r ? 'end' : 'start'} style={{ font: `${k === 0 ? 700 : 500} ${fs}px sans-serif`, fill: '#111' }}>{txt}</text>);
+    });
+  });
+  return <g key={key}>{out}</g>;
+}
+
+function sheetData(d: IsoDrawing, prefs: Prefs) {
+  const sizes = runSizes(d);
+  const cuts = cutList(d).filter((c) => !c.skip);
+  const L = (i: number) => String.fromCharCode(97 + i);
+  const cutRows: TRow[] = [];
+  cuts.forEach((c) => {
+    const base = `${c.run + 1}`;
+    if (Number.isNaN(c.travel)) { cutRows.push([base, `${describeRun(d.runs[c.run])} · ${sizes[c.run]}"`, 'no dimension', '—']); return; }
+    if (c.pieces) c.pieces.forEach((q, k) => cutRows.push([base + L(k), `${q.from} → ${q.to} · ${sizes[c.run]}"`, k === 0 ? `${formatFtIn(c.travel, prefs)} ${runRef(d, c.run)}` : '', Number.isNaN(q.cut) ? 'need length' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE']));
+    else cutRows.push([base, `${describeRun(d.runs[c.run])} · ${sizes[c.run]}"`, `${formatFtIn(shownLength(d, c.run), prefs)} ${runRef(d, c.run)}`, c.ok ? formatFtIn(c.cut, prefs) : Number.isNaN(c.cut) ? 'need length' : 'IMPOSSIBLE']);
+  });
+  const total = cuts.reduce((s, c) => s + (c.pieces ? c.pieces.reduce((t, q) => t + (q.ok ? q.cut : 0), 0) : c.ok ? c.cut : 0), 0);
+  const mat = materials(d).map((m): TRow => [m.item, m.size ? (m.size.includes('×') ? m.size.split('×').map((z) => z + '"').join('×') : m.size + '"') : '', m.spec, m.unit === 'ft' ? formatFtIn(m.qty * 12, prefs) : String(m.qty)]);
+  const wl = weldList(d);
+  const weldRows: TRow[] = wl.map((w, j) => { const i = d.welds?.[w.key]; return [`${i?.field ? 'FW' : 'W'}${j + 1}`, w.conn === 'sw' ? 'SW' : 'BW', i?.field ? 'Field' : 'Shop', i?.stencil ?? '', i?.notes ?? '']; });
+  return { cutRows, total, mat, weldRows, wl };
+}
+
+function SheetSvg({ d, opts, prefs, svgRef }: { d: IsoDrawing; opts: Opts; prefs: Prefs; svgRef?: React.Ref<SVGSVGElement> }) {
+  const view = opts.view;
+  const disp = displayPositions(d, opts.scaled);
+  const { cutRows, total, mat, weldRows, wl } = sheetData(d, prefs);
+  const M = 25;
+  const RX = 1215, RW = SW - M - 10 - RX; // right column
+  const DX = M + 10, DY = M + 10, DW = RX - 10 - DX; // drawing area
+  const cutH = Math.min(380, 70 + cutRows.length * 22);
+  const DH = SH - M - 10 - DY - cutH - 10;
+  const KK = 2.3; // drawing symbols / text scaled up for the sheet
+  const pts = [...disp.P, ...(d.texts ?? []).filter((t) => disp.P[t.node]).map((t) => add(disp.P[t.node], mul(t.off, disp.k || 1)))].map((p) => project(p, view));
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const aw = DW / KK - 90, ah = DH / KK - 80;
+  const sc = Math.min(aw / Math.max(30, x1 - x0), ah / Math.max(30, y1 - y0));
+  const T3 = (p: Vec3): [number, number] => { const q = project(p, view); return [(q[0] - (x0 + x1) / 2) * sc + DW / KK / 2, (q[1] - (y0 + y1) / 2) * sc + DH / KK / 2 + 6]; };
+  // iso paper (30° / 150° / vertical) behind the drawing
+  const grid: React.ReactNode[] = [];
+  const gs = 40, t30 = Math.tan(Math.PI / 6);
+  for (let x = DX; x <= DX + DW; x += gs / (2 * t30)) grid.push(<line key={'v' + x} x1={x} x2={x} y1={DY} y2={DY + DH} />);
+  for (let c = -DW; c <= DH + DW; c += gs) {
+    grid.push(<line key={'a' + c} x1={DX} y1={DY + c} x2={DX + DW} y2={DY + c - DW * t30} />);
+    grid.push(<line key={'b' + c} x1={DX} y1={DY + c - DW * t30} x2={DX + DW} y2={DY + c} />);
+  }
+  const shop = wl.filter((w) => !d.welds?.[w.key]?.field).length, field = wl.length - shop;
+  const date = new Date(d.doneAt ?? d.updated).toLocaleDateString();
+  // right column: material, weld log, title block
+  const TB = 190, tbY = SH - M - 10 - TB;
+  const matH = Math.min(tbY - DY - 10 - (weldRows.length ? 150 : 0), 34 + (mat.length + 1) * 24 + 4);
+  const weldY = DY + matH + 12, weldH = tbY - 12 - weldY;
+  // cut list: one or two tables side by side under the drawing
+  const cutY = DY + DH + 10;
+  const two = cutRows.length > Math.floor((cutH - 34) / 20) - 1 && cutRows.length > 8;
+  const half = Math.ceil(cutRows.length / 2);
+  const cutCols = [{ h: 'Line', w: 0.11 }, { h: 'Run · size', w: 0.39 }, { h: 'Length', w: 0.27 }, { h: 'Cut', w: 0.23, r: true }];
+  return (
+    <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" viewBox={`0 0 ${SW} ${SH}`} className="isosheet" role="img" aria-label={`${d.name} iso sheet`}>
+      <style>{EXPORT_CSS}</style>
+      <rect width={SW} height={SH} fill="#fff" />
+      <rect x={M} y={M} width={SW - 2 * M} height={SH - 2 * M} fill="none" stroke="#111" strokeWidth={3} />
+      <defs><clipPath id="sheetclip"><rect x={DX} y={DY} width={DW} height={DH} /></clipPath></defs>
+      <g clipPath="url(#sheetclip)" stroke="#d3e4e2" strokeWidth={0.8}>{grid}</g>
+      <rect x={DX} y={DY} width={DW} height={DH} fill="none" stroke="#111" strokeWidth={1.2} />
+      <g clipPath="url(#sheetclip)"><g transform={`translate(${DX} ${DY}) scale(${KK})`}>
+        <HatchDefs />
+        <IsoArt d={d} disp={disp} T3={T3} sel={null} cursor={-1} opts={{ dims: true, welds: true, labels: false, weldmap: true }} prefs={prefs} exportMode />
+        <Compass x={36} y={36} view={view} />
+      </g></g>
+      <text x={DX + DW - 12} y={DY + 26} textAnchor="end" style={{ font: '800 20px sans-serif', fill: '#1f3b3a', letterSpacing: '2px' }}>ISOMETRIC</text>
+      {two
+        ? <>{svgTable('cut1', DX, cutY, DW / 2 - 6, cutH, 'CUT LIST', cutCols, cutRows.slice(0, half))}{svgTable('cut2', DX + DW / 2 + 6, cutY, DW / 2 - 6, cutH, `CUT LIST (cont.) · TOTAL ${formatFtIn(total, prefs)}`, cutCols, cutRows.slice(half))}</>
+        : svgTable('cut', DX, cutY, DW, cutH, `CUT LIST · TOTAL PIPE ${formatFtIn(total, prefs)}`, cutCols, cutRows)}
+      {svgTable('mat', RX, DY, RW, matH, 'MATERIAL', [{ h: 'Item', w: 0.42 }, { h: 'Size', w: 0.17 }, { h: 'Spec', w: 0.27 }, { h: 'Qty', w: 0.14, r: true }], mat.length ? mat : [['No material yet']])}
+      {weldRows.length > 0 && svgTable('weld', RX, weldY, RW, weldH, `WELD LOG · ${shop} SHOP / ${field} FIELD`, [{ h: 'Weld', w: 0.13 }, { h: 'Type', w: 0.11 }, { h: 'S/F', w: 0.13 }, { h: 'Stencil', w: 0.2 }, { h: 'Notes', w: 0.43 }], weldRows)}
+      <g>
+        <rect x={RX} y={tbY} width={RW} height={TB} fill="#fff" stroke="#111" strokeWidth={2} />
+        <rect x={RX} y={tbY} width={RW} height={44} fill="#1f3b3a" />
+        <text x={RX + 14} y={tbY + 30} style={{ font: '900 23px sans-serif', fill: '#fff', letterSpacing: '1.5px' }}>RIDGECREST INDUSTRIES</text>
+        {[['DRAWING', d.name], ['SIZE', `${d.nps}" NPS · Class ${d.cls ?? 150} · gap ${formatFracIn(d.gap, prefs)}`], ['JOINT', CONN_LABEL[d.conn ?? 'bw']], ['DATE', date], ['STATUS', `COMPLETE · ${d.runs.filter((r) => !r.move).length} lines · ${wl.length} welds`]].map(([k, v], i) => (
+          <g key={k}>
+            <line x1={RX} x2={RX + RW} y1={tbY + 44 + i * 29} y2={tbY + 44 + i * 29} stroke="#ccd" />
+            <text x={RX + 12} y={tbY + 64 + i * 29} style={{ font: '800 12px sans-serif', fill: '#666' }}>{k}</text>
+            <text x={RX + 100} y={tbY + 64 + i * 29} style={{ font: `${i === 0 ? 800 : 600} ${i === 0 ? 17 : 14}px sans-serif`, fill: i === 4 ? '#1f7f3a' : '#111' }}>{v.length > 44 ? v.slice(0, 43) + '…' : v}</text>
+          </g>
+        ))}
+      </g>
+      <text x={M + 4} y={SH - 8} style={{ font: '600 11px sans-serif', fill: '#888' }}>11" × 17" iso sheet · Ridgecrest Pipe Calculator · not to scale unless dimensioned</text>
+    </svg>
+  );
+}
+
+function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs: Prefs; toast: (m: string) => void }) {
+  const ref = useRef<SVGSVGElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [full, setFull] = useState(false);
+  const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
+  useEffect(() => { const f = () => setWin({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
+  const markup = () => (ref.current ? ref.current.outerHTML.replace('<svg ', `<svg width="${SW}" height="${SH}" `) : '');
+  const print = () => {
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(f);
+    const doc = f.contentDocument; if (!doc) return;
+    doc.open();
+    doc.write(`<!doctype html><html><head><title>${d.name.replace(/</g, '')}</title><style>@page{size:17in 11in;margin:0}html,body{margin:0}svg{width:17in;height:11in;display:block}</style></head><body>${markup()}</body></html>`);
+    doc.close();
+    setTimeout(() => { try { f.contentWindow?.focus(); f.contentWindow?.print(); } catch { toast('Printing is not available here'); } setTimeout(() => f.remove(), 2000); }, 300);
+  };
+  const share = () => shareImage(d, markup(), SW, SH, 2).then((m) => m && toast(m));
+  const zoomBar = (
+    <div className="sheetbar">
+      <button className="ibtn" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, z / 1.4))}>−</button>
+      <button className="ibtn" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(5, z * 1.4))}>+</button>
+      <button className="ibtn" onClick={() => setZoom(1)}>Fit</button>
+      <button className="ibtn" onClick={() => { setFull(!full); setZoom(1); }}>{full ? '✕ Close' : 'Full screen'}</button>
+    </div>
+  );
+  const rot0 = full && win.h > win.w;
+  const aw = rot0 ? win.h : win.w, ah = rot0 ? win.w : win.h;
+  const fitW = Math.max(200, Math.min(aw - 8, (ah - 8) * SW / SH));
+  const sheet = <div className="sheetscroll"><div className="sheetin" style={full ? { width: fitW * zoom, margin: zoom === 1 ? '0 auto' : undefined } : { width: `${zoom * 100}%` }}><SheetSvg d={d} opts={opts} prefs={prefs} svgRef={ref} /></div></div>;
+  const rot = rot0;
+  return (
+    <>
+      <div className="sheetwrap">{!full && sheet}{!full && zoomBar}</div>
+      {full && createPortal(<div className={'sheetfull' + (rot ? ' rot' : '')}><div className="sheetfull-in">{sheet}{zoomBar}</div></div>, document.body)}
+      <div className="chiprow sheetacts">
+        <button className="btn primary" onClick={share}>Share as image</button>
+        <button className="btn" onClick={print}>Print 11×17</button>
+      </div>
+      <p className="fhint">Completed drawings are locked. ✎ Edit (top) reopens it; tap ✓ Complete again when you're done.</p>
+    </>
+  );
 }

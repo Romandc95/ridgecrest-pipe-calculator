@@ -118,7 +118,17 @@ export interface IsoDrawing {
   endLen?: Record<number, number>;
   /** A valve / inline fitting sitting at a point where the line was broken (the point is a straight joint between two lines). */
   inl?: Record<number, LineItem>;
+  /** Weld map: welder stencil, shop / field and notes per weld (keyed by weldList keys). */
+  welds?: Record<string, WeldInfo>;
+  /** Free text placed on the drawing. */
+  texts?: TextNote[];
+  /** Finished: saved and locked (shown as the 11×17 sheet). */
+  done?: boolean;
+  doneAt?: number;
 }
+export interface WeldInfo { stencil?: string; field?: boolean; notes?: string }
+/** Text on the drawing, anchored to a point (node) with an offset in sketch units so it follows the drawing. */
+export interface TextNote { id: string; node: number; off: Vec3; text: string }
 /** The inline fitting at a point, if that point is still a straight joint. */
 export const inlineAt = (d: IsoDrawing, node: number): LineItem | null => {
   const it = d.inl?.[node];
@@ -549,7 +559,128 @@ export function mergeAt(d: IsoDrawing, node: number): IsoDrawing {
     return out;
   };
   return { ...d, runs, ends: mapRec(d.ends, node), fits: mapRec(d.fits, node), nodeConn: mapRec(d.nodeConn, node), fitSize: mapRec(d.fitSize, node),
-    endLen: mapRec(d.endLen, node), inl: mapRec(d.inl, node), notes: d.notes.filter((t) => t.node !== node).map((t) => ({ ...t, node: remap(t.node) })) };
+    endLen: mapRec(d.endLen, node), inl: mapRec(d.inl, node), notes: d.notes.filter((t) => t.node !== node).map((t) => ({ ...t, node: remap(t.node) })),
+    ...(d.texts ? { texts: d.texts.map((t) => (t.node === node ? { ...t, node: remap(A.from) } : { ...t, node: remap(t.node) })) } : {}) };
+}
+
+// ---------------------------------------------------------------- weld map
+export interface Weld { key: string; node: number; run: number; side: 'a' | 'b'; conn: Conn; where: 'fitting' | 'inline' | 'joint' | 'end' | 'reducer' }
+/** Flanged joints count as welds too: the pipe side is a weld-neck flange butt-welded to the pipe. */
+const isWeldConn = (c: Conn) => c === 'bw' || c === 'sw' || c === 'flg';
+const weldType = (c: Conn): Conn => (c === 'flg' ? 'bw' : c);
+/**
+ * Every weld on the drawing, in a stable order (by point, then line). A weld's key is the line's id + which end of it,
+ * so weld records survive edits elsewhere on the drawing.
+ */
+export function weldList(d: IsoDrawing): Weld[] {
+  const out: Weld[] = [];
+  const side = (n: number, ri: number): 'a' | 'b' => (d.runs[ri].from === n ? 'a' : 'b');
+  const push = (n: number, ri: number, conn: Conn, where: Weld['where'], suffix = '') => out.push({ key: `${d.runs[ri].id}:${side(n, ri)}${suffix}`, node: n, run: ri, side: side(n, ri), conn: weldType(conn), where });
+  for (let n = 0; n <= d.runs.length; n++) {
+    const k = nodeKind(d, n).kind;
+    const legs = nodeLegs(d, n);
+    if (!legs.length) continue;
+    const conn = connAt(d, n);
+    if (k === 'elbow' || k === 'tee' || k === 'cross') {
+      const fit = d.fits?.[n];
+      const red = inlineAt(d, n);
+      legs.forEach((l, j) => {
+        const header = legs.some((m, q) => q !== j && dot(l.dir, m.dir) < -0.9999);
+        let c: Conn | null = conn;
+        if (fit === 'thd90') c = null;
+        if (fit === 'weldolet' || fit === 'stubin') c = header ? null : 'bw';
+        if (fit === 'sockolet') c = header ? null : 'sw';
+        if (fit === 'threadolet') c = null;
+        if (fit === 'miter') c = null;
+        if (c && isWeldConn(c)) push(n, l.run, c, 'fitting');
+        if (red && l.run === n - 1 && isWeldConn(red.conn ?? 'bw')) push(n, l.run, red.conn ?? 'bw', 'reducer', ':r');
+      });
+    } else if (k === 'straight') {
+      const it = inlineAt(d, n);
+      if (it) {
+        const c: Conn = it.type === 'flange' || it.type === 'orifice' ? 'bw' : (it.conn ?? 'bw');
+        if (['spool'].includes(it.type)) { push(n, n - 1, 'bw', 'joint'); continue; }
+        if (['union', 'coupling', 'dielectric', 'swage', 'spectacle'].includes(it.type)) continue;
+        if (isWeldConn(c)) legs.forEach((l) => push(n, l.run, c, 'inline'));
+      } else if (isWeldConn(conn) && n >= 1 && !d.runs[n - 1]?.move) push(n, n - 1, conn, 'joint');
+    } else if (k === 'end' || k === 'start-end') {
+      const end = d.ends[n] ?? 'open';
+      const red = inlineAt(d, n);
+      const c = red ? red.conn ?? 'bw' : conn;
+      if (end === 'weld') push(n, legs[0].run, 'bw', 'end');
+      else if ((red || !['open', 'plug', 'threaded', 'hose', 'gauge', 'thermowell'].includes(end)) && isWeldConn(c)) push(n, legs[0].run, c, 'end');
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- material breakdown
+export interface MaterialRow { item: string; size: string; spec: string; qty: number; unit: string }
+/** Bill of materials: pipe by size, fittings, valves, flanges, gaskets, bolt sets and welds. */
+export function materials(d: IsoDrawing): MaterialRow[] {
+  const sizes = runSizes(d);
+  const rows = new Map<string, MaterialRow>();
+  const add = (item: string, size: string, spec: string, qty = 1, unit = 'ea') => {
+    const k = `${item}|${size}|${spec}|${unit}`;
+    const r = rows.get(k); if (r) r.qty += qty; else rows.set(k, { item, size, spec, qty, unit });
+  };
+  const cls = d.cls ?? 150;
+  const flanged = (size: string, n: number) => { add('WN flange', size, `Class ${cls} RF`, n); };
+  const joint = (size: string) => { add('Gasket', size, `Class ${cls}`); add('Stud bolt set', size, `Class ${cls}`); };
+  // pipe: cut lengths by size (rounded up to the inch)
+  const cuts = cutList(d);
+  const pipe: Record<string, number> = {};
+  cuts.forEach((c) => { if (c.skip) return; const v = c.pieces ? c.pieces.reduce((t, q) => t + (q.ok ? q.cut : 0), 0) : c.ok ? c.cut : 0; pipe[sizes[c.run]] = (pipe[sizes[c.run]] ?? 0) + v; });
+  Object.entries(pipe).forEach(([z, v]) => { if (v > 0) add('Pipe', z, '', Math.ceil(v) / 12, 'ft'); });
+  for (let n = 0; n <= d.runs.length; n++) {
+    const k = nodeKind(d, n);
+    const legs = nodeLegs(d, n); if (!legs.length) continue;
+    const z = sizes[legs[0].run] ?? d.nps;
+    const conn = CONN_LABEL[connAt(d, n)];
+    const fit = d.fits?.[n];
+    if ((k.kind === 'elbow' || k.kind === 'tee' || k.kind === 'cross') && connAt(d, n) === 'flg' && !['weldolet', 'sockolet', 'threadolet', 'stubin'].includes(fit ?? '')) {
+      legs.forEach((l) => { const lz = sizes[l.run] ?? z; flanged(lz, 1); joint(lz); }); // flanged fitting: a WN flange on each pipe end
+    }
+    if (k.kind === 'elbow') {
+      const red = inlineAt(d, n);
+      const ez = red?.size ?? z;
+      const typ = fit && !['anglevalve'].includes(fit) ? (catalogItem(fit)?.label ?? fit) : 'LR elbow';
+      if (fit === 'anglevalve') add('Angle valve', z, conn);
+      else add(`${typ} ${Math.abs(k.angle - 90) < 0.05 ? '90°' : Math.abs(k.angle - 45) < 0.05 ? '45°' : `${k.angle.toFixed(1)}° (cut)`}`, red ? ez : z, conn);
+      if (red) add(red.type === 'eccreducer' ? 'Ecc. reducer' : 'Conc. reducer', `${sizes[n - 1] ?? d.nps}×${red.size ?? '?'}`, CONN_LABEL[red.conn ?? 'bw']);
+    } else if (k.kind === 'tee' || k.kind === 'cross') {
+      const hz = sizes[n - 1] ?? z, bs = d.fitSize?.[n];
+      const typ = fit ? (catalogItem(fit)?.label ?? fit) : k.kind === 'cross' ? 'Cross' : 'Straight tee';
+      add(typ, bs ? `${hz}×${bs}` : hz, conn);
+    } else if (k.kind === 'straight') {
+      const it = inlineAt(d, n);
+      if (it) {
+        const iz = sizes[n - 1] ?? z;
+        const nm = INLINE_LABEL[it.type] ?? it.type;
+        if (it.type === 'flange' || it.type === 'orifice') { flanged(iz, 2); joint(iz); }
+        else if (it.type !== 'spool') {
+          add(nm, isReducer(it.type) && it.size ? `${iz}×${it.size}` : iz, CONN_LABEL[it.conn ?? 'bw']);
+          if ((it.conn ?? 'bw') === 'flg') { flanged(iz, 2); joint(iz); joint(iz); }
+        }
+      }
+    } else if (k.kind === 'end' || k.kind === 'start-end') {
+      const end = d.ends[n] ?? 'open';
+      const red = inlineAt(d, n);
+      if (red) add(red.type === 'eccreducer' ? 'Ecc. reducer' : 'Conc. reducer', `${z}×${red.size ?? '?'}`, CONN_LABEL[red.conn ?? 'bw']);
+      else if (end === 'flange') { add('WN flange', z, `Class ${cls} RF`); joint(z); }
+      else if (end === 'blind') { flanged(z, 1); add('Blind flange', z, `Class ${cls} RF`); joint(z); }
+      else if (end === 'nozzle') { if (connAt(d, n) === 'flg') { flanged(z, 1); joint(z); } }
+      else if (!['open', 'weld'].includes(end)) add(END_LABEL[end] ?? end, z, conn);
+    }
+  }
+  // legacy fittings sitting on lines
+  d.runs.forEach((r, i) => runItems(r).forEach((it) => { if (it.type !== 'spool') add(INLINE_LABEL[it.type] ?? it.type, sizes[i], CONN_LABEL[it.conn ?? 'bw']); }));
+  const welds = weldList(d);
+  const bw = welds.filter((w) => w.conn === 'bw'), sw = welds.filter((w) => w.conn === 'sw');
+  const fieldOf = (w: Weld) => !!d.welds?.[w.key]?.field;
+  if (bw.length) { const f = bw.filter(fieldOf).length; if (bw.length - f) add('Butt weld', '', 'shop', bw.length - f); if (f) add('Butt weld', '', 'field', f); }
+  if (sw.length) { const f = sw.filter(fieldOf).length; if (sw.length - f) add('Socket weld', '', 'shop', sw.length - f); if (f) add('Socket weld', '', 'field', f); }
+  return [...rows.values()].filter((r) => r.qty > 0);
 }
 
 /** Isometric projection to screen (x right, y down): North up-right, East down-right, Up straight up. */
@@ -627,7 +758,8 @@ export function deleteSubtree(d: IsoDrawing, i: number): IsoDrawing {
   const inl: Record<number, LineItem> = {}; const endLen: Record<number, number> = {};
   Object.entries(d.inl ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) inl[m] = f; });
   Object.entries(d.endLen ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) endLen[m] = f; });
-  return { ...d, runs, ends, notes, fits, fitSize, nodeConn, inl, endLen };
+  const texts = d.texts?.filter((t) => nodeMap.has(t.node)).map((t) => ({ ...t, node: nodeMap.get(t.node)! }));
+  return { ...d, runs, ends, notes, fits, fitSize, nodeConn, inl, endLen, ...(texts ? { texts } : {}) };
 }
 
 /** Human description of a run direction, e.g. "North", "Up 45° East". */

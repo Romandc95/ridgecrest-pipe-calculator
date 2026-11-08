@@ -459,3 +459,67 @@ button { cursor: pointer; }
 .menubtns.two { grid-template-columns: 1fr 1fr; }
 .itemmenu .linkbtn { color: var(--muted); align-self: flex-start; }
 .bysize { display: flex; gap: 14px; flex-wrap: wrap; margin: 0; font-family: var(--mono); font-size: 14px; }
+
+/* ISO: offset tab, weld map, text notes, ⋮ menu, dialogs, 11×17 sheet */
+.ibtn.offtab { position: absolute; top: 194px; left: 8px; gap: 3px; padding: 0 8px 0 5px; font-size: 12px; }
+.ibtn.offtab.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.isodock { position: absolute; left: 8px; right: 8px; bottom: 52px; max-height: 76%; overflow-y: auto; z-index: 6; background: var(--surface); border: 1.5px solid var(--accent); border-radius: 12px; box-shadow: 0 8px 26px #0007; padding: 8px; }
+.isodock .offpanel { border: 0; padding: 2px; }
+.iso-wlead { stroke: #d2453d; stroke-width: .8; }
+.iso-wdot { fill: #d2453d; }
+.iso-wbox { fill: var(--surface); stroke: #d2453d; stroke-width: 1.1; }
+.iso-wtxt { font: 800 7.5px sans-serif; fill: #d2453d; }
+.iso-wsten { font: 700 6.5px sans-serif; fill: var(--muted); }
+.iso-wtag.field .iso-wbox { stroke-dasharray: 2.5 1.5; }
+.iso-wtag.sel .iso-wbox { fill: #d2453d; }
+.iso-wtag.sel .iso-wtxt { fill: #fff; }
+.iso-whit { fill: transparent; }
+.isostage .iso-wtag { cursor: pointer; }
+.isostage .iso-whit, .isostage .iso-wbox { pointer-events: all; }
+.iso-textnote { font: 700 9px sans-serif; fill: var(--text); }
+.iso-textnote.ph { fill: var(--muted); font-style: italic; }
+.iso-textbox { fill: transparent; stroke: none; }
+.iso-textg.edit .iso-textbox { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 2; cursor: move; }
+.iso-textg.sel .iso-textbox { stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: none; }
+.isostage .iso-textg.edit .iso-textbox { pointer-events: all; }
+.isotext { width: 100%; border-radius: 10px; border: 1.5px solid var(--line); background: var(--surface2); color: var(--text); padding: 8px 10px; font: 15px var(--font); resize: vertical; outline: none; }
+.isotext:focus { border-color: var(--accent); }
+.weldpop .field input { height: 40px; }
+.isohead .chip.done { border-color: #2f9e57; color: #2f9e57; font-weight: 800; }
+.isoname.ro { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
+.isomore { position: relative; margin-left: auto; }
+.ibtn.dots { width: 36px; padding: 0; }
+.dotback { position: fixed; inset: 0; z-index: 30; }
+.dotmenu { position: absolute; right: 0; top: 42px; z-index: 31; min-width: 200px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px #0008; padding: 6px; display: flex; flex-direction: column; }
+.dotitem { text-align: left; background: none; border: 0; color: var(--text); font: 600 15px var(--font); padding: 11px 12px; border-radius: 8px; }
+.dotitem:hover, .dotitem:active { background: var(--surface2); }
+.dotitem:disabled { opacity: .4; }
+.isomodal { position: fixed; inset: 0; z-index: 60; background: #0009; display: flex; align-items: flex-start; justify-content: center; padding: max(40px, env(safe-area-inset-top)) 12px 20px; overflow-y: auto; }
+.isomodal-card { width: min(520px, 100%); background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 16px 50px #000a; }
+.isomodal-card h3 { margin: 0; font-size: 18px; }
+.badge { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 999px; vertical-align: middle; }
+.badge.ok { background: #2f9e5722; color: #2f9e57; border: 1px solid #2f9e5766; }
+.sheetwrap { position: relative; border: 1px solid var(--line); border-radius: 12px; background: #8a8f8e; overflow: hidden; }
+.sheetscroll { overflow: auto; max-height: 78vh; -webkit-overflow-scrolling: touch; }
+.sheetin { padding: 8px; box-sizing: border-box; }
+.sheetfull .sheetin { padding: 4px; }
+.sheetin svg { display: block; width: 100%; height: auto; box-shadow: 0 4px 16px #0006; background: #fff; }
+.sheetbar { display: flex; gap: 6px; justify-content: flex-end; padding: 0 8px 8px; }
+.sheetfull .sheetbar { position: absolute; }
+.sheetacts { margin: 10px 0 4px; }
+.sheetacts .btn { flex: 1 1 auto; }
+.sheetfull { position: fixed; inset: 0; z-index: 70; background: #6f7473; }
+.sheetfull-in { position: absolute; inset: 0; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.sheetfull .sheetscroll { max-height: none; height: 100%; }
+.sheetfull .sheetbar { bottom: max(10px, env(safe-area-inset-bottom)); right: max(10px, env(safe-area-inset-right)); }
+.sheetfull.rot .sheetfull-in { inset: auto; top: 0; left: 100vw; width: 100vh; height: 100vw; transform-origin: 0 0; transform: rotate(90deg); padding: 0; }
+@media print { .sheetbar { display: none; } }
+
+.isoarmed { display: flex; align-items: center; gap: 8px; max-width: calc(100% - 120px); }
+.isoarmed .armtxt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.isoarmed .linkbtn { flex: none; color: inherit; text-decoration: underline; }
+.isosheet { --surface: #fff; --surface2: #fff; --text: #111; --muted: #555; --accent: #1f7f7a; --warn: #b26b00; --line: #ccc; color: #111; }
+.isomodal-card .btn, .itemmenu-in .btn { flex: none; }
+.isomodal-card .btn.primary, .sheetacts .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.isomodal-card .card { margin: 0; }
+.sheetfull .sheetbar { opacity: .85; }
