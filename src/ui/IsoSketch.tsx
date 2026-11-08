@@ -6,7 +6,7 @@ import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon } from './isoSymbols';
@@ -14,7 +14,7 @@ import { B169 } from '../engine/fittings';
 
 type Prefs = ReturnType<typeof useApp>['settings']['prefs'];
 interface IsoStore { drawings: IsoDrawing[]; current: string | null }
-type Sel = { kind: 'node'; id: number } | { kind: 'run'; id: number } | null;
+type Sel = { kind: 'node'; id: number } | { kind: 'run'; id: number } | { kind: 'item'; run: number; id: string } | null;
 type Mode = 'draw' | 'orbit' | 'pan';
 type Plane = 'EN' | 'EU' | 'NU';
 interface Opts { dims: boolean; welds: boolean; labels: boolean; scaled: boolean; view: View; mode: Mode; plane: Plane; conn: Conn }
@@ -107,10 +107,12 @@ export function IsoSketch() {
     addRun({ dx: s[0], dy: s[1], dz: s[2], inline: 'none', sketch: true }, Math.min(from, d.runs.length));
   };
   /** Put a catalog item on a line or point. Returns false (with a message) if it doesn't fit there. */
-  const place = (key: string, target: Sel, t = 0.5): boolean => {
+  const place = (key: string, target0: Sel, t = 0.5): boolean => {
     const [kind, id] = key.split(':');
     const item = catalogItem(id, kind as CatalogItem['kind']);
+    const target: Sel = target0?.kind === 'item' ? { kind: 'run', id: target0.run } : target0;
     if (!item || !target) return false;
+    if (item.kind === 'branch') return placeBranch(item, target, t);
     if (item.kind === 'line') {
       if (target.kind !== 'run') { toast(`Drop the ${item.label.toLowerCase()} on a line`); return false; }
       update((x) => ({ ...x, runs: x.runs.map((q, k) => (k === target.id ? { ...q, inline: 'none', items: [...runItems(q), { id: uid(), type: item.id, t, conn: opts.conn }].sort((a, b) => a.t - b.t) } : q)) }));
@@ -153,6 +155,65 @@ export function IsoSketch() {
     addRun({ dx: v[0], dy: v[1], dz: v[2], inline: 'none', sketch: true, ...(measured ? { meas: v } : {}) });
     toast(`${b ? 'Rolling offset' : 'Offset'} added`);
   };
+  /** A direction square to a run (for a new branch): Up off a level line, East (or North) off a vertical one. */
+  const perpTo = (v: Vec3): Vec3 => {
+    const L = len3(v) || 1;
+    if (Math.abs(v[2]) / L < 0.01) return [0, 0, 1];
+    return Math.abs(v[0]) / L < 0.01 ? [1, 0, 0] : [0, 1, 0];
+  };
+  /**
+   * Branch fittings: on a tee point they just set the fitting. Dropped on a line, the line is split there and a short
+   * branch (2 squares, to be dimensioned) is added; on a straight joint or an elbow a branch is added at that point.
+   */
+  const placeBranch = (item: CatalogItem, target: Sel, t: number): boolean => {
+    const conn = opts.conn;
+    const stub = (x: IsoDrawing, node: number, dir: Vec3): IsoDrawing => ({
+      ...x,
+      runs: [...x.runs, { id: uid(), from: node, dx: dir[0] * GRID * 2, dy: dir[1] * GRID * 2, dz: dir[2] * GRID * 2, inline: 'none', sketch: true }],
+      fits: { ...(x.fits ?? {}), [node]: item.id }, nodeConn: { ...(x.nodeConn ?? {}), [node]: conn },
+    });
+    if (target?.kind === 'run') {
+      const r = d.runs[target.id];
+      if (r.move) { toast('That dotted link is not a pipe'); return false; }
+      const sv = sketchVec(r), L = len3(sv);
+      let tt = 0.5;
+      if (L >= GRID * 2) { const n = Math.max(1, Math.min(Math.floor((L - 1e-6) / GRID), Math.round((t * L) / GRID))); tt = (n * GRID) / L; }
+      const node = d.runs.length + 1;
+      update((x) => { const sp = splitRun(x, target.id, tt, uid()); return stub(sp.d, sp.node, perpTo(sv)); });
+      setCursor(node + 1); setSel({ kind: 'node', id: node });
+      toast(`${CONN_LABEL[conn]} ${item.label.toLowerCase()} placed — branch added`);
+      return true;
+    }
+    if (target?.kind !== 'node') return false;
+    const nk = nodeKind(d, target.id);
+    if (nk.kind === 'tee' || nk.kind === 'cross') {
+      update((x) => ({ ...x, fits: { ...(x.fits ?? {}), [target.id]: item.id }, nodeConn: { ...(x.nodeConn ?? {}), [target.id]: conn } }));
+    } else if (nk.kind === 'straight' || nk.kind === 'elbow') {
+      const legs = nodeLegs(d, target.id);
+      let dir = perpTo(legs[0].dir);
+      if (nk.kind === 'elbow') { const c: Vec3 = [legs[0].dir[1] * legs[1].dir[2] - legs[0].dir[2] * legs[1].dir[1], legs[0].dir[2] * legs[1].dir[0] - legs[0].dir[0] * legs[1].dir[2], legs[0].dir[0] * legs[1].dir[1] - legs[0].dir[1] * legs[1].dir[0]]; if (len3(c) > 0.5) dir = mul(c, 1 / len3(c)); }
+      update((x) => stub(x, target.id, dir));
+      setCursor(d.runs.length + 1);
+    } else { toast('Drop a branch fitting on a line (or on a tee point)'); return false; }
+    setSel({ kind: 'node', id: target.id });
+    toast(`${CONN_LABEL[conn]} ${item.label.toLowerCase()} placed`);
+    return true;
+  };
+  /** Change / move / delete a fitting that sits on a line. */
+  const setItem = (run: number, id: string, f: (it: ReturnType<typeof runItems>[number]) => ReturnType<typeof runItems>[number] | null, mergeKey?: string) =>
+    update((x) => ({ ...x, runs: x.runs.map((q, k) => (k === run ? { ...q, inline: 'none', items: runItems(q).map(f).filter(Boolean) as ReturnType<typeof runItems> } : q)) }), mergeKey);
+  const moveItemTo = (fromRun: number, id: string, toRun: number, t: number) => {
+    const it = runItems(d.runs[fromRun]).find((q) => q.id === id); if (!it) return;
+    if (d.runs[toRun]?.move) { toast('That dotted link is not a pipe'); return; }
+    update((x) => ({ ...x, runs: x.runs.map((q, k) => {
+      let items = runItems(q);
+      if (k === fromRun) items = items.filter((z) => z.id !== id);
+      if (k === toRun) items = [...items, { ...it, t }].sort((a, b) => a.t - b.t);
+      return k === fromRun || k === toRun ? { ...q, inline: 'none', items } : q;
+    }) }));
+    setSel({ kind: 'item', run: toRun, id });
+    toast('Moved');
+  };
   /** New start point: an invisible jump from the current point to where the paper was tapped. */
   const startAt = (v: Vec3 | null) => {
     setArmed(null);
@@ -163,11 +224,19 @@ export function IsoSketch() {
   };
   const onTap = (t: Sel, at?: number) => {
     if (armed === 'start') { if (t?.kind === 'node') { setArmed(null); setCursor(t.id); setSel(t); toast(`Drawing from point ${t.id}`); } return; }
+    if (armed?.startsWith('move:')) {
+      const [, fr, iid] = armed.split(':');
+      setArmed(null);
+      if (t && (t.kind === 'run' || t.kind === 'item')) moveItemTo(Number(fr), iid, t.kind === 'run' ? t.id : t.run, at ?? 0.5);
+      else toast('Tap a line to move it there');
+      return;
+    }
     if (armed) { if (t) { if (place(armed, t, at)) setArmed(null); } else setArmed(null); return; }
     setSel(t);
     if (t?.kind === 'node') setCursor(t.id);
     if (t?.kind === 'run') setCursor(t.id + 1);
   };
+  const itemSel = sel?.kind === 'item' && d.runs[sel.run] && runItems(d.runs[sel.run]).some((q) => q.id === sel.id) ? sel : null;
 
   const enterFull = () => {
     setFull(true); setLand(true); setFitTick((t) => t + 1);
@@ -206,6 +275,14 @@ export function IsoSketch() {
 
   const stage = (
     <IsoCanvas d={d} disp={disp} opts={opts} prefs={prefs} cursor={cur} sel={sel} rot={rot} fitTick={fitTick} armed={armed} apiRef={canvasApi} onPick={startAt}
+      onItemDrag={(run, id, t) => setItem(run, id, (q) => (q.id === id ? { ...q, t } : q), 'drag' + id)}
+      menu={itemSel ? { run: itemSel.run, t: runItems(d.runs[itemSel.run]).find((q) => q.id === itemSel.id)!.t,
+        node: <ItemMenu item={runItems(d.runs[itemSel.run]).find((q) => q.id === itemSel.id)!} onClose={() => setSel(null)}
+          onMove={() => { setArmed(`move:${itemSel.run}:${itemSel.id}`); setSel(null); }}
+          onChange={(type) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, type } : q))}
+          onConn={(c) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, conn: c } : q))}
+          onDelete={() => { setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? null : q)); setSel(null); }} /> } : null}
+      startOn={armed === 'start'} onStartBtn={() => setArmed(armed === 'start' ? null : 'start')}
       onView={(v) => setOpts({ view: v })} onTap={onTap} onDraw={drawTo}>
       <div className="isohist">
         <button className="ibtn" onClick={undo} disabled={!canUndo} aria-label="Back" title="Step back one change">
@@ -222,7 +299,7 @@ export function IsoSketch() {
           {full ? '✕ Close' : <svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>}
         </button>
       </div>
-      {armed && <div className="isoarmed">{armed === 'start' ? 'Tap the paper for the new start point' : `Tap where the ${CONN_LABEL[opts.conn].toLowerCase()} ${catalogItem(armed.split(':')[1], armed.split(':')[0] as CatalogItem['kind'])?.label.toLowerCase()} goes`} · <button className="linkbtn" onClick={() => setArmed(null)}>cancel</button></div>}
+      {armed && <div className="isoarmed">{armed === 'start' ? 'Tap the paper for the new start point' : armed.startsWith('move:') ? 'Tap a line where it should go' : `Tap where the ${CONN_LABEL[opts.conn].toLowerCase()} ${catalogItem(armed.split(':')[1], armed.split(':')[0] as CatalogItem['kind'])?.label.toLowerCase()} goes`} · <button className="linkbtn" onClick={() => setArmed(null)}>cancel</button></div>}
     </IsoCanvas>
   );
 
@@ -249,6 +326,48 @@ export function IsoSketch() {
       {panel === 'cut' && <CutPanel d={d} cuts={cuts} prefs={prefs} onShare={async (t) => { const m = await shareText(t); if (m) toast(m); }} />}
       {panel === 'setup' && <SetupPanel d={d} disp={disp} opts={opts} prefs={prefs} update={update} toast={toast} />}
       {panel === 'library' && <Library store={store} setStore={setStore} onOpen={(id) => { setStore((s) => ({ ...s, current: id })); setSel(null); setCursor(0); setFitTick((t) => t + 1); }} />}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ fitting menu (tap a fitting on a line)
+function ItemMenu({ item, onClose, onMove, onChange, onConn, onDelete }: {
+  item: ReturnType<typeof runItems>[number]; onClose: () => void; onMove: () => void; onChange: (type: string) => void; onConn: (c: Conn) => void; onDelete: () => void;
+}) {
+  const [pane, setPane] = useState<'main' | 'change' | 'joint'>('main');
+  const [armedDel, setArmedDel] = useState(false);
+  const c = catalogItem(item.type, 'line');
+  const conn = item.conn ?? 'bw';
+  return (
+    <div className="itemmenu-in">
+      <div className="row-between"><b>{c && <PaletteIcon item={c} />}{c?.label ?? item.type}<span className="muted small"> · {CONN_LABEL[conn]}</span></b><button className="chip" aria-label="Close" onClick={onClose}>✕</button></div>
+      {pane === 'main' && (
+        <div className="menubtns">
+          <button className="btn" onClick={onMove}>✥ Move</button>
+          <button className="btn" onClick={() => setPane('change')}>⇄ Change</button>
+          <button className="btn" onClick={() => setPane('joint')}><JointIcon conn={conn} /> Joint</button>
+          {armedDel ? <button className="btn danger" onClick={onDelete}>Delete for good</button> : <button className="btn danger" onClick={() => setArmedDel(true)}>✕ Delete</button>}
+        </div>
+      )}
+      {pane === 'main' && <p className="fhint">Or drag it along the line to slide it.</p>}
+      {pane === 'change' && (
+        <>
+          <div className="menugrid">
+            {CATALOG.filter((x) => x.kind === 'line').map((x) => (
+              <button key={x.id} className={'palitem' + (x.id === item.type ? ' on' : '')} onClick={() => { onChange(x.id); setPane('main'); }}><PaletteIcon item={x} /><span>{x.label}</span></button>
+            ))}
+          </div>
+          <button className="chip" onClick={() => setPane('main')}>‹ Back</button>
+        </>
+      )}
+      {pane === 'joint' && (
+        <>
+          <div className="chiprow">
+            {CONN_ORDER.map((k) => <button key={k} className={'chip conn' + (k === conn ? ' on' : '')} onClick={() => { onConn(k); setPane('main'); }}><JointIcon conn={k} />{CONN_LABEL[k]}</button>)}
+          </div>
+          <button className="chip" onClick={() => setPane('main')}>‹ Back</button>
+        </>
+      )}
     </div>
   );
 }
@@ -376,10 +495,7 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
       </div>
       {offOpen
         ? <OffsetPanel key={heading + cur} heading={heading} prefs={prefs} onAdd={(o) => { addOffset(o); setOffOpen(false); }} onClose={() => setOffOpen(false)} />
-        : <div className="offrow">
-            <button className={'btn offbtn' + (placingStart ? ' on' : '')} onClick={startPoint}>＋ New start point</button>
-            <button className="btn offbtn" onClick={() => setOffOpen(true)}>⟋ Add offset from point {cur}</button>
-          </div>}
+        : <button className="btn offbtn" onClick={() => setOffOpen(true)}>⟋ Add offset from point {cur}</button>}
       <div className="dirbar">
         <Field label="Length (optional)" value={lenText} onChange={setLenText} parse={parseLength} placeholder="e.g. 5' 6" />
         <div className="dirpad">
@@ -401,9 +517,11 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
 // ------------------------------------------------------------------ canvas
 type Cam = { s: number; tx: number; ty: number };
 export interface CanvasApi { hitAt: (clientX: number, clientY: number) => { sel: Sel; t: number } | null }
-function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onView, onTap, onDraw, children }: {
+function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, menu, startOn, onStartBtn, onView, onTap, onDraw, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
   armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>; onPick: (v: Vec3 | null) => void;
+  onItemDrag: (run: number, id: string, t: number) => void; menu: { run: number; t: number; node: React.ReactNode } | null;
+  startOn: boolean; onStartBtn: () => void;
   onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number) => void; children?: React.ReactNode;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -503,9 +621,10 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     return Math.max(0.12, Math.min(0.88, ((loc.x - a[0]) * dx + (loc.y - a[1]) * dy) / L2));
   };
   const targetOf = (el: Element | null): Sel | 'compass' | 'none' => {
-    const t = el?.closest('[data-node],[data-run],[data-compass]');
+    const t = el?.closest('[data-item],[data-node],[data-run],[data-compass]');
     if (!t) return 'none';
     if (t.hasAttribute('data-compass')) return 'compass';
+    if (t.hasAttribute('data-item')) return { kind: 'item', run: Number(t.getAttribute('data-run')), id: t.getAttribute('data-item')! };
     return t.hasAttribute('data-node') ? { kind: 'node', id: Number(t.getAttribute('data-node')) } : { kind: 'run', id: Number(t.getAttribute('data-run')) };
   };
   // lets the palette drop a fitting onto the drawing
@@ -515,14 +634,15 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       if (!el || !svg.current?.contains(el)) return null;
       const t = targetOf(el);
       if (t === 'none' || t === 'compass' || !t) return null;
-      return { sel: t, t: t.kind === 'run' ? runT(t.id, toLocal({ clientX: cx, clientY: cy })) : 0.5 };
+      const runIdx = t.kind === 'run' ? t.id : t.kind === 'item' ? t.run : -1;
+      return { sel: t, t: runIdx >= 0 ? runT(runIdx, toLocal({ clientX: cx, clientY: cy })) : 0.5 };
     },
   };
 
   // pointer handling. Draw mode: drag from a point (or anywhere, from the current point) to draw a line.
   // Rotate mode: drag turns the view. Move mode: drag pans. Two fingers always pan / zoom. Taps select.
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
-  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean } | null>(null);
+  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean; itemDrag?: boolean } | null>(null);
   const gestureTurn = useRef(false); // a two-finger twist moves the camera itself; skip the re-centring below
   const CMP = { x: 40, y: 40 };
   const onDown = (e: React.PointerEvent) => {
@@ -532,7 +652,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     const ps = [...ptrs.current.values()];
     const target = ps.length > 1 ? 'none' : targetOf(e.target as Element);
     let drawFrom: number | null = null;
-    if (ps.length === 1 && opts.mode === 'draw' && !armed && target !== 'compass') {
+    const itemDrag = ps.length === 1 && !armed && target !== 'none' && target !== 'compass' && target.kind === 'item';
+    if (ps.length === 1 && opts.mode === 'draw' && !armed && target !== 'compass' && !itemDrag) {
       if (target !== 'none' && target.kind === 'node') drawFrom = target.id;
       else if (target !== 'none' && target.kind === 'run') {
         const r = d.runs[target.id]; const a = T3(P[r.from]), b = T3(P[target.id + 1]);
@@ -540,7 +661,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       } else drawFrom = cursor;
     }
     const mid = ps.length === 2 ? { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 } : loc;
-    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom,
+    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom, itemDrag,
       ang: ps.length === 2 ? Math.atan2(ps[1].y - ps[0].y, ps[1].x - ps[0].x) : undefined, twist: false };
     setGhost(null);
   };
@@ -581,6 +702,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       const raw = s.view.az + ((a - s.cAng) * 180) / Math.PI;
       const az = normAz(ISO_VIEW.az + 90 * Math.round((raw - ISO_VIEW.az) / 90));
       if (Math.abs(normAz(az - view.az)) > 1e-6) onView({ az, el: s.view.el });
+    } else if (s.itemDrag && s.target !== 'none' && s.target !== 'compass' && s.target?.kind === 'item') {
+      onItemDrag(s.target.run, s.target.id, runT(s.target.run, loc)); // slide the fitting along its line
     } else if (s.drawFrom !== null) {
       const v = snap(loc, s.drawFrom);
       setGhost(v && v !== 'edge' ? { from: s.drawFrom, v } : null);
@@ -607,8 +730,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       return;
     }
     if (s.target === 'compass') { onView({ az: stepAz(view.az, 1), el: view.el }); return; }
-    if (armed === 'start' && (s.target === 'none' || s.target.kind === 'run')) { onPick(pickPoint(loc)); return; }
-    if (s.target !== 'none' && s.target) { onTap(s.target, s.target.kind === 'run' ? runT(s.target.id, loc) : undefined); return; }
+    if (armed === 'start' && (s.target === 'none' || s.target.kind !== 'node')) { onPick(pickPoint(loc)); return; }
+    if (s.target !== 'none' && s.target) { onTap(s.target, s.target.kind === 'run' ? runT(s.target.id, loc) : s.target.kind === 'item' ? runT(s.target.run, loc) : undefined); return; }
     onTap(null);
   };
   const onWheel = (e: React.WheelEvent) => {
@@ -644,6 +767,19 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       <button className="ibtn home" aria-label="Home view" title="Reset to the standard ISO view" onClick={goHome}>
         <svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 11.5 12 4l9 7.5M5.5 9.5V20h5v-5.5h3V20h5V9.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /></svg>
       </button>
+      <button className={'ibtn startpt' + (startOn ? ' on' : '')} aria-label="New start point" title="New start point — then tap the paper" onClick={onStartBtn}>
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M11 21.5c-.3 0-.6-.1-.8-.4C7.6 18 4.5 14.3 4.5 10.7a6.5 6.5 0 0 1 9.7-5.7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /><path d="M17.3 10.4c.1.1.2.2.2.3 0 3.6-3.1 7.3-5.7 10.4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /><circle cx="11" cy="10.7" r="1.9" fill="currentColor" /><path d="M18 2.5v6M15 5.5h6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>
+      </button>
+      {menu && (() => {
+        const r = d.runs[menu.run]; const a = T3(P[r.from]), b = T3(P[menu.run + 1]);
+        const x = a[0] + (b[0] - a[0]) * menu.t, y = a[1] + (b[1] - a[1]) * menu.t;
+        const left = Math.max(6, Math.min(W - 236, x - 115));
+        const roomBelow = H - (y + 18) - 6, roomAbove = y - 18 - 6;
+        const style: React.CSSProperties = roomBelow >= roomAbove
+          ? { left, top: Math.min(H - 60, y + 18), maxHeight: Math.max(120, roomBelow) }
+          : { left, bottom: Math.max(6, H - y + 18), maxHeight: Math.max(120, roomAbove) };
+        return <div className="itemmenu" style={style} onPointerDown={(e) => e.stopPropagation()}>{menu.node}</div>;
+      })()}
       {children}
       <div className="isozoom">
         <button className="ibtn" aria-label="Zoom in" onClick={() => zoom(1.3)}>+</button>
@@ -823,7 +959,12 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     items.forEach((it) => {
       const c: [number, number] = [a[0] + (b[0] - a[0]) * it.t, a[1] + (b[1] - a[1]) * it.t];
       const sz = Math.max(4, Math.min(8, L / (3 * Math.max(1, items.length))));
-      els.push(<g key={'it' + it.id} data-run={exportMode ? undefined : i}>{lineSymbol(it.type, c, [ux, uy], sz, 'it' + it.id)}</g>);
+      const isSelItem = sel?.kind === 'item' && sel.id === it.id;
+      if (isSelItem && !exportMode) els.push(<circle key={'ih' + it.id} className="iso-itemsel" cx={c[0]} cy={c[1]} r={sz * 1.9} />);
+      els.push(<g key={'it' + it.id} className="iso-item" data-run={exportMode ? undefined : i} data-item={exportMode ? undefined : it.id}>
+        {!exportMode && <circle className="iso-itemhit" cx={c[0]} cy={c[1]} r={Math.max(12, sz * 1.8)} />}
+        {lineSymbol(it.type, c, [ux, uy], sz, 'it' + it.id)}
+      </g>);
       if (opts.welds && !['spool', 'flange', 'orifice', 'spectacle', 'union', 'coupling', 'dielectric', 'swage'].includes(it.type)) {
         const off = sz * 1.15 + 4;
         for (const sgn of [-1, 1]) els.push(...jointMark(it.conn ?? 'bw', [c[0] + ux * off * sgn, c[1] + uy * off * sgn], [ux, uy], `jm${it.id}${sgn}`));

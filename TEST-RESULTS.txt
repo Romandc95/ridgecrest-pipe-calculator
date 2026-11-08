@@ -176,6 +176,7 @@
 ✓ ISO route › several items on one line are each noted; old single inline item still read
 ✓ ISO route › a new start point (move) draws no pipe and makes a separate end
 ✓ ISO route › threaded / flanged joints: no B16.9 take-out and no weld gap, with a note
+✓ ISO route › splitting a line keeps what hangs off its end attached, shares out the measurement, and a branch makes a tee
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -229,4 +230,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-230 passed, 0 failed, 230 total
+231 passed, 0 failed, 231 total

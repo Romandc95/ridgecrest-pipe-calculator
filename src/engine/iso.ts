@@ -119,14 +119,48 @@ export function newDrawing(name: string, id: string): IsoDrawing {
 }
 
 /** Node coordinates: node 0 is the start; run i ends at node i + 1. */
+/** Runs in an order where each run's start point is already placed (splitting a line can make a run start from a later point). */
+export function runOrder(d: IsoDrawing): number[] {
+  const placed = new Set<number>([0]);
+  const order: number[] = [];
+  let left = d.runs.map((_, i) => i);
+  for (let pass = 0; left.length && pass <= d.runs.length; pass++) {
+    const next: number[] = [];
+    for (const i of left) { if (placed.has(d.runs[i].from)) { order.push(i); placed.add(i + 1); } else next.push(i); }
+    if (next.length === left.length) break;
+    left = next;
+  }
+  return order;
+}
+
 export function nodePositions(d: IsoDrawing): Vec3[] {
   const p: Vec3[] = [[0, 0, 0]];
-  d.runs.forEach((r, i) => {
-    const a = p[r.from];
-    if (!a) throw new CalcError('INPUT', `Run ${i + 1} starts from a node that does not exist.`);
-    p[i + 1] = [a[0] + r.dx, a[1] + r.dy, a[2] + r.dz];
-  });
+  const order = runOrder(d);
+  if (order.length !== d.runs.length) throw new CalcError('INPUT', 'A run starts from a point that does not exist.');
+  for (const i of order) { const r = d.runs[i]; const a = p[r.from]; p[i + 1] = [a[0] + r.dx, a[1] + r.dy, a[2] + r.dz]; }
   return p;
+}
+
+/**
+ * Split run i at fraction t (0–1) of its length, making a new point there. The first part becomes a new run
+ * (index = old run count, ending at the new point); run i keeps its id and end point and now starts at the new point,
+ * so anything already attached to its end stays attached. Measurements and fittings on the line are shared out.
+ */
+export function splitRun(d: IsoDrawing, i: number, t: number, newId: string): { d: IsoDrawing; node: number } {
+  const r = d.runs[i];
+  const node = d.runs.length + 1;
+  const items = runItems(r);
+  const first: Run = {
+    id: newId, from: r.from, dx: r.dx * t, dy: r.dy * t, dz: r.dz * t, inline: 'none', sketch: r.sketch,
+    ...(r.meas ? { meas: [r.meas[0] * t, r.meas[1] * t, r.meas[2] * t] as Vec3 } : {}),
+    items: items.filter((it) => it.t < t).map((it) => ({ ...it, t: it.t / t })),
+  };
+  const rest: Run = {
+    ...r, from: node, dx: r.dx * (1 - t), dy: r.dy * (1 - t), dz: r.dz * (1 - t), inline: 'none',
+    ...(r.meas ? { meas: [r.meas[0] * (1 - t), r.meas[1] * (1 - t), r.meas[2] * (1 - t)] as Vec3 } : {}),
+    items: items.filter((it) => it.t >= t).map((it) => ({ ...it, t: (it.t - t) / (1 - t) })),
+  };
+  return { d: { ...d, runs: [...d.runs.map((q, k) => (k === i ? rest : q)), first] }, node };
 }
 
 const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2]);
@@ -316,7 +350,8 @@ export function displayPositions(d: IsoDrawing, scaled: boolean): { P: Vec3[]; k
   const k = scaled && ratios.length ? ratios[Math.floor(ratios.length / 2)] : 1;
   const vecs = d.runs.map((r): Vec3 => (scaled && r.meas ? r.meas : [r.dx * k, r.dy * k, r.dz * k]));
   const P: Vec3[] = [[0, 0, 0]];
-  d.runs.forEach((r, i) => { const a = P[r.from] ?? [0, 0, 0]; const v = vecs[i]; P[i + 1] = [a[0] + v[0], a[1] + v[1], a[2] + v[2]]; });
+  for (const i of runOrder(d)) { const a = P[d.runs[i].from] ?? [0, 0, 0]; const v = vecs[i]; P[i + 1] = [a[0] + v[0], a[1] + v[1], a[2] + v[2]]; }
+  for (let n = 0; n <= d.runs.length; n++) if (!P[n]) P[n] = [0, 0, 0];
   return { P, k, vecs };
 }
 

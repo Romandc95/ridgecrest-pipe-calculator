@@ -418,3 +418,17 @@ button { cursor: pointer; }
 .chip.conn.on .jointicon .iso-weld, .chip.conn.on .jointicon .iso-symfill { fill: var(--accent-ink); }
 .chip.conn.on .jointicon .iso-symball { fill: var(--accent); stroke: var(--accent-ink); }
 .miniselect { display: block; margin-top: 2px; font-size: 11.5px; background: var(--surface2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; color: var(--text); max-width: 100%; }
+.ibtn.startpt { position: absolute; top: 122px; left: 22px; width: 36px; padding: 0; }
+.ibtn.startpt.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.iso-itemhit { fill: transparent; stroke: none; }
+.isostage .iso-itemhit { pointer-events: all; }
+.isostage .iso-item { cursor: pointer; }
+.iso-itemsel { fill: color-mix(in srgb, var(--accent) 25%, transparent); stroke: var(--accent); stroke-width: 1.5; }
+.itemmenu { position: absolute; width: 230px; overflow-y: auto; z-index: 5; background: var(--surface); border: 1.5px solid var(--accent); border-radius: 12px; box-shadow: 0 8px 26px #0007; padding: 8px; }
+.itemmenu-in { display: flex; flex-direction: column; gap: 7px; }
+.itemmenu-in b { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.itemmenu-in .palicon { width: 34px; height: 21px; }
+.menubtns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.menubtns .btn { height: 38px; font-size: 13.5px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: none; }
+.menugrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; max-height: 210px; overflow-y: auto; }
+.menugrid .palitem { font-size: 9.5px; touch-action: manipulation; }

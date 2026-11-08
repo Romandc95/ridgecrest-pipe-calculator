@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { miter, cope, thermalExpansion } from '../src/engine/shop';
-import { newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree } from '../src/engine/iso';
+import { newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun } from '../src/engine/iso';
 
 describe('miter (segmented elbow)', () => {
   it('90° with 3 welds: cut angle 15°, gore = 2R·tan15°', () => {
@@ -143,5 +143,19 @@ describe('ISO route', () => {
     expect(c[0].note.join(' ')).toContain('thread makeup');
     d.conn = 'bw'; d.nodeConn = { 1: 'flg' };
     expect(cutList(d)[0].note.join(' ')).toContain('flanged elbow');
+  });
+  it('splitting a line keeps what hangs off its end attached, shares out the measurement, and a branch makes a tee', () => {
+    const d = base(); d.runs = [{ ...run(0, 96, 0, 0), meas: [96, 0, 0], items: [{ id: 'v', type: 'gate', t: 0.75 }] }, run(1, 0, 48, 0)];
+    const { d: e, node } = splitRun(d, 0, 0.25, 'new');
+    expect(node).toBe(3);
+    const P = nodePositions(e), D = displayPositions(e, true).P;
+    expect(P[3]).toEqual([24, 0, 0]); expect(P[1]).toEqual([96, 0, 0]); expect(P[2]).toEqual([96, 48, 0]);
+    expect(D[1]).toEqual([96, 0, 0]);
+    expect(e.runs[0].meas![0]).toBeCloseTo(72, 9); expect(e.runs[2].meas![0]).toBeCloseTo(24, 9);
+    expect(e.runs[0].items![0].t).toBeCloseTo(2 / 3, 9); expect(e.runs[2].items!.length).toBe(0);
+    expect(nodeKind(e, 3).kind).toBe('straight');
+    e.runs.push({ ...run(3, 0, 0, 24) });
+    expect(nodeKind(e, 3).kind).toBe('tee');
+    expect(cutList(e)[0].to1).toBeCloseTo(4.12, 2); // tee C on the run side
   });
 });
