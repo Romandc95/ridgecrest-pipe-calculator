@@ -1478,8 +1478,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         // dimension text sits beside the middle of the line
         const [ux, uy, L] = unit(a, b); if (L < 12) return;
         let nx = -uy, ny = ux; if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; }
-        const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, hw = Math.min(L / 2, 34);
-        for (const o of [11, 19, -13]) segs.push([mx + nx * o - ux * hw, my + ny * o - uy * hw, mx + nx * o + ux * hw, my + ny * o + uy * hw, 6]);
+        const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, hw = Math.min(L / 2, 42);
+        for (const o of [12, 20, -14]) segs.push([mx + nx * o - ux * hw, my + ny * o - uy * hw, mx + nx * o + ux * hw, my + ny * o + uy * hw, 8]);
       }
     });
     const segDist = (x: number, y: number, g: Seg) => {
@@ -1495,6 +1495,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       const off = Math.min(L * 0.4, w.where === 'fitting' ? 9 : w.where === 'inline' ? 12 : w.where === 'reducer' ? 24 : w.where === 'end' ? 4 : 0);
       const c: [number, number] = [p[0] + ux * off, p[1] + uy * off];
       let nx = -uy, ny = ux; if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; }
+      nx = -nx; ny = -ny; // dimensions go above / left of a line: weld tags start on the other side
       // prefer the side away from the other pipes at that point
       let ox = 0, oy = 0;
       nodeLegs(d, w.node).forEach((l) => { if (l.run === w.run) return; const q = d.runs[l.run]; const o2 = q.from === w.node ? S[l.run + 1] : S[q.from]; if (!o2) return; const [vx, vy] = unit(p, o2); ox += vx; oy += vy; });
@@ -1865,7 +1866,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
     </Card>
   );
 }
-const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:600 9px sans-serif;fill:#1f7f7a}.iso-legdim{font:600 8px sans-serif;fill:#555}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:600 7.5px sans-serif;fill:#666}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textbox{fill:none;stroke:none}`;
+const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:700 10px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}.iso-legdim{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textbox{fill:none;stroke:none}`;
 
 async function shareImage(d: IsoDrawing, markup: string, W: number, H: number, scale = 3): Promise<string> {
   const svg = markup.replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);
@@ -1987,7 +1988,7 @@ function sheetData(d: IsoDrawing, prefs: Prefs) {
   return { cutRows, total, mat, weldRows, wl };
 }
 
-function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true }: { d: IsoDrawing; opts: Opts; prefs: Prefs; svgRef?: React.Ref<SVGSVGElement>; welds?: boolean }) {
+function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: IsoDrawing; opts: Opts; prefs: Prefs; svgRef?: React.Ref<SVGSVGElement>; welds?: boolean; vb?: string }) {
   const view = opts.view;
   const disp = displayPositions(d, opts.scaled);
   const { cutRows, total, mat, weldRows: weldRows0, wl } = sheetData(d, prefs);
@@ -2024,7 +2025,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true }: { d: IsoD
   const half = Math.ceil(cutRows.length / 2);
   const cutCols = [{ h: 'Line', w: 0.11 }, { h: 'Run · size', w: 0.39 }, { h: 'Length', w: 0.27 }, { h: 'Cut', w: 0.23, r: true }];
   return (
-    <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" viewBox={`0 0 ${SW} ${SH}`} className="isosheet" role="img" aria-label={`${d.name} iso sheet`}>
+    <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" viewBox={vb ?? `0 0 ${SW} ${SH}`} className="isosheet" role="img" aria-label={`${d.name} iso sheet`}>
       <style>{EXPORT_CSS}</style>
       <rect width={SW} height={SH} fill="#fff" />
       <rect x={M} y={M} width={SW - 2 * M} height={SH - 2 * M} fill="none" stroke="#111" strokeWidth={3} />
@@ -2059,14 +2060,87 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true }: { d: IsoD
   );
 }
 
+type VB = { x: number; y: number; w: number };
 function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs: Prefs; toast: (m: string) => void }) {
   const ref = useRef<SVGSVGElement>(null);
-  const [zoom, setZoom] = useState(1);
+  const box = useRef<HTMLDivElement>(null);
   const [full, setFull] = useState(false);
   const [showWelds, setShowWelds] = usePersistent<boolean>('isosheetwelds', true);
   const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
+  const [size, setSize] = useState({ w: 360, h: 233 });
   useEffect(() => { const f = () => setWin({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
-  const markup = () => (ref.current ? ref.current.outerHTML.replace('<svg ', `<svg width="${SW}" height="${SH}" `) : '');
+  useEffect(() => {
+    const el = box.current; if (!el) return;
+    const ro = new ResizeObserver(() => setSize({ w: Math.max(1, el.clientWidth), h: Math.max(1, el.clientHeight) }));
+    ro.observe(el);
+    // iOS: keep Safari's own page zoom out of it while fingers are on the sheet
+    const stop = (e: Event) => e.preventDefault();
+    el.addEventListener('gesturestart', stop); el.addEventListener('gesturechange', stop);
+    return () => { ro.disconnect(); el.removeEventListener('gesturestart', stop); el.removeEventListener('gesturechange', stop); };
+  }, [full]);
+  // camera = the part of the sheet shown (a viewBox), so it stays sharp at any zoom
+  const fit = (): VB => {
+    const a = size.h / size.w;
+    if (SH / SW > a) { const w = SH / a; return { x: (SW - w) / 2, y: 0, w }; }
+    return { x: 0, y: (SH - SW * a) / 2, w: SW };
+  };
+  const [vb, setVb] = useState<VB>({ x: 0, y: 0, w: SW });
+  useEffect(() => setVb(fit()), [size.w, size.h]);
+  const clamp = (v: VB): VB => {
+    const f = fit(); const w = Math.max(f.w / 12, Math.min(f.w, v.w)), h = (w * size.h) / size.w;
+    const cx = (lo: number, hi: number, x: number) => Math.max(Math.min(lo, hi), Math.min(Math.max(lo, hi), x));
+    return { w, x: cx(0, SW - w, v.x), y: cx(0, SH - h, v.y) };
+  };
+  const vbStr = `${vb.x} ${vb.y} ${vb.w} ${(vb.w * size.h) / size.w}`;
+  const rot = full && win.h > win.w;
+  const local = (e: { clientX: number; clientY: number }) => {
+    const r = box.current!.getBoundingClientRect();
+    if (rot) return { x: ((e.clientY - r.top) / r.height) * size.w, y: ((r.right - e.clientX) / r.width) * size.h };
+    return { x: ((e.clientX - r.left) / r.width) * size.w, y: ((e.clientY - r.top) / r.height) * size.h };
+  };
+  const zoomAt = (k: number, p: { x: number; y: number }, from: VB = vb) => {
+    const sx = from.x + (p.x * from.w) / size.w, sy = from.y + (p.y * from.w) / size.w;
+    const w = from.w / k;
+    setVb(clamp({ w, x: sx - (p.x * w) / size.w, y: sy - (p.y * w) / size.w }));
+  };
+  const ptrs = useRef(new Map<number, { x: number; y: number }>());
+  const g = useRef<{ vb: VB; p: Array<{ x: number; y: number }>; moved: boolean } | null>(null);
+  const lastTap = useRef({ t: 0, x: 0, y: 0 });
+  const start = () => { const p = [...ptrs.current.values()]; g.current = { vb, p, moved: g.current?.moved ?? false }; };
+  const onDown = (e: React.PointerEvent) => { try { box.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ } ptrs.current.set(e.pointerId, local(e)); if (ptrs.current.size === 1) g.current = null; start(); };
+  const onMove = (e: React.PointerEvent) => {
+    if (!ptrs.current.has(e.pointerId) || !g.current) return;
+    ptrs.current.set(e.pointerId, local(e));
+    const s = g.current, p = [...ptrs.current.values()];
+    if (p.length >= 2 && s.p.length >= 2) {
+      // pinch: zoom about the fingers, and pan with them
+      const d0 = Math.hypot(s.p[0].x - s.p[1].x, s.p[0].y - s.p[1].y) || 1, d1 = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      const m0 = { x: (s.p[0].x + s.p[1].x) / 2, y: (s.p[0].y + s.p[1].y) / 2 }, m1 = { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+      const sx = s.vb.x + (m0.x * s.vb.w) / size.w, sy = s.vb.y + (m0.y * s.vb.w) / size.w;
+      const w = s.vb.w / (d1 / d0);
+      setVb(clamp({ w, x: sx - (m1.x * w) / size.w, y: sy - (m1.y * w) / size.w }));
+      s.moved = true;
+    } else if (p.length === 1 && s.p.length === 1) {
+      const dx = p[0].x - s.p[0].x, dy = p[0].y - s.p[0].y;
+      if (Math.hypot(dx, dy) > 4) s.moved = true;
+      if (s.moved) setVb(clamp({ w: s.vb.w, x: s.vb.x - (dx * s.vb.w) / size.w, y: s.vb.y - (dy * s.vb.w) / size.w }));
+    }
+  };
+  const onUp = (e: React.PointerEvent) => {
+    const p = ptrs.current.get(e.pointerId);
+    ptrs.current.delete(e.pointerId);
+    const wasMoved = g.current?.moved;
+    if (ptrs.current.size) { start(); if (g.current) g.current.moved = true; return; }
+    g.current = null;
+    if (!wasMoved && p && e.type !== 'pointercancel') {
+      // double-tap: zoom in there, or back out to the whole sheet
+      const now = Date.now(), lt = lastTap.current;
+      if (now - lt.t < 320 && Math.hypot(p.x - lt.x, p.y - lt.y) < 30) { if (vb.w < fit().w * 0.95) setVb(fit()); else zoomAt(2.5, p); lastTap.current = { t: 0, x: 0, y: 0 }; }
+      else lastTap.current = { t: now, x: p.x, y: p.y };
+    }
+  };
+  const onWheel = (e: React.WheelEvent) => zoomAt(Math.exp(-e.deltaY * 0.0015), local(e));
+  const markup = () => (ref.current ? ref.current.outerHTML.replace(/viewBox="[^"]*"/, `viewBox="0 0 ${SW} ${SH}"`).replace('<svg ', `<svg width="${SW}" height="${SH}" `) : '');
   const print = () => {
     const f = document.createElement('iframe');
     f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
@@ -2078,24 +2152,26 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
     setTimeout(() => { try { f.contentWindow?.focus(); f.contentWindow?.print(); } catch { toast('Printing is not available here'); } setTimeout(() => f.remove(), 2000); }, 300);
   };
   const share = () => shareImage(d, markup(), SW, SH, 2).then((m) => m && toast(m));
+  const mid = { x: size.w / 2, y: size.h / 2 };
   const zoomBar = (
     <div className="sheetbar">
-      <button className="ibtn" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, z / 1.4))}>−</button>
-      <button className="ibtn" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(5, z * 1.4))}>+</button>
-      <button className="ibtn" onClick={() => setZoom(1)}>Fit</button>
+      <button className="ibtn" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.5, mid)}>−</button>
+      <button className="ibtn" aria-label="Zoom in" onClick={() => zoomAt(1.5, mid)}>+</button>
+      <button className="ibtn" onClick={() => setVb(fit())}>Fit</button>
       {full && <button className="ibtn" onClick={() => setShowWelds(!showWelds)}>{showWelds ? 'Welds: on' : 'Welds: off'}</button>}
-      <button className="ibtn" onClick={() => { setFull(!full); setZoom(1); }}>{full ? '✕ Close' : 'Full screen'}</button>
+      <button className="ibtn" onClick={() => setFull(!full)}>{full ? '✕ Close' : 'Full screen'}</button>
     </div>
   );
-  const rot0 = full && win.h > win.w;
-  const aw = rot0 ? win.h : win.w, ah = rot0 ? win.w : win.h;
-  const fitW = Math.max(200, Math.min(aw - 8, (ah - 8) * SW / SH));
-  const sheet = <div className="sheetscroll"><div className="sheetin" style={full ? { width: fitW * zoom, margin: zoom === 1 ? '0 auto' : undefined } : { width: `${zoom * 100}%` }}><SheetSvg d={d} opts={opts} prefs={prefs} svgRef={ref} welds={showWelds} /></div></div>;
-  const rot = rot0;
+  const sheet = (
+    <div className="sheetbox" ref={box} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
+      <SheetSvg d={d} opts={opts} prefs={prefs} svgRef={ref} welds={showWelds} vb={vbStr} />
+      {full && zoomBar}
+    </div>
+  );
   return (
     <>
       <div className="sheetwrap">{!full && sheet}{!full && zoomBar}</div>
-      {full && createPortal(<div className={'sheetfull' + (rot ? ' rot' : '')}><div className="sheetfull-in">{sheet}{zoomBar}</div></div>, document.body)}
+      {full && createPortal(<div className={'sheetfull' + (rot ? ' rot' : '')}><div className="sheetfull-in">{sheet}</div></div>, document.body)}
       <div className="sheetopt">
         <Segmented small value={showWelds ? 'on' : 'off'} onChange={(v) => setShowWelds(v === 'on')} options={[['on', 'Weld map on'], ['off', 'Weld map off']]} />
       </div>
@@ -2103,7 +2179,7 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
         <button className="btn primary" onClick={share}>Share as image</button>
         <button className="btn" onClick={print}>Print 11×17</button>
       </div>
-      <p className="fhint">Weld map off hides the weld numbers and the weld log, for a clean drawing to view, share or print. Completed drawings are locked. ✎ Edit (top) reopens it; tap ✓ Complete again when you're done.</p>
+      <p className="fhint">Pinch to zoom and drag to move around the sheet; double-tap to zoom in there (double-tap again for the whole sheet). Weld map off hides the weld numbers and the weld log, for a clean drawing to view, share or print. Completed drawings are locked — ✎ Edit (top) reopens it.</p>
     </>
   );
 }
