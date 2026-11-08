@@ -3,7 +3,7 @@
 // Fittings are inferred at nodes (elbow / tee / cross / straight weld / end) and can be overridden at ends.
 import { CalcError, deg2rad, rad2deg } from './units';
 import { B169, npsNumber } from './fittings';
-import { bwFitting } from './refdata';
+import { bwFitting, flange, nptMakeup, socketWeld, valveFaceToFace, FlangeClass, ValveType } from './refdata';
 
 /** Fittings and valves that can be placed on a drawing. kind: line = sits on a line; elbow = at a turn; branch = at a tee point; end = at the end of a line. */
 export type ItemKind = 'line' | 'elbow' | 'branch' | 'end';
@@ -87,7 +87,11 @@ export const END_LABEL: Record<string, string> = Object.fromEntries(CATALOG.filt
 export type Conn = 'bw' | 'sw' | 'thd' | 'solder' | 'glue' | 'flg';
 export const CONN_LABEL: Record<Conn, string> = { bw: 'Butt weld', sw: 'Socket weld', thd: 'Threaded', solder: 'Soldered', glue: 'Glued (solvent)', flg: 'Flanged' };
 export const CONN_ORDER: Conn[] = ['bw', 'sw', 'thd', 'solder', 'glue', 'flg'];
-export interface LineItem { id: string; type: string; t: number; conn?: Conn }
+/**
+ * A fitting placed on a line, at fraction t (0–1) of the way along it.
+ * len: your length (face-to-face / end-to-end), overriding the standard one. at: distance from the start of the line to its center.
+ */
+export interface LineItem { id: string; type: string; t: number; conn?: Conn; len?: number; at?: number }
 
 /** `move`: an invisible jump that starts a new, separate line at another point (no pipe, no cut). */
 export interface Run { id: string; from: number; dx: number; dy: number; dz: number; inline: Inline; label?: string; meas?: Vec3; sketch?: boolean; items?: LineItem[]; move?: boolean }
@@ -105,6 +109,11 @@ export interface IsoDrawing {
   nodeConn?: Record<number, Conn>;
   /** Optional branch size (NPS) for a reducing tee or olet at a point. */
   fitSize?: Record<number, string>;
+  /** Flange pressure class used for flanged valve and flange lengths (default 150), and gasket thickness (default 1/8"). */
+  cls?: FlangeClass;
+  gasket?: number;
+  /** Your take-off for the fitting at a line end (cap, flange, valve …), overriding the standard one. */
+  endLen?: Record<number, number>;
 }
 export const connAt = (d: IsoDrawing, node: number): Conn => d.nodeConn?.[node] ?? d.conn ?? 'bw';
 
@@ -203,8 +212,11 @@ export function nodeKind(d: IsoDrawing, node: number): NodeKind {
   return { kind: 'multi', count: legs.length };
 }
 
+export interface CutPiece { from: string; to: string; cut: number; ok: boolean }
 export interface CutRow {
   run: number; travel: number; to1: number; to2: number; gaps: number; cut: number; note: string[]; ok: boolean; skip?: boolean;
+  /** When fittings sit on the line: the pipe pieces (spools) between them. */
+  pieces?: CutPiece[];
 }
 
 /** Take-out at one end of a run, using ASME B16.9 fittings for the drawing's NPS and the fitting chosen at that point. */
@@ -276,7 +288,9 @@ function takeoutAt(d: IsoDrawing, node: number, run: number, note: string[]): { 
     default: {
       // run ends: a cap, weld-neck flange, nozzle or field weld is a butt weld; threaded / flanged items are not
       const end = d.ends[node] ?? 'open';
-      return { to: 0, weld: conn === 'bw' && ['weld', 'cap', 'flange', 'nozzle'].includes(end) };
+      const e2 = endTakeoff(d, node);
+      if (e2 && e2.len !== null) note.push(`${END_LABEL[end].toLowerCase()} at the end: ${e2.src}`);
+      return { to: e2?.len ?? 0, weld: conn === 'bw' && ['weld', 'cap', 'flange', 'blind', 'nozzle'].includes(end) };
     }
   }
 }
@@ -290,18 +304,100 @@ export function cutList(d: IsoDrawing): CutRow[] {
     if (!isMeasured(r)) return { run: i, travel: NaN, to1: a.to, to2: b.to, gaps: 0, cut: NaN, note: ['no dimension yet'], ok: false };
     const travel = runLength(r);
     const gaps = (a.weld ? d.gap : 0) + (b.weld ? d.gap : 0);
-    for (const it of runItems(r)) if (it.type !== 'spool') note.push(`subtract the ${it.conn && it.conn !== 'bw' ? CONN_LABEL[it.conn].toLowerCase() + ' ' : ''}${(INLINE_LABEL[it.type] ?? it.type).toLowerCase()} length`);
+
     for (const n of [r.from, i + 1]) {
       const k = nodeKind(d, n).kind;
       if (k !== 'end' && k !== 'start-end') continue;
       const end = d.ends[n] ?? 'open';
-      if (end === 'flange') note.push('flange end: subtract the flange length through hub if dimensioned to the face');
-      if (end === 'cap') note.push('cap: subtract cap length E if dimensioned to the end of the cap');
-      if (['relief', 'vent', 'drain', 'gauge', 'thermowell', 'hose'].includes(end)) note.push(`${END_LABEL[end].toLowerCase()} at the end: subtract its length if dimensioned to the end`);
+      if (endTakeoff(d, n)?.len === null) note.push(`${END_LABEL[end].toLowerCase()} at the end: enter its length (tap the point) if the line is dimensioned to its end`);
     }
-    const cut = travel - a.to - b.to - gaps;
-    return { run: i, travel, to1: a.to, to2: b.to, gaps, cut, note, ok: cut > 0 };
+    const items = runItems(r).slice().sort((x, y) => x.t - y.t);
+    if (!items.length) {
+      const cut = travel - a.to - b.to - gaps;
+      return { run: i, travel, to1: a.to, to2: b.to, gaps, cut, note, ok: cut > 0 };
+    }
+    // fittings on the line break it into spools: each piece runs between fitting faces / ends
+    const pieces: CutPiece[] = [];
+    let prevPos = 0, prevAllow = -a.to - (a.weld ? d.gap : 0), prevName = 'start';
+    for (const it of items) {
+      const L = itemLength(d, it);
+      const al = joinAllowance(d, it);
+      const pos = it.at ?? it.t * travel;
+      const name = (INLINE_LABEL[it.type] ?? it.type).toLowerCase();
+      if (L.len === null) note.push(`enter the ${name} length (tap it)`);
+      else note.push(`${name}: ${L.src}${al.note ? '; ' + al.note : ''}`);
+      const cut = L.len === null ? NaN : pos - L.len / 2 - prevPos + prevAllow + al.v;
+      pieces.push({ from: prevName, to: name, cut, ok: cut > 0 });
+      prevPos = L.len === null ? NaN : pos + L.len / 2; prevAllow = al.v; prevName = name;
+    }
+    const last = travel - prevPos + prevAllow - b.to - (b.weld ? d.gap : 0);
+    pieces.push({ from: prevName, to: 'end', cut: last, ok: last > 0 });
+    const total = pieces.reduce((t, q) => t + q.cut, 0);
+    return { run: i, travel, to1: a.to, to2: b.to, gaps, cut: total, note, ok: pieces.every((q) => q.ok), pieces };
   });
+}
+
+const VALVE_TYPE: Record<string, ValveType> = { gate: 'gate', globe: 'globe', check: 'swing', liftcheck: 'globe', ball: 'ball' };
+const safe = <T,>(f: () => T): T | null => { try { return f(); } catch { return null; } };
+const frac = (x: number) => { const n = Math.round(x * 16); const w = Math.floor(n / 16), r = n % 16; if (!r) return `${w}"`; let a = r, b = 16; while (a % 2 === 0) { a /= 2; b /= 2; } return `${w ? w + '-' : ''}${a}/${b}"`; };
+
+/** Length of a fitting on a line (face-to-face / end-to-end): yours if entered, else the standard one when there is data. */
+export function itemLength(d: IsoDrawing, it: LineItem): { len: number | null; src: string } {
+  if (it.len != null) return { len: it.len, src: `your length ${frac(it.len)}` };
+  const cls = d.cls ?? 150, conn = it.conn ?? 'bw', gk = d.gasket ?? 0.125;
+  if (it.type === 'spool') return { len: 0, src: 'field joint' };
+  if (it.type === 'flange' || it.type === 'orifice') {
+    const f = safe(() => flange(cls, d.nps));
+    if (f) return { len: 2 * f.yWN + gk, src: `2 × WN flange ${frac(f.yWN)} + gasket ${frac(gk)} = ${frac(2 * f.yWN + gk)} (Class ${cls})${it.type === 'orifice' ? ' — check the orifice flange' : ''}` };
+  }
+  if (conn === 'flg' && VALVE_TYPE[it.type]) {
+    const v = safe(() => valveFaceToFace(cls, VALVE_TYPE[it.type], d.nps));
+    if (v != null) return { len: v, src: `B16.10 Class ${cls} RF face-to-face ${frac(v)}` };
+  }
+  return { len: null, src: '' };
+}
+
+/** What each pipe end next to a line fitting gains (+) or loses (−) for its joint. */
+export function joinAllowance(d: IsoDrawing, it: LineItem): { v: number; note: string } {
+  const conn = it.type === 'flange' || it.type === 'orifice' || it.type === 'spool' ? 'bw' : (it.conn ?? 'bw');
+  const gk = d.gasket ?? 0.125;
+  switch (conn) {
+    case 'bw': return { v: -d.gap, note: '' };
+    case 'flg': {
+      const f = safe(() => flange(d.cls ?? 150, d.nps));
+      if (!f) return { v: 0, note: 'flanged: subtract mating flange + gasket' };
+      return { v: -(gk + f.yWN + d.gap), note: `pipe ends in WN flanges (${frac(f.yWN)}) + gasket ${frac(gk)}` };
+    }
+    case 'thd': { const m = safe(() => nptMakeup(d.nps)); return m ? { v: m.makeup, note: `add thread makeup ${frac(m.makeup)}` } : { v: 0, note: 'add thread makeup' }; }
+    case 'sw': { const w = safe(() => socketWeld(d.nps, 3000)); return w ? { v: w.engagement, note: `add socket engagement ${frac(w.engagement)}` } : { v: 0, note: 'add socket engagement' }; }
+    default: return { v: 0, note: 'add socket / cup depth' };
+  }
+}
+
+/** Take-off of the fitting at a line end, when the line is dimensioned to the end of that fitting. */
+export function endTakeoff(d: IsoDrawing, node: number): { len: number | null; src: string } | null {
+  const end = d.ends[node] ?? 'open';
+  if (end === 'open' || end === 'weld') return null;
+  const own = d.endLen?.[node];
+  if (own != null) return { len: own, src: `your take-off ${frac(own)}` };
+  const cls = d.cls ?? 150, gk = d.gasket ?? 0.125;
+  if (end === 'cap') { const e = bwFitting(d.nps).capE; return e != null ? { len: e, src: `cap E ${frac(e)}` } : { len: null, src: '' }; }
+  if (end === 'flange') { const f = safe(() => flange(cls, d.nps)); return f ? { len: f.yWN, src: `WN flange ${frac(f.yWN)} to face (Class ${cls})` } : { len: null, src: '' }; }
+  if (end === 'blind') { const f = safe(() => flange(cls, d.nps)); return f ? { len: f.yWN + gk + f.tf, src: `WN flange ${frac(f.yWN)} + gasket + blind ${frac(f.tf)} (Class ${cls})` } : { len: null, src: '' }; }
+  return { len: null, src: '' };
+}
+
+/**
+ * Real-world direction a valve stem / handwheel points on a line: straight up off a level or sloped line
+ * (square to the pipe), and toward the West off a vertical one — so it stays put when the view turns.
+ */
+export function stemDir(v: Vec3): Vec3 {
+  const L = len(v) || 1; const u: Vec3 = [v[0] / L, v[1] / L, v[2] / L];
+  const ref: Vec3 = Math.abs(u[2]) < 0.9 ? [0, 0, 1] : [-1, 0, 0];
+  const k = dot(ref, u);
+  const s: Vec3 = [ref[0] - k * u[0], ref[1] - k * u[1], ref[2] - k * u[2]];
+  const sl = len(s) || 1;
+  return [s[0] / sl, s[1] / sl, s[2] / sl];
 }
 
 /** Isometric projection to screen (x right, y down): North up-right, East down-right, Up straight up. */

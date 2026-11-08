@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { miter, cope, thermalExpansion } from '../src/engine/shop';
-import { newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun } from '../src/engine/iso';
+import { newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength } from '../src/engine/iso';
+import { flange, valveFaceToFace, nptMakeup } from '../src/engine/refdata';
 
 describe('miter (segmented elbow)', () => {
   it('90° with 3 welds: cut angle 15°, gore = 2R·tan15°', () => {
@@ -121,11 +122,12 @@ describe('ISO route', () => {
     expect(c[0].to2).toBe(0); expect(c[0].gaps).toBe(0); // header: open start, continuous through the olet
     expect(c[2].to1).toBe(0); expect(c[2].note.join(' ')).toContain('weldolet');
   });
-  it('several items on one line are each noted; old single inline item still read', () => {
+  it('several items on one line break it into spools; old single inline item still read', () => {
     const d = base(); d.runs = [{ ...run(0, 60, 0, 0), items: [{ id: 'a', type: 'gate', t: 0.3 }, { id: 'b', type: 'flange', t: 0.6 }] }, { ...run(1, 0, 48, 0), inline: 'check' }];
     const c = cutList(d);
-    expect(c[0].note.filter((n) => n.startsWith('subtract the')).length).toBe(2);
-    expect(c[1].note.join(' ')).toContain('swing check');
+    expect(c[0].pieces!.length).toBe(3);
+    expect(c[0].note.join(' ')).toContain('enter the gate valve length');      // butt-weld gate: no standard length
+    expect(c[1].note.join(' ')).toContain('enter the swing check length');      // legacy single item
   });
   it('a new start point (move) draws no pipe and makes a separate end', () => {
     const d = base(); d.runs = [run(0, 60, 0, 0), { ...run(1, 0, 48, 0), move: true }, run(2, 36, 0, 0)];
@@ -157,5 +159,24 @@ describe('ISO route', () => {
     e.runs.push({ ...run(3, 0, 0, 24) });
     expect(nodeKind(e, 3).kind).toBe('tee');
     expect(cutList(e)[0].to1).toBeCloseTo(4.12, 2); // tee C on the run side
+  });
+  it('a flanged valve on a line: B16.10 face-to-face, WN flanges + gasket, two spools; your length overrides', () => {
+    const d = base(); d.runs = [{ ...run(0, 60, 0, 0), items: [{ id: 'v', type: 'gate', t: 0.5, conn: 'flg' }] }];
+    const v = valveFaceToFace(150, 'gate', '4')!, y = flange(150, '4').yWN;
+    const c = cutList(d)[0];
+    const piece = 30 - v / 2 - (0.125 + y + 0.125); // open ends: no take-off, no gap at the ends
+    expect(c.pieces![0].cut).toBeCloseTo(piece, 9); expect(c.pieces![1].cut).toBeCloseTo(piece, 9);
+    d.runs[0].items![0].len = 10;
+    expect(itemLength(d, d.runs[0].items![0]).len).toBe(10);
+    expect(cutList(d)[0].pieces![0].cut).toBeCloseTo(30 - 5 - (0.25 + y), 9);
+  });
+  it('threaded valve: pipe gains thread makeup each side; cap end deducts cap E; your end take-off overrides', () => {
+    const d = base(); d.runs = [{ ...run(0, 60, 0, 0), items: [{ id: 'v', type: 'ball', t: 0.5, conn: 'thd', len: 4 }] }];
+    const mk = nptMakeup('4').makeup;
+    expect(cutList(d)[0].pieces![0].cut).toBeCloseTo(30 - 2 + mk, 9);
+    d.ends = { 1: 'cap' };
+    expect(cutList(d)[0].to2).toBe(2.5); // B16.9 cap E, 4"
+    d.endLen = { 1: 3 };
+    expect(cutList(d)[0].to2).toBe(3);
   });
 });

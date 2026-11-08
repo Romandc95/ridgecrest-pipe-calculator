@@ -12,36 +12,44 @@ const frame = (m: V2, u: V2) => {
 
 const VALVES = new Set(['gate', 'globe', 'ball', 'butterfly', 'check', 'liftcheck', 'plug', 'needle', 'diaphragm', 'knifegate', 'control', 'regulator', 'solenoid']);
 
-/** Symbol for an item sitting on a line. m = center, u = unit direction of the pipe on screen, s = size. */
-export function lineSymbol(type: string, m: V2, u: V2, s: number, key: string): React.ReactNode[] {
-  const { P, X } = frame(m, u);
+/**
+ * Symbol for an item sitting on a line. m = center, u = unit direction of the pipe on screen, s = size.
+ * stem = screen direction of the valve stem / handwheel (from its real-world direction, so it stays put when the view turns);
+ * defaults to "left of the pipe".
+ */
+export function lineSymbol(type: string, m: V2, u: V2, s: number, key: string, stem?: V2): React.ReactNode[] {
+  const { P, X, n } = frame(m, u);
+  const t: V2 = stem ?? n, w: V2 = [-t[1], t[0]];
+  /** point across (a) and along (b) the stem */
+  const T = (a: number, b: number): [number, number] => [m[0] + w[0] * a + t[0] * b, m[1] + w[1] * a + t[1] * b];
+  const PT = (a: number, b: number): string => { const q = T(a, b); return `${q[0].toFixed(1)},${q[1].toFixed(1)}`; };
   const out: React.ReactNode[] = [];
   const k = (x: string) => key + x;
   const line = (a: [number, number], b: [number, number], cls = 'iso-sym', kk = 'l' + out.length) => out.push(<line key={k(kk)} className={cls} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />);
   const gap = () => line(X(-s * 1.05, 0), X(s * 1.05, 0), 'iso-gap', 'gap');
   if (VALVES.has(type)) {
     out.push(<polygon key={k('b')} className="iso-sym" points={`${P(-s, -s * 0.75)} ${P(s, s * 0.75)} ${P(s, -s * 0.75)} ${P(-s, s * 0.75)}`} />);
-    const stem = (h = 1.5) => line(X(0, 0), X(0, s * h), 'iso-sym', 'st');
+    const stem = (h = 1.5) => line(T(0, 0), T(0, s * h), 'iso-sym', 'st');
     switch (type) {
-      case 'gate': stem(); line(X(-s * 0.6, s * 1.5), X(s * 0.6, s * 1.5), 'iso-sym', 'hw'); break;
-      case 'globe': stem(); out.push(<circle key={k('c')} className="iso-symfill" cx={m[0]} cy={m[1]} r={s * 0.36} />); line(X(-s * 0.6, s * 1.5), X(s * 0.6, s * 1.5), 'iso-sym', 'hw'); break;
-      case 'ball': stem(1.4); out.push(<circle key={k('c')} className="iso-symball" cx={m[0]} cy={m[1]} r={s * 0.42} />); line(X(0, s * 1.4), X(s * 0.8, s * 1.4), 'iso-sym', 'lv'); break;
+      case 'gate': stem(); line(T(-s * 0.6, s * 1.5), T(s * 0.6, s * 1.5), 'iso-sym', 'hw'); break;
+      case 'globe': stem(); out.push(<circle key={k('c')} className="iso-symfill" cx={m[0]} cy={m[1]} r={s * 0.36} />); line(T(-s * 0.6, s * 1.5), T(s * 0.6, s * 1.5), 'iso-sym', 'hw'); break;
+      case 'ball': stem(1.4); out.push(<circle key={k('c')} className="iso-symball" cx={m[0]} cy={m[1]} r={s * 0.42} />); line(T(0, s * 1.4), T(s * 0.8, s * 1.4), 'iso-sym', 'lv'); break;
       case 'butterfly': line(X(0, -s * 1.15), X(0, s * 1.15), 'iso-sym', 'disc'); out.push(<circle key={k('c')} className="iso-symfill" cx={m[0]} cy={m[1]} r={s * 0.2} />); break;
       case 'check': out.push(<polygon key={k('f')} className="iso-symfill" points={`${P(-s, -s * 0.75)} ${P(0, 0)} ${P(-s, s * 0.75)}`} />); break;
-      case 'liftcheck': out.push(<polygon key={k('f')} className="iso-symfill" points={`${P(-s, -s * 0.75)} ${P(0, 0)} ${P(-s, s * 0.75)}`} />); stem(1.1); out.push(<polygon key={k('r')} className="iso-sym" points={`${P(-s * 0.35, s * 1.1)} ${P(s * 0.35, s * 1.1)} ${P(s * 0.35, s * 1.6)} ${P(-s * 0.35, s * 1.6)}`} />); break;
+      case 'liftcheck': out.push(<polygon key={k('f')} className="iso-symfill" points={`${P(-s, -s * 0.75)} ${P(0, 0)} ${P(-s, s * 0.75)}`} />); stem(1.1); out.push(<polygon key={k('r')} className="iso-sym" points={`${PT(-s * 0.35, s * 1.1)} ${PT(s * 0.35, s * 1.1)} ${PT(s * 0.35, s * 1.6)} ${PT(-s * 0.35, s * 1.6)}`} />); break;
       case 'plug': out.push(<polygon key={k('r')} className="iso-symfill" points={`${P(-s * 0.3, -s * 0.3)} ${P(s * 0.3, -s * 0.3)} ${P(s * 0.3, s * 0.3)} ${P(-s * 0.3, s * 0.3)}`} />); stem(); break;
-      case 'needle': stem(1.3); out.push(<polygon key={k('n')} className="iso-symfill" points={`${P(0, s * 1.3)} ${P(-s * 0.45, s * 1.8)} ${P(s * 0.45, s * 1.8)}`} />); break;
-      case 'diaphragm': stem(1.1); { const a = X(-s * 0.8, s * 1.1), b = X(s * 0.8, s * 1.1), c = X(0, s * 2.1); out.push(<path key={k('d')} className="iso-sym" d={`M${a[0]},${a[1]} Q${c[0]},${c[1]} ${b[0]},${b[1]} Z`} />); } break;
-      case 'knifegate': stem(2); line(X(-s * 0.35, s * 2), X(s * 0.35, s * 2), 'iso-sym', 'hw'); line(X(-s * 0.25, s * 0.75), X(s * 0.25, s * 0.75), 'iso-sym thick', 'kb'); break;
+      case 'needle': stem(1.3); out.push(<polygon key={k('n')} className="iso-symfill" points={`${PT(0, s * 1.3)} ${PT(-s * 0.45, s * 1.8)} ${PT(s * 0.45, s * 1.8)}`} />); break;
+      case 'diaphragm': stem(1.1); { const a = T(-s * 0.8, s * 1.1), b = T(s * 0.8, s * 1.1), c = T(0, s * 2.1); out.push(<path key={k('d')} className="iso-sym" d={`M${a[0]},${a[1]} Q${c[0]},${c[1]} ${b[0]},${b[1]} Z`} />); } break;
+      case 'knifegate': stem(2); line(T(-s * 0.35, s * 2), T(s * 0.35, s * 2), 'iso-sym', 'hw'); line(T(-s * 0.25, s * 0.75), T(s * 0.25, s * 0.75), 'iso-sym thick', 'kb'); break;
       case 'control': case 'regulator': {
         stem(1.3);
-        const a = X(-s * 0.9, s * 1.3), b = X(s * 0.9, s * 1.3), c = X(0, s * 2.5);
+        const a = T(-s * 0.9, s * 1.3), b = T(s * 0.9, s * 1.3), c = T(0, s * 2.5);
         out.push(<path key={k('a')} className="iso-sym" d={`M${a[0]},${a[1]} Q${c[0]},${c[1]} ${b[0]},${b[1]} Z`} />);
-        if (type === 'regulator') { const p1 = X(s * 0.9, s * 1.3), p2 = X(s * 2, s * 1.3), p3 = X(s * 2, 0); out.push(<polyline key={k('s')} className="iso-off" points={`${p1.join(',')} ${p2.join(',')} ${p3.join(',')}`} />); }
+        if (type === 'regulator') { const p1 = T(s * 0.9, s * 1.3), p2 = X(s * 2.2, 0); out.push(<line key={k('s')} className="iso-off" x1={p1[0]} y1={p1[1]} x2={p2[0]} y2={p2[1]} />); } // sensing line downstream
         break;
       }
-      case 'solenoid': stem(1.2); out.push(<polygon key={k('r')} className="iso-sym" points={`${P(-s * 0.55, s * 1.2)} ${P(s * 0.55, s * 1.2)} ${P(s * 0.55, s * 2.1)} ${P(-s * 0.55, s * 2.1)}`} />);
-        { const t = X(0, s * 1.65); out.push(<text key={k('t')} className="iso-symtext" x={t[0]} y={t[1] + 2.5} textAnchor="middle">S</text>); } break;
+      case 'solenoid': stem(1.2); out.push(<polygon key={k('r')} className="iso-sym" points={`${PT(-s * 0.55, s * 1.2)} ${PT(s * 0.55, s * 1.2)} ${PT(s * 0.55, s * 2.1)} ${PT(-s * 0.55, s * 2.1)}`} />);
+        { const tt = T(0, s * 1.65); out.push(<text key={k('t')} className="iso-symtext" x={tt[0]} y={tt[1] + 2.5} textAnchor="middle">S</text>); } break;
     }
     return out;
   }
