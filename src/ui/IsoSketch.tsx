@@ -96,7 +96,9 @@ export function IsoSketch() {
     setStore((s) => ({ ...s, drawings: s.drawings.map((x) => (x.id === d.id ? { ...f(x), updated: Date.now() } : x)) }));
   };
   const cur = Math.min(cursor, d.runs.length);
+  const isTurn = (node: number) => nodeKind(d, node).kind === 'elbow';
   const addRun = (r: Omit<Run, 'id' | 'from'>, from = cur) => {
+    if (!r.move && isTurn(from)) { toast("Lines can't start from a turn (elbow or offset). Start from a line end, a tee or the middle of a straight line."); return; }
     const n = d.runs.length;
     update((x) => ({ ...x, runs: [...x.runs, { ...r, id: uid(), from }] }));
     setCursor(n + 1); setSel(null);
@@ -201,10 +203,11 @@ export function IsoSketch() {
     const nk = nodeKind(d, target.id);
     if (nk.kind === 'tee' || nk.kind === 'cross') {
       update((x) => ({ ...x, fits: { ...(x.fits ?? {}), [target.id]: item.id }, nodeConn: { ...(x.nodeConn ?? {}), [target.id]: conn } }));
-    } else if (nk.kind === 'straight' || nk.kind === 'elbow') {
+    } else if (nk.kind === 'elbow') {
+      toast('Branch fittings go on a straight line or a tee, not on a turn'); return false;
+    } else if (nk.kind === 'straight') {
       const legs = nodeLegs(d, target.id);
-      let dir = perpTo(legs[0].dir);
-      if (nk.kind === 'elbow') { const c: Vec3 = [legs[0].dir[1] * legs[1].dir[2] - legs[0].dir[2] * legs[1].dir[1], legs[0].dir[2] * legs[1].dir[0] - legs[0].dir[0] * legs[1].dir[2], legs[0].dir[0] * legs[1].dir[1] - legs[0].dir[1] * legs[1].dir[0]]; if (len3(c) > 0.5) dir = mul(c, 1 / len3(c)); }
+      const dir = perpTo(legs[0].dir);
       update((x) => stub(x, target.id, dir));
       setCursor(d.runs.length + 1);
     } else { toast('Drop a branch fitting on a line (or on a tee point)'); return false; }
@@ -295,7 +298,7 @@ export function IsoSketch() {
           onChange={(type) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, type } : q))}
           onConn={(c) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, conn: c } : q))}
           onDelete={() => { setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? null : q)); setSel(null); }} /> } : null}
-      startOn={armed === 'start'} onStartBtn={() => setArmed(armed === 'start' ? null : 'start')}
+      startOn={armed === 'start'} onStartBtn={() => setArmed(armed === 'start' ? null : 'start')} onNotice={toast}
       onView={(v) => setOpts({ view: v })} onTap={onTap} onDraw={drawTo}>
       <div className="isohist">
         <button className="ibtn" onClick={undo} disabled={!canUndo} aria-label="Back" title="Step back one change">
@@ -494,7 +497,7 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
       <Segmented small value={opts.mode} onChange={(m) => setOpts({ mode: m as Mode })} options={[['draw', '✎ Draw'], ['orbit', '⟳ Rotate 3D'], ['pan', '✥ Move']]} />
       {opts.mode === 'draw' && (
         <>
-          <p className="fhint">Drag from a point to draw a line — it follows the 30° / 150° / vertical paper lines Start on any point (or the middle of a line) to branch off it; from empty space it continues from point {cur}{isBranch ? ', making a tee' : ''}. Use Add offset for angled runs. Tap a line or point to edit it. Two fingers: pinch to zoom, slide to move, twist to turn 90°.</p>
+          <p className="fhint">Drag from a point to draw a line — it follows the 30° / 150° / vertical paper lines. Start on any point except a turn (or the middle of a line) to branch off it; from empty space it continues from point {cur}{isBranch ? ', making a tee' : ''}. Use Add offset for angled runs. Tap a line or point to edit it. Two fingers: pinch to zoom, slide to move, twist to turn 90°.</p>
         </>
       )}
       {opts.mode === 'orbit' && <p className="fhint">Drag the drawing to tilt and turn it in 3D. Tap the compass (or twist two fingers) to turn to the next compass direction.</p>}
@@ -530,11 +533,11 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
 // ------------------------------------------------------------------ canvas
 type Cam = { s: number; tx: number; ty: number };
 export interface CanvasApi { hitAt: (clientX: number, clientY: number) => { sel: Sel; t: number } | null }
-function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, menu, startOn, onStartBtn, onView, onTap, onDraw, children }: {
+function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
   armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>; onPick: (v: Vec3 | null) => void;
   onItemDrag: (run: number, id: string, t: number) => void; menu: { run: number; t: number; node: React.ReactNode } | null;
-  startOn: boolean; onStartBtn: () => void;
+  startOn: boolean; onStartBtn: () => void; onNotice: (m: string) => void;
   onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number, split?: { run: number; t: number }) => void; children?: React.ReactNode;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -655,7 +658,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   // pointer handling. Draw mode: drag from a point (or anywhere, from the current point) to draw a line.
   // Rotate mode: drag turns the view. Move mode: drag pans. Two fingers always pan / zoom. Taps select.
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
-  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean; itemDrag?: boolean; split?: { run: number; t: number; origin: Vec3 } } | null>(null);
+  const st = useRef<{ cam: Cam; view: View; mid: { x: number; y: number }; dist: number; moved: boolean; target: Sel | 'compass' | 'none'; cAng: number; drawFrom: number | null; ang?: number; twist?: boolean; itemDrag?: boolean; split?: { run: number; t: number; origin: Vec3 }; blocked?: boolean } | null>(null);
   const gestureTurn = useRef(false); // a two-finger twist moves the camera itself; skip the re-centring below
   const CMP = { x: 40, y: 40 };
   const onDown = (e: React.PointerEvent) => {
@@ -667,6 +670,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     let drawFrom: number | null = null;
     const itemDrag = ps.length === 1 && !armed && target !== 'none' && target !== 'compass' && target.kind === 'item';
     let split: { run: number; t: number; origin: Vec3 } | undefined;
+    let blocked = false;
     if (ps.length === 1 && opts.mode === 'draw' && !armed && target !== 'compass' && !itemDrag) {
       // the nearest point within a fingertip of the touch wins (turns, tees, ends), so a slightly-off touch still starts there
       let near = -1, nd = 30;
@@ -680,9 +684,10 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         split = { run: target.id, t: tt, origin: add(P[r.from], mul(disp.vecs[target.id], tt)) };
         drawFrom = r.from;
       } else drawFrom = cursor;
+      if (drawFrom !== null && !split && nodeKind(d, drawFrom).kind === 'elbow') { drawFrom = null; blocked = true; } // no lines off a turn
     }
     const mid = ps.length === 2 ? { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 } : loc;
-    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom, itemDrag, split,
+    st.current = { cam, view, mid, dist: ps.length === 2 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0, moved: ps.length > 1, target, cAng: Math.atan2(loc.y - CMP.y, loc.x - CMP.x), drawFrom, itemDrag, split, blocked,
       ang: ps.length === 2 ? Math.atan2(ps[1].y - ps[0].y, ps[1].x - ps[0].x) : undefined, twist: false };
     setGhost(null);
   };
@@ -728,6 +733,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     } else if (s.drawFrom !== null) {
       const v = snap(loc, s.drawFrom, s.split?.origin);
       setGhost(v && v !== 'edge' ? { from: s.drawFrom, v, origin: s.split?.origin } : null);
+    } else if (s.blocked) {
+      // started on a turn: nothing to draw
     } else if (opts.mode === 'orbit') {
       onView({ az: normAz(s.view.az - dx * 0.45), el: clampEl(s.view.el + dy * 0.45) });
     } else {
@@ -744,6 +751,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     setGhost(null);
     if (!s || cancelled) return;
     if (s.moved) {
+      if (s.blocked && s.dist === 0) { onNotice("Lines can't start from a turn (elbow or offset). Start from a line end, a tee or the middle of a straight line."); return; }
       if (s.drawFrom !== null && s.target !== 'compass' && s.dist === 0) {
         const v = snap(loc, s.drawFrom, s.split?.origin);
         if (v === 'edge') onDraw(null, s.drawFrom); else if (v) onDraw(v, s.drawFrom, s.split ? { run: s.split.run, t: s.split.t } : undefined);
