@@ -532,14 +532,19 @@ export function IsoSketch() {
     <div className="tool iso">
       {head}
       {modals}
-      {stage}
-      {editor}
-      {palette}
-      {tools}
-      <Segmented value={panel} onChange={setPanel} options={[['cut', 'Cut list'], ['setup', 'Setup'], ['library', 'Library']]} />
-      {panel === 'cut' && <CutPanel d={d} cuts={cuts} prefs={prefs} onShare={async (t) => { const m = await shareText(t); if (m) toast(m); }} />}
-      {panel === 'setup' && <SetupPanel d={d} disp={disp} opts={opts} prefs={prefs} update={update} toast={toast} />}
-      {panel === 'library' && <Library store={store} setStore={setStore} onOpen={openDrawing} />}
+      {/* phones: one column. iPad / desktop: big drawing on the left, fittings and tools in a side panel */}
+      <div className="isomain">
+        <div className="isomain-l">{stage}</div>
+        <div className="isomain-r">
+          {editor}
+          {palette}
+          {tools}
+          <Segmented value={panel} onChange={setPanel} options={[['cut', 'Cut list'], ['setup', 'Setup'], ['library', 'Library']]} />
+          {panel === 'cut' && <CutPanel d={d} cuts={cuts} prefs={prefs} onShare={async (t) => { const m = await shareText(t); if (m) toast(m); }} />}
+          {panel === 'setup' && <SetupPanel d={d} disp={disp} opts={opts} prefs={prefs} update={update} toast={toast} />}
+          {panel === 'library' && <Library store={store} setStore={setStore} onOpen={openDrawing} />}
+        </div>
+      </div>
     </div>
   );
 }

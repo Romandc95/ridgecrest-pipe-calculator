@@ -527,3 +527,16 @@ button { cursor: pointer; }
 .sheetwrap > .sheetbar { position: static; justify-content: flex-end; padding: 6px 8px; background: var(--surface); opacity: 1; }
 @media (max-width: 700px) { .sheetwrap .sheetbox { aspect-ratio: auto; height: 58vh; } }
 .iso-dimlead { stroke: var(--accent); stroke-width: .5; stroke-dasharray: 1.5 1.5; pointer-events: none; }
+
+/* ISO on iPad / desktop: use the whole width — drawing left, tools in a side panel */
+.isomain, .isomain-l, .isomain-r { display: contents; }
+@media (min-width: 900px) {
+  .app.tab-iso { max-width: 1600px; }
+  .tool.iso { padding: 12px 16px 24px; }
+  .isomain { display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 30vw, 430px); gap: 14px; align-items: start; }
+  .isomain-l { display: block; position: sticky; top: 0; }
+  .isomain-r { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .isomain .isostage { height: calc(100dvh - 205px); min-height: 420px; }
+  .app.tab-iso .sheetwrap .sheetbox { aspect-ratio: auto; height: min(calc((100vw - 60px) * 0.647), calc(100dvh - 300px)); min-height: 400px; }
+  .app.tab-iso .sheetopt, .app.tab-iso .sheetacts { max-width: 720px; }
+}
