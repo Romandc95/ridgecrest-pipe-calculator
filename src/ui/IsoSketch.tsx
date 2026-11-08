@@ -6,7 +6,7 @@ import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
@@ -987,8 +987,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         under.push(<polygon key={'h' + i} points={`${a.join(',')} ${c.join(',')} ${b.join(',')}`} fill={`url(#${hatch})`} className="iso-hatch" />);
         under.push(<polyline key={'o' + i} points={`${a.join(',')} ${c.join(',')} ${b.join(',')}`} className="iso-off" />);
         if (opts.dims && measured) {
-          under.push(label('l1' + i, a, c, formatFtIn(Math.abs(tv[axes[0]]), prefs), 'iso-legdim', 9));
-          under.push(label('l2' + i, c, b, formatFtIn(Math.abs(tv[axes[1]]), prefs), 'iso-legdim', 9));
+          under.push(label('l1' + i, a, c, `${formatFtIn(Math.abs(tv[axes[0]]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
+          under.push(label('l2' + i, c, b, `${formatFtIn(Math.abs(tv[axes[1]]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
         }
       } else {
         const C1 = add(A3, comp(0)), Hh = add(C1, comp(1));
@@ -998,9 +998,9 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         under.push(<polyline key={'o' + i} points={`${a.join(',')} ${c1.join(',')} ${h.join(',')} ${b.join(',')}`} className="iso-off" />);
         under.push(<line key={'oh' + i} x1={a[0]} y1={a[1]} x2={h[0]} y2={h[1]} className="iso-off" />);
         if (opts.dims && measured) {
-          under.push(label('l1' + i, a, c1, formatFtIn(Math.abs(tv[0]), prefs), 'iso-legdim', 9));
-          under.push(label('l2' + i, c1, h, formatFtIn(Math.abs(tv[1]), prefs), 'iso-legdim', 9));
-          under.push(label('l3' + i, h, b, formatFtIn(Math.abs(tv[2]), prefs), 'iso-legdim', 9));
+          under.push(label('l1' + i, a, c1, `${formatFtIn(Math.abs(tv[0]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
+          under.push(label('l2' + i, c1, h, `${formatFtIn(Math.abs(tv[1]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
+          under.push(label('l3' + i, h, b, `${formatFtIn(Math.abs(tv[2]), prefs)} ${runRef(d, i)}`, 'iso-legdim', 9));
         }
       }
     }
@@ -1037,17 +1037,15 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         // the line is broken into spools by its fittings: dimension each piece (C-F, F-F, F-C) and show the overall C-C on the other side
         const tr = runLength(r) || 1;
         const at = (x: number): [number, number] => [a[0] + (b[0] - a[0]) * (x / tr), a[1] + (b[1] - a[1]) * (x / tr)];
-        let dnx = -uy, dny = ux; if (dny > 0 || (Math.abs(dny) < 1e-6 && dnx > 0)) { dnx = -dnx; dny = -dny; }
         segs.forEach((g, k) => {
           const p1 = at(g.a), p2 = at(g.b);
           const lb = label('sg' + i + '-' + k, p1, p2, `${g.known ? '' : '≈'}${formatFtIn(Math.max(0, g.len), prefs)} ${g.kind}`, 'iso-dim seg' + (g.known ? '' : ' unk'), 19);
           if (lb) els.push(lb);
-          for (const q of k === 0 ? [p1, p2] : [p2]) els.push(<line key={`tk${i}-${k}-${q[0].toFixed(0)}`} className="iso-dimtick" x1={q[0] + dnx * 4} y1={q[1] + dny * 4} x2={q[0] + dnx * 25} y2={q[1] + dny * 25} />);
         });
-        const lb = label('d' + i, a, b, `${formatFtIn(runLength(r), prefs)} ${axes.length > 1 ? 'TRAV' : 'C-C'}`, 'iso-dimsub', -13);
+        const lb = label('d' + i, a, b, `${formatFtIn(runLength(r), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`, 'iso-dimsub', -13);
         if (lb) els.push(lb);
       } else if (measured) {
-        const txt = formatFtIn(runLength(r), prefs) + (axes.length > 1 ? ' TRAV' : '');
+        const txt = `${formatFtIn(runLength(r), prefs)} ${axes.length > 1 ? 'TRAV ' : ''}${runRef(d, i)}`;
         const lb = label('d' + i, a, b, txt, 'iso-dim', items.length ? 20 : 11);
         if (lb) els.push(lb);
       } else if (!exportMode && L > 22) {
@@ -1161,7 +1159,7 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
       <div className="row-between"><b>Line {i + 1}: {describeRun(r)}</b><button className="chip" onClick={onClose}>Done</button></div>
       {axes.length === 1 ? (
         <Grid>
-          <Field label="Length (C-C)" value={txt[axes[0]] ?? ''} onChange={(v) => apply({ ...txt, [axes[0]]: v })} parse={parseLength} placeholder="add dimension" />
+          <Field label={`Length (${runRef(d, i)})`} value={txt[axes[0]] ?? ''} onChange={(v) => apply({ ...txt, [axes[0]]: v })} parse={parseLength} placeholder="add dimension" />
           <Select label="Direction" value={curDir!} options={(['N', 'S', 'E', 'W', 'U', 'D'] as const).map((k) => [k, DIRS[k].label])} onChange={turn} />
         </Grid>
       ) : (
@@ -1293,26 +1291,26 @@ function CutPanel({ d, cuts, prefs, onShare }: { d: IsoDrawing; cuts: ReturnType
   const L = (i: number) => String.fromCharCode(97 + i);
   const missing = cuts.filter((c) => Number.isNaN(c.travel)).length;
   const text = [`${d.name} — ${d.nps}" pipe, gap ${formatFracIn(d.gap, prefs)}`,
-    ...cuts.map((c) => `Line ${c.run + 1} ${describeRun(d.runs[c.run])}: ${Number.isNaN(c.travel) ? 'NO DIMENSION' : `C-C ${formatFtIn(c.travel, prefs)}, ${c.pieces ? c.pieces.map((q, k) => `${c.run + 1}${L(k)} ${q.from}→${q.to} CUT ${Number.isNaN(q.cut) ? '?' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE'}`).join(', ') : `CUT ${c.ok ? formatFtIn(c.cut, prefs) : 'IMPOSSIBLE'}`}`}${c.note.length && !Number.isNaN(c.travel) ? ' (' + c.note.join('; ') + ')' : ''}`),
+    ...cuts.map((c) => `Line ${c.run + 1} ${describeRun(d.runs[c.run])}: ${Number.isNaN(c.travel) ? 'NO DIMENSION' : `${runRef(d, c.run)} ${formatFtIn(c.travel, prefs)}, ${c.pieces ? c.pieces.map((q, k) => `${c.run + 1}${L(k)} ${q.from}→${q.to} CUT ${Number.isNaN(q.cut) ? '?' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE'}`).join(', ') : `CUT ${c.ok ? formatFtIn(c.cut, prefs) : 'IMPOSSIBLE'}`}`}${c.note.length && !Number.isNaN(c.travel) ? ' (' + c.note.join('; ') + ')' : ''}`),
     `Total pipe ${formatFtIn(total, prefs)}${missing ? ` (+ ${missing} undimensioned)` : ''}`].join('\n');
   return (
     <Card>
       <h4>Cut list · {d.nps}" · gap {formatFracIn(d.gap, prefs)}</h4>
       <div className="tablewrap">
         <table className="dtable">
-          <thead><tr><th>Line</th><th>C-C</th><th>Deduct</th><th>Cut</th></tr></thead>
+          <thead><tr><th>Line</th><th>Length</th><th>Deduct</th><th>Cut</th></tr></thead>
           <tbody>{cuts.map((c) => Number.isNaN(c.travel) ? (
             <tr key={c.run} className="todo"><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}</small></th><td colSpan={3}>needs dimension</td></tr>
           ) : (
             c.pieces ? (
               <React.Fragment key={c.run}>
-                <tr><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}</small></th><td>{formatFtIn(c.travel, prefs)}</td><td colSpan={2} className="muted">{c.pieces.length} spools</td></tr>
+                <tr><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}</small></th><td>{formatFtIn(c.travel, prefs)} {runRef(d, c.run)}</td><td colSpan={2} className="muted">{c.pieces.length} spools</td></tr>
                 {c.pieces.map((q, k) => (
                   <tr key={k} className={'piece' + (Number.isNaN(q.cut) ? ' todo' : q.ok ? '' : ' bad')}><th>{c.run + 1}{L(k)}<small> {q.from} → {q.to}</small></th><td colSpan={2}></td><td><b>{Number.isNaN(q.cut) ? 'need length' : q.ok ? formatFtIn(q.cut, prefs) : 'impossible'}</b></td></tr>
                 ))}
               </React.Fragment>
             ) : (
-            <tr key={c.run} className={c.ok ? '' : 'bad'}><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}</small></th><td>{formatFtIn(c.travel, prefs)}</td><td>{formatFracIn(c.to1 + c.to2 + c.gaps, prefs)}</td><td><b>{c.ok ? formatFtIn(c.cut, prefs) : 'impossible'}</b></td></tr>
+            <tr key={c.run} className={c.ok ? '' : 'bad'}><th>{c.run + 1}<small> {describeRun(d.runs[c.run])}</small></th><td>{formatFtIn(c.travel, prefs)} {runRef(d, c.run)}</td><td>{formatFracIn(c.to1 + c.to2 + c.gaps, prefs)}</td><td><b>{c.ok ? formatFtIn(c.cut, prefs) : 'impossible'}</b></td></tr>
             )
           ))}</tbody>
         </table>
@@ -1320,7 +1318,7 @@ function CutPanel({ d, cuts, prefs, onShare }: { d: IsoDrawing; cuts: ReturnType
       {cuts.some((c) => c.note.length && !Number.isNaN(c.travel)) && <ul className="fhint">{cuts.filter((c) => c.note.length && !Number.isNaN(c.travel)).map((c) => <li key={c.run}>Line {c.run + 1}: {c.note.join('; ')}</li>)}</ul>}
       <p><b>Total pipe: {formatFtIn(total, prefs)}</b>{missing ? <span className="muted"> · {missing} line{missing > 1 ? 's' : ''} still need a dimension</span> : null}</p>
       <p className="fhint">Deduct = fitting take-outs + root gaps.</p>
-      <Msg kind="info">Dimensions are centerline, fitting center to fitting center. Take-outs use ASME B16.9 butt-weld fittings in {d.nps}" (long-radius elbows and straight tees unless you picked another fitting at a point). Valves and fittings on a line split it into spools: each is cut between the fitting faces, less its length (B16.10 for flanged valves at the flange class in Setup, or your length) and adjusted for the joint — root gap, WN flange + gasket, thread makeup or socket engagement. Tap a fitting to enter your manufacturer's length.</Msg>
+      <Msg kind="info">Each length says what it measures to: C = fitting center, F = flange face, E = pipe or fitting end. Take-outs use ASME B16.9 butt-weld fittings in {d.nps}" (long-radius elbows and straight tees unless you picked another fitting at a point). Valves and fittings on a line split it into spools: each is cut between the fitting faces, less its length (B16.10 for flanged valves at the flange class in Setup, or your length) and adjusted for the joint — root gap, WN flange + gasket, thread makeup or socket engagement. Tap a fitting to enter your manufacturer's length.</Msg>
       <button className="btn" onClick={() => onShare(text)}>Copy / share cut list</button>
     </Card>
   );

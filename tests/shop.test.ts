@@ -179,12 +179,15 @@ describe('ISO route', () => {
     d.endLen = { 1: 3 };
     expect(cutList(d)[0].to2).toBe(3);
   });
-  it('a 10 ft line with a flanged valve in the middle shows two C-F spools on the drawing', () => {
+  it('a 10 ft line with a flanged valve in the middle shows two spools, each named by what it measures to', () => {
     const d = base(); d.runs = [{ ...run(0, 120, 0, 0), sketch: true, meas: [120, 0, 0], items: [{ id: 'v', type: 'gate', t: 0.5, conn: 'flg' }] }];
     const v = valveFaceToFace(150, 'gate', '4')!;
     const sg = runSegments(d, 0)!;
     expect(sg.length).toBe(2);
-    expect(sg[0].kind).toBe('C-F'); expect(sg[1].kind).toBe('F-C');
+    expect(sg[0].kind).toBe('E-F'); expect(sg[1].kind).toBe('F-E'); // open pipe ends each side of a flanged valve
+    const e = { ...d, runs: [{ ...run(0, 24, 0, 0) }, d.runs[0] ], } as IsoDrawing; e.runs[1] = { ...d.runs[0], from: 1 }; e.runs.push(run(2, 0, 24, 0));
+    expect(runSegments(e, 1)![0].kind).toBe('E-F');  // straight joint at the start: pipe end
+    expect(runSegments(e, 1)![1].kind).toBe('F-C');  // elbow at the end: center
     expect(sg[0].len).toBeCloseTo(60 - v / 2, 9); expect(sg[1].len).toBeCloseTo(60 - v / 2, 9);
     d.runs[0].items![0].at = 40; // valve center moved to 3'-4" from the start
     expect(runSegments(d, 0)![0].len).toBeCloseTo(40 - v / 2, 9);

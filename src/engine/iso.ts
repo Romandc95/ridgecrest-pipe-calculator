@@ -358,7 +358,20 @@ export function itemLength(d: IsoDrawing, it: LineItem): { len: number | null; s
 }
 
 /** One piece of a dimensioned line between its end points and the faces of the fittings on it (positions in inches from the start). */
-export interface Segment { a: number; b: number; len: number; kind: 'C-C' | 'C-F' | 'F-F' | 'F-C'; known: boolean; item?: string }
+export interface Segment { a: number; b: number; len: number; kind: string; known: boolean; item?: string }
+/** What a dimension measures to: C = fitting center, F = flange / flanged face, E = end (pipe end, cap, threaded, welded …). */
+export type Ref = 'C' | 'F' | 'E';
+export function nodeRef(d: IsoDrawing, node: number): Ref {
+  const k = nodeKind(d, node).kind;
+  if (k === 'elbow' || k === 'tee' || k === 'cross' || k === 'multi') return 'C';
+  if (k === 'straight') return 'E';
+  const end = d.ends[node] ?? 'open';
+  return end === 'flange' || end === 'blind' || end === 'nozzle' ? 'F' : 'E';
+}
+/** Which face of a line fitting the spools measure to. */
+export const itemRef = (it: LineItem): Ref => (it.type !== 'flange' && it.type !== 'orifice' && it.type !== 'spool' && it.conn === 'flg' ? 'F' : 'E');
+/** The reference pair for a whole line, e.g. "C-C", "C-F", "E-E". */
+export const runRef = (d: IsoDrawing, i: number) => `${nodeRef(d, d.runs[i].from)}-${nodeRef(d, i + 1)}`;
 /** Where an item's center is along its line (inches from the start point). */
 export const itemPos = (r: Run, it: LineItem) => it.at ?? it.t * runLength(r);
 /**
@@ -372,14 +385,14 @@ export function runSegments(d: IsoDrawing, i: number): Segment[] | null {
   if (!items.length) return null;
   const travel = runLength(r);
   const segs: Segment[] = [];
-  let prev = 0, prevKnown = true, first = true;
+  let prev = 0, prevKnown = true, prevRef: Ref = nodeRef(d, r.from);
   for (const it of items) {
     const L = itemLength(d, it).len;
-    const pos = itemPos(r, it), half = (L ?? 0) / 2;
-    segs.push({ a: prev, b: pos - half, len: pos - half - prev, kind: first ? 'C-F' : 'F-F', known: prevKnown && L !== null, item: it.id });
-    prev = pos + half; prevKnown = L !== null; first = false;
+    const pos = itemPos(r, it), half = (L ?? 0) / 2, ref = itemRef(it);
+    segs.push({ a: prev, b: pos - half, len: pos - half - prev, kind: `${prevRef}-${ref}`, known: prevKnown && L !== null, item: it.id });
+    prev = pos + half; prevKnown = L !== null; prevRef = ref;
   }
-  segs.push({ a: prev, b: travel, len: travel - prev, kind: 'F-C', known: prevKnown });
+  segs.push({ a: prev, b: travel, len: travel - prev, kind: `${prevRef}-${nodeRef(d, i + 1)}`, known: prevKnown });
   return segs;
 }
 
