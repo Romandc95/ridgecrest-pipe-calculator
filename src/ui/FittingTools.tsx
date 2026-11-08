@@ -3,6 +3,7 @@ import { Field, Results, Row, Msg, Formula, ToolActions, Segmented, Select, useT
 import { TrimDiagram } from './diagrams';
 import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { elbowTakeout, B169, ELBOW_ORDER, ELBOW_LABEL, ElbowType, arcs, idealTakeout, trimElbow, steelOD, B169_SOURCE } from '../engine/fittings';
+import { NPS_SORTED } from '../engine/fittings';
 import { CalcError } from '../engine/units';
 import { CutSection, CUT_DEFAULTS } from './LayoutTools';
 import { FitToFit } from './FitToFit';
@@ -16,7 +17,7 @@ const val = <T,>(fn: (s: string) => T, s: string): T | undefined => {
 function attempt<T>(f: () => T): { ok: true; v: T } | { ok: false; err: string } {
   try { return { ok: true, v: f() }; } catch (e) { return { ok: false, err: (e as Error).message }; }
 }
-const NPS_OPTS: Array<[string, string]> = Object.keys(B169).map((k) => [k, `${k}" NPS`]);
+const NPS_OPTS: Array<[string, string]> = NPS_SORTED.map((k) => [k, `${k}" NPS`]);
 const EL_OPTS: Array<[string, string]> = ELBOW_ORDER.map((e) => [e, `${e} — ${ELBOW_LABEL[e]}`]);
 
 export function FittingTools() {

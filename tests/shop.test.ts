@@ -333,3 +333,13 @@ describe('ISO joined line ends', () => {
     expect(nodeKind(e, s.node).kind).toBe('tee');
   });
 });
+
+describe('ISO pipe letters follow the pipe', () => {
+  it('a valve added later to the first line keeps A, B before the next line', async () => {
+    const { pipeOrder } = await import('../src/engine/iso');
+    const run = (from: number, v: [number, number, number], id: string): Run => ({ id, from, dx: v[0], dy: v[1], dz: v[2], inline: 'none', sketch: true });
+    const d: IsoDrawing = { ...newDrawing('t', 'x'), runs: [run(0, [48, 0, 0], 'a'), run(1, [0, 48, 0], 'b')] };
+    const s = splitRun(d, 0, 0.5, 'c'); // split line 1: its first half is appended as run 2
+    expect(pipeOrder(s.d)).toEqual([2, 0, 1]);
+  });
+});

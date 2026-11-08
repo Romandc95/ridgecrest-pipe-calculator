@@ -1,3 +1,4 @@
+import { npsNumber } from '../engine/fittings';
 import React from 'react';
 import { Field, Results, Row, Msg, Formula, ToolActions, Segmented, Select, useTool, Card, Grid, useApp } from './components';
 import { parseLength, parseMeasurement, tryParse } from '../engine/parse';
@@ -31,7 +32,7 @@ function useDim() {
 }
 const SRC = ({ children }: { children: React.ReactNode }) => <p className="src">Source: {children}</p>;
 const CLASS_OPTS = (cs: readonly number[]): Array<[string, string]> => cs.map((c) => [String(c), `Class ${c}`]);
-const NPS_OPTS = (ns: readonly string[]): Array<[string, string]> => ns.map((n) => [n, `${n}"`]);
+const NPS_OPTS = (ns: readonly string[]): Array<[string, string]> => [...ns].sort((a, b) => (npsNumber(a) ?? 0) - (npsNumber(b) ?? 0)).map((n) => [n, `${n}"`]);
 
 export function DataTools() {
   const [t, set] = useTool('data', { tab: 'flange' });

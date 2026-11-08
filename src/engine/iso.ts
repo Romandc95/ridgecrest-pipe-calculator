@@ -148,6 +148,26 @@ export function sized(d: IsoDrawing, size: string | undefined): IsoDrawing {
   const sp = specFor(d, size);
   return { ...d, nps: size, conn: sp.conn, cls: sp.cls as IsoDrawing['cls'], gap: sp.gap, gasket: sp.gasket, sch: sp.sch };
 }
+/**
+ * Lines in the order they are followed along the pipe, the way it was drawn: from the start point down each line
+ * (a line split by a fitting keeps its pieces in order), branches after the line they come off, then any separate lines.
+ */
+export function pipeOrder(d: IsoDrawing): number[] {
+  const out: number[] = []; const seen = new Set<number>();
+  const kids = (n: number) => d.runs.map((r, i) => [r, i] as const).filter(([r, i]) => r.from === n && !seen.has(i));
+  const walk = (n: number) => {
+    // carry straight on first (the line it was drawn along), then branches in the order drawn
+    const ks = kids(n);
+    const inRun = n > 0 ? d.runs[n - 1] : null;
+    const inDir = inRun && !inRun.move ? runVec(inRun) : null;
+    const straight = (r: Run) => { if (!inDir) return 0; const v = runVec(r); const L = len(v) * len(inDir) || 1; return dot(v, inDir) / L > 0.9999 ? -1 : 0; };
+    ks.sort((a, b) => straight(a[0]) - straight(b[0]) || a[1] - b[1]);
+    for (const [r, i] of ks) { if (seen.has(i)) continue; seen.add(i); if (!r.move) out.push(i); walk(i + 1); }
+  };
+  walk(0);
+  d.runs.forEach((r, i) => { if (!seen.has(i) && !r.move) { seen.add(i); out.push(i); } });
+  return out;
+}
 /** Pipe sizes on the drawing, main size first. */
 export function drawingSizes(d: IsoDrawing): string[] {
   const sz = runSizes(d).filter((_, i) => !d.runs[i]?.move);

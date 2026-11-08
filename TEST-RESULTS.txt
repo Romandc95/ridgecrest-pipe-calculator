@@ -193,6 +193,7 @@
 ✓ drawing notation in length boxes › 5'-7 5/8" reads as 67-5/8"
 ✓ ISO joined line ends › a loop closed back onto the start point makes it an elbow, counted once
 ✓ ISO joined line ends › a new line tied into the middle of a line makes a tee there
+✓ ISO pipe letters follow the pipe › a valve added later to the first line keeps A, B before the next line
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -246,4 +247,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-247 passed, 0 failed, 247 total
+248 passed, 0 failed, 248 total

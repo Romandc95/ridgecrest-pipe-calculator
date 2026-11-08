@@ -5,6 +5,7 @@ import { SimpleOffsetDiagram, RollingOffsetDiagram, CutbackDiagram, CombinationD
 import { parseLength, parseAngle, parseMeasurement, tryParse } from '../engine/parse';
 import { solveSimpleOffset, solveRollingOffset, parallelCutback, combinationOffset, AXES, Axis } from '../engine/layout';
 import { elbowTakeout, B169, ELBOW_ORDER, ELBOW_LABEL, ElbowType, cutLength } from '../engine/fittings';
+import { NPS_SORTED } from '../engine/fittings';
 import { CalcError } from '../engine/units';
 
 const val = <T,>(fn: (s: string) => T, s: string): T | undefined => {
@@ -114,7 +115,7 @@ function cutSummary(inp: Record<string, string>, travel: number | undefined, the
   return `\nCut length ${f.len(r.v.cut)} = L ${f.len(travel)} − TO₁ ${f.len(r.v.e1.to)} − gap ${f.len(r.v.g1)} − TO₂ ${f.len(r.v.e2.to)} − gap ${f.len(r.v.g2)}`;
 }
 
-const NPS_OPTS: Array<[string, string]> = Object.keys(B169).map((k) => [k, `${k}" NPS`]);
+const NPS_OPTS: Array<[string, string]> = NPS_SORTED.map((k) => [k, `${k}" NPS`]);
 const EL_OPTS: Array<[string, string]> = ELBOW_ORDER.map((e) => [e, `${e} — ${ELBOW_LABEL[e]}`]);
 
 export function CutSection({ inp, set, travel, theta }: { inp: Record<string, string>; set: (k: string, v: string) => void; travel: number; theta: number }) {

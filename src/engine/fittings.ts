@@ -111,3 +111,6 @@ export function trimElbow(R: number, od: number, retainedDeg: number): TrimResul
 }
 
 export function npsNumber(nps: string) { return NPS_VALUE[nps]; }
+
+/** Pipe sizes in B16.9, smallest to largest (object keys alone put "2", "3" … ahead of "1/2", "1-1/4"). */
+export const NPS_SORTED: string[] = Object.keys(B169).sort((a, b) => (npsNumber(a) ?? 0) - (npsNumber(b) ?? 0));

@@ -4,6 +4,7 @@ import { parseLength, parseAngle, parseMeasurement, tryParse } from '../engine/p
 import { miter, cope, thermalExpansion, EXPANSION_COEFF, EXPANSION_SOURCE } from '../engine/shop';
 import { CalcError } from '../engine/units';
 import { steelOD, B169 } from '../engine/fittings';
+import { NPS_SORTED } from '../engine/fittings';
 import { formatFracIn, formatNumber } from '../engine/format';
 
 const val = <T,>(fn: (s: string) => T, s: string): T | undefined => {
@@ -15,7 +16,7 @@ const val = <T,>(fn: (s: string) => T, s: string): T | undefined => {
 function attempt<T>(f: () => T): { ok: true; v: T } | { ok: false; err: string } {
   try { return { ok: true, v: f() }; } catch (e) { return { ok: false, err: (e as Error).message }; }
 }
-const NPS = Object.keys(B169);
+const NPS = NPS_SORTED;
 
 /** Pipe OD from a nominal size picker or a typed actual OD. */
 function OdPicker({ label, inp, set, k }: { label: string; inp: Record<string, string>; set: (k: string, v: string) => void; k: string }) {

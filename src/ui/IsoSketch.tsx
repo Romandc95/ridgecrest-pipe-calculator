@@ -17,11 +17,12 @@ function ftHint(text: string, prefs: Prefs): string | undefined {
 }
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, pipeOrder, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
 import { B169, npsNumber } from '../engine/fittings';
+import { NPS_SORTED } from '../engine/fittings';
 import { FLANGE_CLASSES, FlangeClass } from '../engine/refdata';
 import { pipeProps, DATASETS, Material } from '../engine/pipedata';
 const npsVal = (n: string) => npsNumber(n) ?? 0;
@@ -403,7 +404,7 @@ export function IsoSketch() {
   const closeText = (id: string) => { const t = d.texts?.find((q) => q.id === id); if (t && !t.text.trim()) setText(id, null); setSel(null); };
   const openDrawing = (id: string) => { setStore((s) => ({ ...s, current: id })); setSel(null); setArmed(null); setCursor(0); setOffOpen(false); setFitTick((t) => t + 1); };
   const newDrawingNow = () => { const nd = newDrawing(`Iso ${store.drawings.length + 1}`, uid()); setStore((s) => ({ drawings: [nd, ...s.drawings], current: nd.id })); openDrawing(nd.id); toast('New drawing'); };
-  const calloutData = (() => { if (opts.callouts === false) return undefined; const sd = sheetData(d, prefs); return { items: sd.items, spools: sd.spools }; })();
+  const calloutData = (() => { if (opts.callouts === false) return undefined; const sd = sheetData(d, prefs); return { spools: sd.spools }; })(); // working drawing: pipe letters only (item numbers go on the completed sheet)
   const welds = opts.weldmap ? weldList(d) : [];
   const weldSel = sel?.kind === 'weld' ? welds.findIndex((w) => w.key === sel.key) : -1;
   const textSel = sel?.kind === 'text' ? d.texts?.find((t) => t.id === sel.id) ?? null : null;
@@ -608,7 +609,7 @@ function PointMenu({ d, n, prefs, act }: { d: IsoDrawing; n: number; prefs: Pref
   const [lenT, setLenT] = useState(own != null ? formatFracIn(own, prefs) : '');
   const canMove = pk !== 'elbow';
   const delLabel = pk === 'tee' ? 'Delete tee + branch' : pk === 'elbow' ? 'Reset to LR elbow' : pk === 'end' ? 'Remove (open end)' : 'Delete, join line';
-  const sizeOpts = Object.keys(B169).filter((z) => z !== lineSize && (pk === 'inline' || npsVal(z) < npsVal(lineSize)));
+  const sizeOpts = NPS_SORTED.filter((z) => z !== lineSize && (pk === 'inline' || npsVal(z) < npsVal(lineSize)));
   return (
     <div className="itemmenu-in">
       <div className="row-between"><b>{c && <PaletteIcon item={c} />}{c?.label ?? cur}<span className="muted small"> · {CONN_LABEL[conn]}{hasSize && curSize ? ` · ${lineSize}"×${curSize}"` : ''}</span></b><button className="chip" aria-label="Close" onClick={act.close}>✕</button></div>
@@ -876,7 +877,7 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
       </div>
       <div className="isotoggles">
         {(['dims', 'welds', 'labels', 'callouts', 'scaled', 'weldmap'] as const).map((k) => (
-          <label key={k} className={'chip' + (k === 'weldmap' && opts.weldmap ? ' on' : '')}><input type="checkbox" checked={k === 'callouts' ? opts.callouts !== false : !!opts[k]} onChange={(e) => setOpts({ [k]: e.target.checked })} /> {({ dims: 'Dimensions', welds: 'Joints', labels: 'Point #', callouts: 'Pc / item #', scaled: 'To scale', weldmap: 'Weld map' })[k]}</label>
+          <label key={k} className={'chip' + (k === 'weldmap' && opts.weldmap ? ' on' : '')}><input type="checkbox" checked={k === 'callouts' ? opts.callouts !== false : !!opts[k]} onChange={(e) => setOpts({ [k]: e.target.checked })} /> {({ dims: 'Dimensions', welds: 'Joints', labels: 'Point #', callouts: 'Pipe letters', scaled: 'To scale', weldmap: 'Weld map' })[k]}</label>
         ))}
         <button className="chip" onClick={undo} disabled={!canUndo}>‹ Back</button>
         {canRedo && <button className="chip" onClick={redo}>Forward ›</button>}
@@ -1508,10 +1509,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     const selected = sel?.kind === 'run' && sel.id === i;
     const measured = isMeasured(r);
     const tv = runVec(r);
-    if (r.move) { // new start point: faint dotted link, no pipe
-      if (!exportMode) els.push(<line key={'mv' + i} data-run={i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className={'iso-move' + (selected ? ' sel' : '')} />);
-      return;
-    }
+    if (r.move) return; // a new start point: nothing drawn — the new line stands on its own
     const axes = [0, 1, 2].filter((k) => nz(v[k]));
 
     // offsets: dashed component legs + hatched triangle(s), each leg dimensioned
@@ -1639,9 +1637,12 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         if (isSelN && !exportMode) els.push(<circle key={'ih' + n} className="iso-itemsel" cx={p[0]} cy={p[1]} r={sz * 1.9} />);
         els.push(<g key={'inl' + n} className="iso-item">{lineSymbol(it.type, p, u, sz, 'inl' + n, stemS)}</g>);
         if (isReducer(it.type) && it.size && opts.dims) callouts.push({ key: 'rs' + n, text: `${sizes[n - 1] ?? d.nps}"×${it.size}"`, at: [p[0], p[1]], dir: stemS ?? [0, -1], dist: 13 });
-        if (opts.welds && !['spool', 'flange', 'orifice', 'spectacle', 'union', 'coupling', 'dielectric', 'swage'].includes(it.type)) {
-          const off = sz * 1.15 + 4;
-          for (const sgn of [-1, 1]) els.push(...jointMark(it.conn ?? 'bw', [p[0] + u[0] * off * sgn, p[1] + u[1] * off * sgn], u, `ij${n}${sgn}`));
+        if (opts.welds && it.type !== 'spool' && it.type !== 'swage') {
+          // how the fitting joins the pipe on each side: a flange pair / orifice flanges are welded (weld neck) unless set to another joint
+          const pair = ['flange', 'orifice', 'spectacle'].includes(it.type);
+          const jc: Conn = pair && (it.conn ?? 'bw') === 'flg' ? 'bw' : (it.conn ?? 'bw');
+          const off = pair ? 6.5 : ['union', 'coupling', 'dielectric'].includes(it.type) ? sz * 0.9 + 3 : sz * 1.15 + 4;
+          for (const sgn of [-1, 1]) els.push(...jointMark(jc, [p[0] + u[0] * off * sgn, p[1] + u[1] * off * sgn], u, `ij${n}${sgn}`));
         }
       } else if (opts.welds) els.push(...jointMark(connAtSized(d, sizes, n), p, legScreen[0] ?? [1, 0], 'sw' + n));
     } else {
@@ -1994,7 +1995,7 @@ function NodeEditor({ d, node, update, onClose, prefs }: { d: IsoDrawing; node: 
       )}
       {(k.kind === 'tee' || k.kind === 'cross') && ['redtee', 'weldolet', 'sockolet', 'threadolet', 'stubin'].includes(d.fits?.[node] ?? '') && (
         <Select label={`Branch size (optional) — run is ${d.nps}"`} value={d.fitSize?.[node] ?? ''}
-          options={[['', 'Not set'], ...Object.keys(B169).filter((n) => npsVal(n) < npsVal(d.nps)).map((n) => [n, `${d.nps}" × ${n}"`] as [string, string])]}
+          options={[['', 'Not set'], ...NPS_SORTED.filter((n) => npsVal(n) < npsVal(d.nps)).map((n) => [n, `${d.nps}" × ${n}"`] as [string, string])]}
           onChange={(v) => update((x) => { const fs = { ...(x.fitSize ?? {}) }; if (v) fs[node] = v; else delete fs[node]; return { ...x, fitSize: fs }; })} />
       )}
       {k.kind !== 'multi' && !(k.kind === 'start-end' && !nodeLegs(d, node).length) && (
@@ -2038,7 +2039,7 @@ function CutPanel({ d, cuts, prefs, onShare }: { d: IsoDrawing; cuts: ReturnType
         return <>
           <div className="tablewrap">
             <table className="dtable">
-              <thead><tr><th>Pc</th><th>Line</th><th>Length</th><th>Cut</th></tr></thead>
+              <thead><tr><th>Pc</th><th>Run · size</th><th>Length</th><th>Cut</th></tr></thead>
               <tbody>{sd.cutRows.map((r) => {
                 const bad = /IMPOSSIBLE/.test(r[3]), todo = r[2] === 'no dimension' || /need/.test(r[3]);
                 return <tr key={r[0]} className={todo ? 'todo' : bad ? 'bad' : ''}><th>{r[0]}</th><td><small>{r[1]}</small></td><td>{r[2] === 'no dimension' ? 'needs dimension' : r[2]}</td><td><b>{r[3] === 'IMPOSSIBLE' ? 'impossible' : r[3]}</b></td></tr>;
@@ -2132,7 +2133,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
   return (
     <Card>
       <Grid>
-        <Select label="Main pipe size" value={d.nps} options={Object.keys(B169).map((n) => [n, `${n}" NPS`])} onChange={(v) => update((x) => ({ ...x, nps: v }))} />
+        <Select label="Main pipe size" value={d.nps} options={NPS_SORTED.map((n) => [n, `${n}" NPS`])} onChange={(v) => update((x) => ({ ...x, nps: v }))} />
       </Grid>
       <p className="fhint">Each pipe size on the drawing has its own schedule, joint, flange class, gasket and weld gap. A size after a reducer starts with the main size's settings until you change them.</p>
       {drawingSizes(d).map((z) => <SizeSettingsCard key={d.id + ':' + z} d={d} size={z} prefs={prefs} update={update} />)}
@@ -2266,12 +2267,13 @@ function svgTable(key: string, x: number, y: number, w: number, hMax: number, ti
 const pieceLetter = (i: number): string => (i < 26 ? String.fromCharCode(65 + i) : pieceLetter(Math.floor(i / 26) - 1) + String.fromCharCode(65 + (i % 26)));
 function sheetData(d: IsoDrawing, prefs: Prefs) {
   const sizes = runSizes(d);
-  const cuts = cutList(d).filter((c) => !c.skip);
+  const all = cutList(d);
+  const cuts = pipeOrder(d).map((i) => all[i]).filter((c) => c && !c.skip); // letters follow the pipe the way it was drawn
   const cutRows: TRow[] = [];
   const spools: Array<{ run: number; t: number; letter: string }> = [];
   let li = 0;
   cuts.forEach((c) => {
-    const what = `L${c.run + 1} ${describeRun(d.runs[c.run])} · ${sizes[c.run]}" Sch ${specFor(d, sizes[c.run]).sch}`;
+    const what = `${describeRun(d.runs[c.run])} · ${sizes[c.run]}" Sch ${specFor(d, sizes[c.run]).sch}`;
     if (c.pieces && !Number.isNaN(c.travel)) {
       const segs = runSegments(d, c.run), tr = runLength(d.runs[c.run]) || 1;
       c.pieces.forEach((q, k) => {
@@ -2366,7 +2368,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
   const cutY = DY + DH + 10;
   const two = cutRows.length > Math.floor((cutH - 34) / 20) - 1 && cutRows.length > 8;
   const half = Math.ceil(cutRows.length / 2);
-  const cutCols = [{ h: 'Pc', w: 0.07 }, { h: 'Line · run · size', w: 0.45 }, { h: 'Length', w: 0.26 }, { h: 'Cut', w: 0.22, r: true }];
+  const cutCols = [{ h: 'Pc', w: 0.07 }, { h: 'Run · size', w: 0.45 }, { h: 'Length', w: 0.26 }, { h: 'Cut', w: 0.22, r: true }];
   return (
     <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" viewBox={vb ?? `0 0 ${SW} ${SH}`} className="isosheet" role="img" aria-label={`${d.name} iso sheet`}>
       <style>{EXPORT_CSS}</style>
