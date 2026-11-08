@@ -9,7 +9,7 @@ import {
   runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
 } from '../engine/iso';
-import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon } from './isoSymbols';
+import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
 import { B169, npsNumber } from '../engine/fittings';
 const npsVal = (n: string) => npsNumber(n) ?? 0;
 
@@ -1025,10 +1025,12 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     const legScreen = legs.map((l) => { const r = d.runs[l.run]; const other = r.from === n ? S[l.run + 1] : S[r.from]; const [ux, uy] = unit(p, other); return [ux, uy] as const; });
     if (k.kind === 'elbow' || k.kind === 'tee' || k.kind === 'cross') {
       const fit = d.fits?.[n];
-      const cn = fit === 'thd90' ? 'thd' : connAt(d, n);
-      if (opts.welds) legScreen.forEach(([ux, uy], j) => els.push(...jointMark(cn, [p[0] + ux * 8, p[1] + uy * 8], [ux, uy], `w${n}-${j}`)));
+      if (opts.welds) legScreen.forEach(([ux, uy], j) => {
+        const jm = legJoint(fit, legScreen, j, connAt(d, n));
+        if (jm) els.push(...jointMark(jm.conn, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy], `w${n}-${j}`));
+      });
       const fs = d.fitSize?.[n];
-      els.push(...nodeSymbol(fit, k.kind, p, legScreen, 'ns' + n, undefined, fs ? `${d.nps}"×${fs}"` : undefined));
+      els.push(...nodeSymbol(fit, k.kind, p, legScreen, 'ns' + n, undefined, fs ? (fit === 'redtee' ? `${d.nps}"×${fs}"` : `${fs}"`) : undefined));
       if (k.kind === 'elbow' && Math.abs(k.angle - 90) > 0.05) els.push(<text key={'ea' + n} className="iso-note" x={p[0] + 7} y={p[1] + 15}>{formatNumber(k.angle, 1)}°</text>);
     } else if (k.kind === 'straight') {
       if (opts.welds) els.push(...jointMark(connAt(d, n), p, legScreen[0] ?? [1, 0], 'sw' + n));
@@ -1181,7 +1183,7 @@ function NodeEditor({ d, node, update, onClose }: { d: IsoDrawing; node: number;
         <Select label="Fitting" value={d.fits?.[node] ?? (k.kind === 'elbow' ? 'lr' : 'tee')} options={CATALOG.filter((c) => c.kind === (k.kind === 'elbow' ? 'elbow' : 'branch')).map((c) => [c.id, c.label])}
           onChange={(v) => update((x) => ({ ...x, fits: { ...(x.fits ?? {}), [node]: v } }))} />
       )}
-      {(k.kind === 'tee' || k.kind === 'cross') && d.fits?.[node] === 'redtee' && (
+      {(k.kind === 'tee' || k.kind === 'cross') && ['redtee', 'weldolet', 'sockolet', 'threadolet', 'stubin'].includes(d.fits?.[node] ?? '') && (
         <Select label={`Branch size (optional) — run is ${d.nps}"`} value={d.fitSize?.[node] ?? ''}
           options={[['', 'Not set'], ...Object.keys(B169).filter((n) => npsVal(n) < npsVal(d.nps)).map((n) => [n, `${d.nps}" × ${n}"`] as [string, string])]}
           onChange={(v) => update((x) => { const fs = { ...(x.fitSize ?? {}) }; if (v) fs[node] = v; else delete fs[node]; return { ...x, fitSize: fs }; })} />
@@ -1284,7 +1286,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
     </Card>
   );
 }
-const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:600 9px sans-serif;fill:#1f7f7a}.iso-legdim{font:600 8px sans-serif;fill:#555}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}`;
+const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:600 9px sans-serif;fill:#1f7f7a}.iso-legdim{font:600 8px sans-serif;fill:#555}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-pipe.nofill{fill:none}`;
 
 async function shareImage(d: IsoDrawing, markup: string, W: number, H: number): Promise<string> {
   const svg = markup.replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);

@@ -78,41 +78,97 @@ export function lineSymbol(type: string, m: V2, u: V2, s: number, key: string): 
 export function nodeSymbol(type: string | undefined, kind: 'elbow' | 'tee' | 'cross', p: V2, legs: V2[], key: string, labelDir?: V2, size?: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   const s = 6;
-  const tri = (u: V2, kk: string) => {
-    const n: V2 = [-u[1], u[0]];
-    const a = [p[0] + u[0] * s * 1.5 + n[0] * s * 0.75, p[1] + u[1] * s * 1.5 + n[1] * s * 0.75], b = [p[0] + u[0] * s * 1.5 - n[0] * s * 0.75, p[1] + u[1] * s * 1.5 - n[1] * s * 0.75];
-    out.push(<polygon key={key + kk} className="iso-sym" points={`${p[0]},${p[1]} ${a.join(',')} ${b.join(',')}`} />);
-  };
-  // direction away from the legs (outside of the bend) for labels and stems
+  const at = (u: V2, a: number, w = 0): [number, number] => [p[0] + u[0] * a - u[1] * w, p[1] + u[1] * a + u[0] * w];
+  const pts = (...q: Array<[number, number]>) => q.map((x) => `${x[0].toFixed(1)},${x[1].toFixed(1)}`).join(' ');
+  /** valve body triangle on a leg, point at the center */
+  const tri = (u: V2, kk: string) => out.push(<polygon key={key + kk} className="iso-sym" points={pts([p[0], p[1]], at(u, s * 1.5, s * 0.75), at(u, s * 1.5, -s * 0.75))} />);
+  // outside of the bend / away from all legs: where labels and stems go
   let bx = 0, by = 0; legs.forEach((l) => { bx -= l[0]; by -= l[1]; });
   const bl = Math.hypot(bx, by);
   const [ox, oy] = labelDir ?? (bl > 0.1 ? [bx / bl, by / bl] : legs.length ? [-legs[0][1], legs[0][0]] : [0, -1]);
-  const label = (t: string) => out.push(<text key={key + 'lb'} className="iso-fit" x={p[0] + ox * 15} y={p[1] + oy * 15 + 3} textAnchor="middle">{t}</text>);
+  const label = (t: string, d = 15) => out.push(<text key={key + 'lb'} className="iso-fit" x={p[0] + ox * d} y={p[1] + oy * d + 3} textAnchor="middle">{t}</text>);
+  // for branches: the leg that isn't straight through (the branch), and a header leg
+  const isHeader = (j: number) => legs.some((m, k) => k !== j && legs[j][0] * m[0] + legs[j][1] * m[1] < -0.98);
+  const branch = legs.find((_, j) => !isHeader(j)) ?? legs[legs.length - 1];
+  const header = legs.find((_, j) => isHeader(j)) ?? legs[0];
+
   if (type === 'anglevalve' || type === 'threeway') {
     legs.forEach((l, j) => tri(l, 't' + j));
-    out.push(<line key={key + 'st'} className="iso-sym" x1={p[0]} y1={p[1]} x2={p[0] + ox * 12} y2={p[1] + oy * 12} />);
+    const st = at([ox, oy], 12), hw1 = [st[0] - oy * 5, st[1] + ox * 5], hw2 = [st[0] + oy * 5, st[1] - ox * 5];
+    out.push(<line key={key + 'st'} className="iso-sym" x1={p[0]} y1={p[1]} x2={st[0]} y2={st[1]} />);
+    out.push(<line key={key + 'hw'} className="iso-sym" x1={hw1[0]} y1={hw1[1]} x2={hw2[0]} y2={hw2[1]} />);
     return out;
   }
-  if (type === 'redtee' && kind !== 'elbow') {
-    // reducing tee: tee body plus a reducer drawn on the branch outlet, narrowing away from the run
-    const branch = legs.filter((l, j) => !legs.some((m, k) => k !== j && l[0] * m[0] + l[1] * m[1] < -0.98));
-    const b = branch[0] ?? legs[legs.length - 1];
-    if (b) {
-      const n: V2 = [-b[1], b[0]];
-      const P = (a: number, w: number) => `${(p[0] + b[0] * a + n[0] * w).toFixed(1)},${(p[1] + b[1] * a + n[1] * w).toFixed(1)}`;
-      out.push(<polygon key={key + 'rt'} className="iso-sym" points={`${P(3, 5)} ${P(13, 2.6)} ${P(13, -2.6)} ${P(3, -5)}`} />);
+  if (kind === 'elbow' && legs.length === 2) {
+    const [u1, u2] = legs;
+    if (type === 'r3' || type === 'r5') {
+      // long-radius bend: round the corner off
+      const r = type === 'r3' ? 11 : 15;
+      const a1 = at(u1, r), a2 = at(u2, r);
+      out.push(<polyline key={key + 'gap'} className="iso-gap nofill" points={pts(a1, [p[0], p[1]], a2)} />);
+      out.push(<path key={key + 'arc'} className="iso-pipe nofill" d={`M${a1[0].toFixed(1)},${a1[1].toFixed(1)} Q${p[0].toFixed(1)},${p[1].toFixed(1)} ${a2[0].toFixed(1)},${a2[1].toFixed(1)}`} />);
+      label(type === 'r3' ? '3R' : '5R', 12);
+      return out;
     }
-    out.push(<circle key={key + 'd'} className="iso-symfill" cx={p[0]} cy={p[1]} r={3} />);
-    label(size ? `RED TEE ${size}` : 'RED TEE');
+    if (type === 'miter') {
+      // miter joint across the corner, square to the bisector
+      const m = [u1[0] + u2[0], u1[1] + u2[1]], ml = Math.hypot(m[0], m[1]) || 1;
+      const q: V2 = [-m[1] / ml, m[0] / ml];
+      const c = [p[0] + (m[0] / ml) * 3, p[1] + (m[1] / ml) * 3];
+      out.push(<line key={key + 'mj'} className="iso-sym thick" x1={c[0] + q[0] * 6} y1={c[1] + q[1] * 6} x2={c[0] - q[0] * 6} y2={c[1] - q[1] * 6} />);
+      label('MITER');
+      return out;
+    }
+    const L: Record<string, string> = { sr: 'SR', thd90: 'THD' };
+    if (type && L[type]) label(L[type]);
     return out;
   }
-  if (kind !== 'elbow' && (!type || type === 'tee')) out.push(<circle key={key + 'd'} className="iso-symfill" cx={p[0]} cy={p[1]} r={3} />);
-  const SHORT: Record<string, string> = { sr: 'SR', r3: '3R', r5: '5R', miter: 'MITER', thd90: 'THD', redtee: 'RED TEE', weldolet: 'WOL', sockolet: 'SOL', threadolet: 'TOL', stubin: 'STUB-IN', lateral: 'LAT' };
-  if (type && SHORT[type]) {
-    if (kind !== 'elbow') out.push(<circle key={key + 'o'} className="iso-symball" cx={p[0]} cy={p[1]} r={3.2} />);
-    label(SHORT[type]);
+  if (kind === 'elbow') return out;
+  // ---- branches
+  switch (type) {
+    case 'redtee': {
+      // reducing tee: tee body plus a reducer on the branch outlet, narrowing away from the run
+      out.push(<polygon key={key + 'rt'} className="iso-sym" points={pts(at(branch, 3, 5), at(branch, 13, 2.6), at(branch, 13, -2.6), at(branch, 3, -5))} />);
+      out.push(<circle key={key + 'd'} className="iso-symfill" cx={p[0]} cy={p[1]} r={3} />);
+      label(size ? `RED TEE ${size}` : 'RED TEE');
+      return out;
+    }
+    case 'weldolet': case 'sockolet': case 'threadolet': {
+      // olet: saddle body sitting on the header, widening onto the pipe
+      out.push(<polygon key={key + 'ol'} className="iso-olet" points={pts(at(branch, 0, 6), at(branch, 10, 3.2), at(branch, 10, -3.2), at(branch, 0, -6))} />);
+      label(size ? `${type === 'weldolet' ? 'WOL' : type === 'sockolet' ? 'SOL' : 'TOL'} ${size}` : type === 'weldolet' ? 'WOL' : type === 'sockolet' ? 'SOL' : 'TOL', 17);
+      return out;
+    }
+    case 'stubin': label(size ? `STUB-IN ${size}` : 'STUB-IN', 17); return out;
+    case 'lateral': {
+      // lateral: the branch leaves at 45°, drawn as a body between the branch and the header
+      const h = at(header, 11), b = at(branch, 11);
+      out.push(<polygon key={key + 'lat'} className="iso-sym" points={pts([p[0], p[1]], h, b)} />);
+      label('LAT', 17);
+      return out;
+    }
+    default:
+      out.push(<circle key={key + 'd'} className="iso-symfill" cx={p[0]} cy={p[1]} r={3} />);
+      return out;
   }
-  return out;
+}
+
+/** Where the joint marks go on each leg of a fitting point (offset along the leg), or null for no mark on that leg. */
+export function legJoint(type: string | undefined, legs: V2[], j: number, conn: Conn): { off: number; conn: Conn } | null {
+  const header = legs.some((m, k) => k !== j && legs[j][0] * m[0] + legs[j][1] * m[1] < -0.98);
+  switch (type) {
+    case 'weldolet': return header ? null : { off: 12, conn: 'bw' };
+    case 'sockolet': return header ? null : { off: 12, conn: 'sw' };
+    case 'threadolet': return header ? null : { off: 12, conn: 'thd' };
+    case 'stubin': return header ? null : { off: 3, conn: 'bw' };
+    case 'r3': case 'r5': return { off: type === 'r3' ? 12 : 16, conn };
+    case 'anglevalve': case 'threeway': return { off: 12, conn };
+    case 'redtee': return { off: header ? 8 : 15, conn };
+    case 'lateral': return { off: 13, conn };
+    case 'thd90': return { off: 8, conn: 'thd' };
+    case 'miter': return null;
+  }
+  return { off: 8, conn };
 }
 
 /** Symbol at the end of a line. u = unit screen direction from the end back along the pipe. */

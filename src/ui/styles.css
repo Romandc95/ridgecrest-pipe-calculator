@@ -432,3 +432,4 @@ button { cursor: pointer; }
 .menubtns .btn { height: 38px; font-size: 13.5px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: none; }
 .menugrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; max-height: 210px; overflow-y: auto; }
 .menugrid .palitem { font-size: 9.5px; touch-action: manipulation; }
+.iso-olet { fill: color-mix(in srgb, var(--text) 30%, var(--surface)); stroke: var(--text); stroke-width: 1.3; }
