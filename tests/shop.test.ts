@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { miter, cope, thermalExpansion } from '../src/engine/shop';
-import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef, runSizes, weldList, materials, setOffsetAngle, offsetAt, specFor } from '../src/engine/iso';
+import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef, runSizes, weldList, materials, setOffsetAngle, offsetAt, specFor, endTakeoff, flangeFit } from '../src/engine/iso';
 import { flange, valveFaceToFace, nptMakeup } from '../src/engine/refdata';
 
 describe('miter (segmented elbow)', () => {
@@ -256,6 +256,30 @@ describe('ISO weld map and materials', () => {
     expect(m.find((r) => r.item === 'WN flange')!.qty).toBe(2);
     expect(m.find((r) => r.item === 'Gasket')!.qty).toBe(2);
     expect(m.find((r) => r.item === 'Gate valve')!.qty).toBe(1);
+  });
+  it('socket-weld flange pair (2"): pipe stops Y − socket + 1/16" from each face, no root gap, socket welds, SW flanges', () => {
+    const d = { ...base(), nps: '2' }; d.runs = [run(0, 60, 0, 0, 'a'), run(1, 60, 0, 0, 'b')];
+    d.inl = { 1: { id: 'f', type: 'flange', t: 0.5, ft: 'SW', conn: 'sw' } };
+    const f = flange(150, '2'); const toPipe = f.ySO! - f.socketDepth! + 1 / 16;
+    expect(itemLength(d, d.inl[1]).len).toBeCloseTo(2 * toPipe + 0.125, 9);
+    const c = cutList(d);
+    expect(c[0].cut).toBeCloseTo(60 - toPipe - 0.0625, 9); // start is an open end: no take-off, no gap
+    const w = weldList(d).filter((x) => x.node === 1);
+    expect(w.length).toBe(2); expect(w.every((x) => x.conn === 'sw')).toBe(true);
+    const m = materials(d);
+    expect(m.find((r) => r.item === 'SW flange')!.qty).toBe(2); expect(m.some((r) => r.item === 'WN flange')).toBe(false);
+    // the same pair as weld neck: root gap and WN hub
+    d.inl = { 1: { id: 'f', type: 'flange', t: 0.5, ft: 'WN' } };
+    expect(cutList(d)[0].cut).toBeCloseTo(60 - f.yWN - 0.0625 - 0.125, 9);
+  });
+  it('socket-weld flange end: take-off to pipe end; falls back to weld neck where B16.5 has no SW flange', () => {
+    const d = { ...base(), nps: '2' }; d.runs = [run(0, 60, 0, 0, 'a')]; d.ends = { 1: 'flange' }; d.endFt = { 1: 'SW' };
+    const f = flange(150, '2');
+    expect(endTakeoff(d, 1)!.len).toBeCloseTo(f.ySO! - f.socketDepth! + 1 / 16, 9);
+    expect(cutList(d)[0].cut).toBeCloseTo(60 - (f.ySO! - f.socketDepth! + 1 / 16), 9);
+    expect(materials(d).some((r) => r.item === 'SW flange')).toBe(true);
+    expect(flangeFit({ ...d, nps: '6' }, 'SW')!.ft).toBe('WN'); // no 6" socket-weld flange
+    expect(flangeFit({ ...d, nps: '6' }, 'SW')!.note).toMatch(/weld neck used/);
   });
   it('blind flange end lists WN + blind + gasket + bolts', () => {
     const d = base(); d.runs = [run(0, 60, 0, 0, 'a')]; d.ends = { 1: 'blind' };

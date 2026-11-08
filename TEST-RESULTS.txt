@@ -188,6 +188,8 @@
 ✓ ISO weld map and materials › two butt-weld elbows and a flanged end → 5 welds, keys stable
 ✓ ISO weld map and materials › threaded drawing has no welds; field welds counted apart
 ✓ ISO weld map and materials › flanged valve: two WN flange welds, 2 flanges, 2 gaskets, 2 bolt sets
+✓ ISO weld map and materials › socket-weld flange pair (2"): pipe stops Y − socket + 1/16" from each face, no root gap, socket welds, SW flanges
+✓ ISO weld map and materials › socket-weld flange end: take-off to pipe end; falls back to weld neck where B16.5 has no SW flange
 ✓ ISO weld map and materials › blind flange end lists WN + blind + gasket + bolts
 ✓ ISO offset angle › 45° offset of 12" set becomes 30°: run along = 12/tan30, set unchanged, next line follows
 ✓ ISO per-size settings › the size after a reducer uses its own gap, class and schedule; unset = main
@@ -249,4 +251,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-250 passed, 0 failed, 250 total
+252 passed, 0 failed, 252 total

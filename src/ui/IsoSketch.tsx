@@ -19,6 +19,7 @@ import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
   runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, pipeOrder, TextStyle, TextBorder, TextArrow, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
+  FlangeType, FLANGE_TYPE_LABEL, itemFt, endFtAt, effFt, flangeFit, isFlangePair, LineItem,
 } from '../engine/iso';
 import { lineSymbol, nodeSymbol, endSymbol, PaletteIcon, jointMark, JointIcon, legJoint } from './isoSymbols';
 import { B169, npsNumber } from '../engine/fittings';
@@ -35,7 +36,7 @@ type Sel = { kind: 'angle'; node: number } | { kind: 'node'; id: number } | { ki
 type Mode = 'draw' | 'orbit' | 'pan';
 const MODE_LABEL: Record<Mode, string> = { draw: 'Drawing', pan: 'Move', orbit: '3D rotate' };
 type Plane = 'EN' | 'EU' | 'NU';
-interface Opts { dims: boolean; welds: boolean; labels: boolean; scaled: boolean; weldmap?: boolean; callouts?: boolean; view: View; mode: Mode; plane: Plane; conn: Conn }
+interface Opts { dims: boolean; welds: boolean; labels: boolean; scaled: boolean; weldmap?: boolean; callouts?: boolean; view: View; mode: Mode; plane: Plane; conn: Conn; /** flange type for flanges placed from the palette */ ft?: FlangeType }
 type ArtOpts = Pick<Opts, 'dims' | 'welds' | 'labels' | 'weldmap'> & { textEdit?: boolean; /** sheet: item numbers per point (match the material list) */ items?: Record<number, number[]>; /** sheet: pipe piece letters (match the cut list) */ spools?: Array<{ run: number; t: number; letter: string }> };
 
 const PLANES: Record<Plane, { n: Vec3; a: Vec3; b: Vec3; label: string }> = {
@@ -166,7 +167,10 @@ export function IsoSketch() {
     if (item.kind === 'branch') return placeBranch(item, target, t);
     if (item.kind === 'end' && item.id === 'reducer') return place('line:reducer', target, t);
     if (item.kind === 'line') {
-      const newIt = { id: uid(), type: item.id, t: 0.5, conn: opts.conn };
+      const ft: FlangeType = opts.ft ?? 'WN';
+      // a flange pair is welded to the pipe the way its type says (socket weld / butt weld); a flanged valve's mating flanges get the chosen type
+      const newIt: LineItem = isFlangePair(item.id) ? { id: uid(), type: item.id, t: 0.5, conn: ft === 'SW' ? 'sw' : 'bw', ft }
+        : { id: uid(), type: item.id, t: 0.5, conn: opts.conn, ...(opts.conn === 'flg' ? { ft } : {}) };
       if (target.kind === 'node') {
         // on an existing straight joint: the fitting sits right there; a reducer can also go on the end of a line
         const nk = nodeKind(d, target.id).kind;
@@ -196,11 +200,17 @@ export function IsoSketch() {
       const nk = nodeKind(d, target.id).kind;
       const ok = item.kind === 'end' ? nk === 'end' || nk === 'start-end' : item.kind === 'elbow' ? nk === 'elbow' : nk === 'tee' || nk === 'cross';
       if (!ok) { toast(item.kind === 'end' ? 'That point is not the end of a line' : item.kind === 'elbow' ? 'That point is not a turn (elbow)' : 'That point is not a branch (tee)'); return false; }
-      if (item.kind === 'end') update((x) => ({ ...x, ends: { ...x.ends, [target.id]: item.id }, nodeConn: { ...(x.nodeConn ?? {}), [target.id]: opts.conn } }));
+      const ft: FlangeType = opts.ft ?? 'WN';
+      const flgEnd = item.id === 'flange' || item.id === 'blind';
+      if (item.kind === 'end') update((x) => ({ ...x, ends: { ...x.ends, [target.id]: item.id },
+        nodeConn: { ...(x.nodeConn ?? {}), [target.id]: flgEnd ? (ft === 'SW' ? 'sw' : 'bw') : opts.conn },
+        ...(flgEnd || (item.id === 'nozzle' && opts.conn === 'flg') ? { endFt: { ...(x.endFt ?? {}), [target.id]: ft } } : {}) }));
       else update((x) => ({ ...x, fits: { ...(x.fits ?? {}), [target.id]: item.id }, nodeConn: { ...(x.nodeConn ?? {}), [target.id]: opts.conn } }));
       setSel({ kind: 'node', id: target.id });
     }
-    toast(`${CONN_LABEL[opts.conn]} ${item.label.toLowerCase()} placed`);
+    const ftName = FLANGE_TYPE_LABEL[opts.ft ?? 'WN'];
+    toast(isFlangePair(item.id) || item.id === 'flange' || item.id === 'blind' ? `${ftName} ${item.label.toLowerCase()} placed`
+      : opts.conn === 'flg' && (item.kind === 'line' || item.id === 'nozzle') ? `Flanged ${item.label.toLowerCase()} placed (${ftName.toLowerCase()} flanges)` : `${CONN_LABEL[opts.conn]} ${item.label.toLowerCase()} placed`);
     return true;
   };
   const canUndo = history.current.snaps.length > 0;
@@ -445,7 +455,7 @@ export function IsoSketch() {
     <DrawTools opts={opts} setOpts={setOpts} lenText={lenText} setLenText={setLenText} addDir={addDir} undo={undo} canUndo={canUndo} redo={redo} canRedo={canRedo} heading={heading} addOffset={addOffset}
       cur={cur} isBranch={cur !== d.runs.length} missing={missing} compact={full} prefs={prefs} startPoint={() => setArmed(armed === 'start' ? null : 'start')} placingStart={armed === 'start'} />
   );
-  const palette = <Palette conn={opts.conn} setConn={(c) => setOpts({ conn: c })} armed={armed} setArmed={setArmed} drop={(key, cx, cy) => { const h = canvasApi.current?.dropAt(key, cx, cy); if (!h) { toast(dropHint(key)); return; } place(key, h.sel, h.t); }}
+  const palette = <Palette conn={opts.conn} setConn={(c) => setOpts({ conn: c })} ft={opts.ft ?? 'WN'} setFt={(f) => setOpts({ ft: f })} armed={armed} setArmed={setArmed} drop={(key, cx, cy) => { const h = canvasApi.current?.dropAt(key, cx, cy); if (!h) { toast(dropHint(key)); return; } place(key, h.sel, h.t); }}
     hover={(key, cx, cy) => canvasApi.current?.hover(key ? canvasApi.current.dropAt(key, cx, cy) : null)} compact={full} />;
 
   const stage = (
@@ -463,6 +473,10 @@ export function IsoSketch() {
         : selNode !== null && pointKind(d, selNode) && !more ? { at: disp.P[selNode], node: <PointMenu key={'pm' + selNode} d={d} n={selNode} prefs={prefs}
           act={{
             close: () => setSel(null), more: () => setMore(true),
+            ft: (f) => { const it = inlineAt(d, selNode);
+              if (it) update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], ft: f, ...(isFlangePair(it.type) ? { conn: f === 'SW' ? 'sw' : 'bw' } : {}) } } }));
+              else update((x) => ({ ...x, endFt: { ...(x.endFt ?? {}), [selNode]: f }, ...(x.ends[selNode] !== 'nozzle' ? { nodeConn: { ...(x.nodeConn ?? {}), [selNode]: f === 'SW' ? 'sw' : 'bw' } } : {}) }));
+              toast(`${FLANGE_TYPE_LABEL[f]} flange${it && !isFlangePair(it.type) ? 's' : ''}`); },
             joint: (c) => inlineAt(d, selNode) ? update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], conn: c } } })) : update((x) => ({ ...x, nodeConn: { ...(x.nodeConn ?? {}), [selNode]: c } })),
             change: (id) => { const pk = pointKind(d, selNode); update((x) => pk === 'inline' ? { ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], type: id } } } : pk === 'end' ? { ...x, ends: { ...x.ends, [selNode]: id } } : { ...x, fits: { ...(x.fits ?? {}), [selNode]: id } }); },
             len: (v) => inlineAt(d, selNode) ? update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], len: v } } }), 'plen' + selNode)
@@ -484,6 +498,7 @@ export function IsoSketch() {
           onMove={() => { setArmed(`move:${itemSel.run}:${itemSel.id}`); setSel(null); }}
           onChange={(type) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, type } : q))}
           onConn={(c) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, conn: c } : q))}
+          onFt={(f) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, ft: f, ...(isFlangePair(q.type) ? { conn: f === 'SW' ? 'sw' : 'bw' } : {}) } : q))}
           onDelete={() => { setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? null : q)); setSel(null); }} /> } : null}
       startOn={armed === 'start'} onStartBtn={() => setArmed(armed === 'start' ? null : 'start')} onNotice={toast}
       onMode={(m) => setOpts({ mode: m })}
@@ -607,9 +622,9 @@ function pointKind(d: IsoDrawing, n: number): PKind | null {
   return null;
 }
 const SIZED = ['redtee', 'weldolet', 'sockolet', 'threadolet', 'stubin', 'lateral'];
-interface PointActs { close: () => void; more: () => void; joint: (c: Conn) => void; change: (id: string) => void; len: (v: number | undefined) => void; size: (s: string | undefined) => void; move: () => void; del: () => void }
+interface PointActs { close: () => void; more: () => void; joint: (c: Conn) => void; ft: (f: FlangeType) => void; change: (id: string) => void; len: (v: number | undefined) => void; size: (s: string | undefined) => void; move: () => void; del: () => void }
 function PointMenu({ d, n, prefs, act }: { d: IsoDrawing; n: number; prefs: Prefs; act: PointActs }) {
-  const [pane, setPane] = useState<'main' | 'joint' | 'change' | 'len' | 'size'>('main');
+  const [pane, setPane] = useState<'main' | 'joint' | 'change' | 'len' | 'size' | 'ft'>('main');
   const [armedDel, setArmedDel] = useState(false);
   const pk = pointKind(d, n)!;
   const it = inlineAt(d, n);
@@ -626,15 +641,21 @@ function PointMenu({ d, n, prefs, act }: { d: IsoDrawing; n: number; prefs: Pref
   const own = pk === 'inline' ? it!.len : d.endLen?.[n];
   const [lenT, setLenT] = useState(own != null ? formatFracIn(own, prefs) : '');
   const canMove = pk !== 'elbow';
+  // flange type applies to a flange pair, a flanged valve / fitting on the line, and a flanged end
+  const dz = sized(d, lineSize);
+  const hasFt = pk === 'inline' ? isFlangePair(it!.type) || (it!.conn ?? 'bw') === 'flg' : pk === 'end' && (d.ends[n] === 'flange' || d.ends[n] === 'blind' || (d.ends[n] === 'nozzle' && conn === 'flg'));
+  const ftCur: FlangeType = pk === 'inline' ? itemFt(dz, it!) : endFtAt(dz, n);
+  const ftFit = hasFt ? flangeFit(dz, ftCur) : null;
   const delLabel = pk === 'tee' ? 'Delete tee + branch' : pk === 'elbow' ? 'Reset to LR elbow' : pk === 'end' ? 'Remove (open end)' : 'Delete, join line';
   const sizeOpts = NPS_SORTED.filter((z) => z !== lineSize && (pk === 'inline' || npsVal(z) < npsVal(lineSize)));
   return (
     <div className="itemmenu-in">
-      <div className="row-between"><b>{c && <PaletteIcon item={c} />}{c?.label ?? cur}<span className="muted small"> · {CONN_LABEL[conn]}{hasSize && curSize ? ` · ${lineSize}"×${curSize}"` : ''}</span></b><button className="chip" aria-label="Close" onClick={act.close}>✕</button></div>
+      <div className="row-between"><b>{c && <PaletteIcon item={c} />}{c?.label ?? cur}<span className="muted small"> · {hasFt ? `${FLANGE_TYPE_LABEL[ftFit?.ft ?? ftCur]} flange${(it && !isFlangePair(it.type)) || d.ends[n] === 'nozzle' ? 's' : ''}` : CONN_LABEL[conn]}{hasSize && curSize ? ` · ${lineSize}"×${curSize}"` : ''}</span></b><button className="chip" aria-label="Close" onClick={act.close}>✕</button></div>
       {pane === 'main' && (
         <>
           <div className="menubtns">
-            <button className="btn" onClick={() => setPane('joint')}><JointIcon conn={conn} /> Joint</button>
+            {hasFt && <button className="btn" onClick={() => setPane('ft')}>⊟ {ftFit?.ft ?? ftCur} flange</button>}
+            {!(hasFt && (pk === 'end' ? d.ends[n] !== 'nozzle' : isFlangePair(it!.type))) && <button className="btn" onClick={() => setPane('joint')}><JointIcon conn={conn} /> Joint</button>}
             {canMove && <button className="btn" onClick={act.move}>✥ Move</button>}
             <button className="btn" onClick={() => setPane('change')}>⇄ Change</button>
             {hasLen && <button className="btn" onClick={() => setPane('len')}>↔ Length</button>}
@@ -648,6 +669,13 @@ function PointMenu({ d, n, prefs, act }: { d: IsoDrawing; n: number; prefs: Pref
       {pane === 'joint' && (
         <>
           <div className="chiprow">{CONN_ORDER.map((k) => <button key={k} className={'chip conn' + (k === conn ? ' on' : '')} onClick={() => { act.joint(k); setPane('main'); }}><JointIcon conn={k} />{CONN_LABEL[k]}</button>)}</div>
+          <button className="chip" onClick={() => setPane('main')}>‹ Back</button>
+        </>
+      )}
+      {pane === 'ft' && (
+        <>
+          <div className="chiprow">{(['WN', 'SW'] as FlangeType[]).map((f) => <button key={f} className={'chip' + (f === ftCur ? ' on' : '')} onClick={() => { act.ft(f); setPane('main'); }}>{FLANGE_TYPE_LABEL[f]}</button>)}</div>
+          {ftFit?.note ? <p className="fhint">{ftFit.note}.</p> : <p className="fhint">Weld neck: butt welded, root gap. Socket weld: pipe set 1/16" back in the socket, fillet welded.</p>}
           <button className="chip" onClick={() => setPane('main')}>‹ Back</button>
         </>
       )}
@@ -710,8 +738,8 @@ function LengthPop({ d, i, prefs, update, onClose, onMore }: { d: IsoDrawing; i:
 }
 
 // ------------------------------------------------------------------ fitting menu (tap a fitting on a line)
-function ItemMenu({ item, d, prefs, onClose, onMove, onChange, onConn, onDelete, onLen, onAt }: {
-  item: ReturnType<typeof runItems>[number]; d: IsoDrawing; prefs: Prefs; onClose: () => void; onMove: () => void; onChange: (type: string) => void; onConn: (c: Conn) => void; onDelete: () => void;
+function ItemMenu({ item, d, prefs, onClose, onMove, onChange, onConn, onFt, onDelete, onLen, onAt }: {
+  item: ReturnType<typeof runItems>[number]; d: IsoDrawing; prefs: Prefs; onClose: () => void; onMove: () => void; onChange: (type: string) => void; onConn: (c: Conn) => void; onFt: (f: FlangeType) => void; onDelete: () => void;
   onLen: (v: number | undefined) => void; onAt: (v: number | undefined) => void;
 }) {
   const std = itemLength(d, { ...item, len: undefined });
@@ -719,10 +747,12 @@ function ItemMenu({ item, d, prefs, onClose, onMove, onChange, onConn, onDelete,
   const [atT, setAtT] = useState(item.at != null ? formatFtIn(item.at, prefs) : '');
   const setL = (v: string) => { setLenT(v); const r = tryParse(parseLength, v); if (!v.trim()) onLen(undefined); else if (r && r.ok && r.v >= 0) onLen(r.v); };
   const setA = (v: string) => { setAtT(v); const r = tryParse(parseLength, v); if (!v.trim()) onAt(undefined); else if (r && r.ok && r.v >= 0) onAt(r.v); };
-  const [pane, setPane] = useState<'main' | 'change' | 'joint' | 'len'>('main');
+  const [pane, setPane] = useState<'main' | 'change' | 'joint' | 'len' | 'ft'>('main');
   const [armedDel, setArmedDel] = useState(false);
   const c = catalogItem(item.type, 'line');
   const conn = item.conn ?? 'bw';
+  const hasFt = isFlangePair(item.type) || conn === 'flg';
+  const ftCur = itemFt(d, item);
   return (
     <div className="itemmenu-in">
       <div className="row-between"><b>{c && <PaletteIcon item={c} />}{c?.label ?? item.type}<span className="muted small"> · {CONN_LABEL[conn]}</span></b><button className="chip" aria-label="Close" onClick={onClose}>✕</button></div>
@@ -730,7 +760,8 @@ function ItemMenu({ item, d, prefs, onClose, onMove, onChange, onConn, onDelete,
         <div className="menubtns">
           <button className="btn" onClick={onMove}>✥ Move</button>
           <button className="btn" onClick={() => setPane('change')}>⇄ Change</button>
-          <button className="btn" onClick={() => setPane('joint')}><JointIcon conn={conn} /> Joint</button>
+          {hasFt && <button className="btn" onClick={() => setPane('ft')}>⊟ {effFt(d, ftCur)} flange</button>}
+          {!isFlangePair(item.type) && <button className="btn" onClick={() => setPane('joint')}><JointIcon conn={conn} /> Joint</button>}
           <button className="btn" onClick={() => setPane('len')}>↔ Length</button>
           {armedDel ? <button className="btn danger" onClick={onDelete}>Delete for good</button> : <button className="btn danger" onClick={() => setArmedDel(true)}>✕ Delete</button>}
         </div>
@@ -754,6 +785,13 @@ function ItemMenu({ item, d, prefs, onClose, onMove, onChange, onConn, onDelete,
           <button className="chip" onClick={() => setPane('main')}>‹ Back</button>
         </>
       )}
+      {pane === 'ft' && (
+        <>
+          <div className="chiprow">{(['WN', 'SW'] as FlangeType[]).map((f) => <button key={f} className={'chip' + (f === ftCur ? ' on' : '')} onClick={() => { onFt(f); setPane('main'); }}>{FLANGE_TYPE_LABEL[f]}</button>)}</div>
+          {flangeFit(d, ftCur)?.note && <p className="fhint">{flangeFit(d, ftCur)!.note}.</p>}
+          <button className="chip" onClick={() => setPane('main')}>‹ Back</button>
+        </>
+      )}
       {pane === 'joint' && (
         <>
           <div className="chiprow">
@@ -767,7 +805,7 @@ function ItemMenu({ item, d, prefs, onClose, onMove, onChange, onConn, onDelete,
 }
 
 // ------------------------------------------------------------------ fittings palette
-function Palette({ conn, setConn, armed, setArmed, drop, hover, compact }: { conn: Conn; setConn: (c: Conn) => void; armed: string | null; setArmed: (k: string | null) => void; drop: (key: string, cx: number, cy: number) => void; hover: (key: string | null, cx: number, cy: number) => void; compact: boolean }) {
+function Palette({ conn, setConn, ft, setFt, armed, setArmed, drop, hover, compact }: { conn: Conn; setConn: (c: Conn) => void; ft: FlangeType; setFt: (f: FlangeType) => void; armed: string | null; setArmed: (k: string | null) => void; drop: (key: string, cx: number, cy: number) => void; hover: (key: string | null, cx: number, cy: number) => void; compact: boolean }) {
   const [group, setGroup] = usePersistent<string>('isopalette', 'Valves');
   const [open, setOpen] = usePersistent<boolean>('isopaletteopen', true);
   const [drag, setDrag] = useState<{ key: string; x: number; y: number; on: boolean } | null>(null);
@@ -786,6 +824,16 @@ function Palette({ conn, setConn, armed, setArmed, drop, hover, compact }: { con
           ))}
         </div>
       </div>
+      {(group === 'Line' || group === 'Ends' || conn === 'flg') && (
+        <div className="connrow" role="radiogroup" aria-label="Flange type">
+          <span className="flabel">Flanges</span>
+          <div className="chiprow">
+            {(['WN', 'SW'] as FlangeType[]).map((f) => (
+              <button key={f} role="radio" aria-checked={ft === f} className={'chip' + (ft === f ? ' on' : '')} onClick={() => setFt(f)}>{FLANGE_TYPE_LABEL[f]}</button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="chiprow">
         {CATALOG_GROUPS.map((g) => <button key={g} className={'chip' + (g === group ? ' on' : '')} onClick={() => setGroup(g)}>{g}</button>)}
       </div>
@@ -1680,7 +1728,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         if (opts.welds && it.type !== 'spool' && it.type !== 'swage') {
           // how the fitting joins the pipe on each side: a flange pair / orifice flanges are welded (weld neck) unless set to another joint
           const pair = ['flange', 'orifice', 'spectacle'].includes(it.type);
-          const jc: Conn = pair && (it.conn ?? 'bw') === 'flg' ? 'bw' : (it.conn ?? 'bw');
+          const dzn = sized(d, sizes[n - 1] ?? d.nps);
+          const jc: Conn = isFlangePair(it.type) ? (effFt(dzn, itemFt(dzn, it)) === 'SW' ? 'sw' : 'bw') : pair && (it.conn ?? 'bw') === 'flg' ? 'bw' : (it.conn ?? 'bw');
           const off = pair ? 6.5 : ['union', 'coupling', 'dielectric'].includes(it.type) ? sz * 0.9 + 3 : sz * 1.15 + 4;
           for (const sgn of [-1, 1]) els.push(...jointMark(jc, [p[0] + u[0] * off * sgn, p[1] + u[1] * off * sgn], u, `ij${n}${sgn}`));
         }
@@ -1701,7 +1750,9 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       } else els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode, connAtSized(d, sizes, n)));
       // the joint between the pipe and the end fitting, shown with the chosen connection's mark
       // (a flange end shows how the flange is joined to the pipe: weld dot = weld neck, tick = threaded …; the nozzle draws its own)
-      const ec = connAtSized(d, sizes, n);
+      const ec0 = connAtSized(d, sizes, n);
+      const dze = sized(d, sizes[legScreen[0] ? (nodeLegs(d, n)[0]?.run ?? 0) : 0] ?? d.nps);
+      const ec: Conn = ['flange', 'blind'].includes(endT) && ec0 !== 'thd' ? (effFt(dze, endFtAt(dze, n)) === 'SW' ? 'sw' : 'bw') : ec0;
       if (opts.welds && legScreen[0] && !['open', 'weld', 'nozzle'].includes(endT) && !(['flange', 'blind'].includes(endT) && ec === 'flg'))
         els.push(...jointMark(ec, [p[0] + legScreen[0][0] * (['flange', 'blind'].includes(endT) ? 6 : 3), p[1] + legScreen[0][1] * (['flange', 'blind'].includes(endT) ? 6 : 3)], legScreen[0], 'ej' + n));
     }
