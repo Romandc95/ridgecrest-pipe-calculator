@@ -15,6 +15,10 @@ mkdirSync(join(out, 'assets'), { recursive: true });
 const umdReact = {
   name: 'umd-react',
   setup(b) {
+    b.onResolve({ filter: /^react\/jsx(-dev)?-runtime$/ }, (a) => ({ path: a.path, namespace: 'umdjsx' }));
+    b.onLoad({ filter: /.*/, namespace: 'umdjsx' }, () => ({ loader: 'js', contents:
+      `const R = window.React; const j = (t, p, k) => R.createElement(t, k === undefined ? p : { ...p, key: k });
+       module.exports = { Fragment: R.Fragment, jsx: j, jsxs: j, jsxDEV: j };` }));
     b.onResolve({ filter: /^react(-dom)?(\/client)?$/ }, (a) => ({ path: a.path, namespace: 'umd' }));
     b.onLoad({ filter: /.*/, namespace: 'umd' }, (a) => ({ contents: `module.exports = window.${a.path.startsWith('react-dom') ? 'ReactDOM' : 'React'};`, loader: 'js' }));
   },
