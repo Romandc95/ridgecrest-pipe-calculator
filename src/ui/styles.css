@@ -390,3 +390,8 @@ button { cursor: pointer; }
 .isostage text, .isostage .iso-off, .isostage .iso-hatch, .isostage .iso-weld, .isostage .isogrid2, .isostage .iso-ghostg { pointer-events: none; }
 .isostage .iso-nodehit { pointer-events: all; }
 .isostage .iso-hit { pointer-events: stroke; }
+.isopaper path { fill: none; vector-effect: non-scaling-stroke; }
+.isopaper .minor { stroke: color-mix(in srgb, var(--muted) 22%, transparent); stroke-width: .6; }
+.isopaper .major { stroke: color-mix(in srgb, var(--muted) 42%, transparent); stroke-width: .8; }
+.isostage .isopaper { pointer-events: none; }
+.isogrid2 line.ax { stroke: color-mix(in srgb, var(--accent) 55%, transparent); stroke-width: 1.1; }

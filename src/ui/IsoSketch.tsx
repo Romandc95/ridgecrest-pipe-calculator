@@ -471,7 +471,8 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       <svg ref={svg} viewBox={`0 0 ${W} ${H}`} width={W} height={H} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         onWheel={onWheel} role="img" aria-label={`Isometric sketch ${d.name}`}>
         <HatchDefs />
-        {opts.mode === 'draw' && !armed && <PlaneGrid T3={T3} o={P[gridFrom] ?? [0, 0, 0]} plane={opts.plane} g={g} />}
+        <IsoPaper W={W} H={H} T3={T3} g={g} />
+        {opts.mode === 'draw' && !armed && <PlaneGrid W={W} H={H} T3={T3} o={P[gridFrom] ?? [0, 0, 0]} plane={opts.plane} g={g} />}
         <IsoArt d={d} disp={disp} T3={T3} sel={sel} cursor={cursor} opts={opts} prefs={prefs} />
         {ghost && (() => {
           const a = T3(P[ghost.from]), b = T3(add(P[ghost.from], ghost.v));
@@ -509,17 +510,70 @@ function HatchDefs() {
   );
 }
 
-function PlaneGrid({ T3, o, plane, g }: { T3: (p: Vec3) => [number, number]; o: Vec3; plane: Plane; g: number }) {
-  const { a, b } = PLANES[plane];
-  const N = 10;
-  const lines: React.ReactNode[] = [];
-  for (let i = -N; i <= N; i++) {
-    for (const [u, v, key] of [[a, b, 'a'], [b, a, 'b']] as Array<[Vec3, Vec3, string]>) {
-      const p1 = T3(add(o, add(mul(u, i * g), mul(v, -N * g)))), p2 = T3(add(o, add(mul(u, i * g), mul(v, N * g))));
-      lines.push(<line key={key + i} className={i === 0 ? 'ax' : ''} x1={p1[0]} y1={p1[1]} x2={p2[0]} y2={p2[1]} />);
+/**
+ * Isometric paper: three families of lines along the projected East, North and Up directions (30°, 150° and
+ * vertical in the ISO view), drawn across the whole canvas at any zoom. When zoomed far out the spacing steps up
+ * (×2, ×5, ×10 …) so the paper stays readable; every fifth line is darker.
+ */
+function IsoPaper({ W, H, T3, g }: { W: number; H: number; T3: (p: Vec3) => [number, number]; g: number }) {
+  const o = T3([0, 0, 0]);
+  const sv = (v: Vec3): [number, number] => { const q = T3(mul(v, g)); return [q[0] - o[0], q[1] - o[1]]; };
+  const E = sv([1, 0, 0]), N = sv([0, 1, 0]), U = sv([0, 0, 1]);
+  const fams: Array<{ d: [number, number]; step: [number, number]; key: string }> = [
+    { d: E, step: N, key: 'e' }, { d: N, step: E, key: 'n' }, { d: U, step: Math.hypot(...E) >= Math.hypot(...N) ? E : N, key: 'u' },
+  ];
+  const maxLen = Math.max(...fams.map((f) => Math.hypot(...f.d)));
+  const usable = fams.map((f) => {
+    const L = Math.hypot(...f.d);
+    if (L < maxLen * 0.12) return null; // direction seen end-on (e.g. Up in plan view)
+    const du: [number, number] = [f.d[0] / L, f.d[1] / L];
+    const nn: [number, number] = [-du[1], du[0]];
+    const sp = f.step[0] * nn[0] + f.step[1] * nn[1];
+    if (Math.abs(sp) < 0.5) return null;
+    return { ...f, du, nn, sp };
+  }).filter(Boolean) as Array<{ d: [number, number]; step: [number, number]; key: string; du: [number, number]; nn: [number, number]; sp: number }>;
+  if (!usable.length) return null;
+  const minSp = Math.min(...usable.map((f) => Math.abs(f.sp)));
+  const STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+  const m = STEPS.find((k) => minSp * k >= 9) ?? 1000;
+  const corners: Array<[number, number]> = [[0, 0], [W, 0], [0, H], [W, H]];
+  const cx = W / 2, cy = H / 2, D = W + H;
+  const minor: string[] = [], major: string[] = [];
+  for (const f of usable) {
+    const ks = corners.map((c) => ((c[0] - o[0]) * f.nn[0] + (c[1] - o[1]) * f.nn[1]) / (f.sp * m));
+    const k0 = Math.floor(Math.min(...ks)), k1 = Math.ceil(Math.max(...ks));
+    if (k1 - k0 > 600) continue;
+    for (let k = k0; k <= k1; k++) {
+      const px = o[0] + f.step[0] * k * m, py = o[1] + f.step[1] * k * m;
+      const t = (cx - px) * f.du[0] + (cy - py) * f.du[1];
+      const qx = px + f.du[0] * t, qy = py + f.du[1] * t;
+      const seg = `M${(qx - f.du[0] * D).toFixed(1)} ${(qy - f.du[1] * D).toFixed(1)}L${(qx + f.du[0] * D).toFixed(1)} ${(qy + f.du[1] * D).toFixed(1)}`;
+      ((k * m) % (5 * m) === 0 ? major : minor).push(seg);
     }
   }
-  return <g className="isogrid2">{lines}</g>;
+  return (
+    <g className="isopaper">
+      <path className="minor" d={minor.join('')} />
+      <path className="major" d={major.join('')} />
+    </g>
+  );
+}
+
+/** The two axes of the active drawing plane through the point being drawn from. */
+function PlaneGrid({ W, H, T3, o, plane, g }: { W: number; H: number; T3: (p: Vec3) => [number, number]; o: Vec3; plane: Plane; g: number }) {
+  const { a, b } = PLANES[plane];
+  const p0 = T3(o);
+  const D = W + H;
+  return (
+    <g className="isogrid2">
+      {[a, b].map((v, j) => {
+        const q = T3(add(o, mul(v, g))); const dx = q[0] - p0[0], dy = q[1] - p0[1], L = Math.hypot(dx, dy);
+        if (L < 0.5) return null;
+        const ux = dx / L, uy = dy / L;
+        return <line key={j} className="ax" x1={p0[0] - ux * D} y1={p0[1] - uy * D} x2={p0[0] + ux * D} y2={p0[1] + uy * D} />;
+      })}
+    </g>
+  );
 }
 
 /** Compass: the four horizontal directions as seen in the current view. */
