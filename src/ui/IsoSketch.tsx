@@ -20,6 +20,7 @@ type Prefs = ReturnType<typeof useApp>['settings']['prefs'];
 interface IsoStore { drawings: IsoDrawing[]; current: string | null }
 type Sel = { kind: 'angle'; node: number } | { kind: 'node'; id: number } | { kind: 'run'; id: number } | { kind: 'item'; run: number; id: string } | { kind: 'dim'; run: number } | { kind: 'weld'; key: string } | { kind: 'text'; id: string } | null;
 type Mode = 'draw' | 'orbit' | 'pan';
+const MODE_LABEL: Record<Mode, string> = { draw: 'Drawing', pan: 'Move', orbit: '3D rotate' };
 type Plane = 'EN' | 'EU' | 'NU';
 interface Opts { dims: boolean; welds: boolean; labels: boolean; scaled: boolean; weldmap?: boolean; view: View; mode: Mode; plane: Plane; conn: Conn }
 type ArtOpts = Pick<Opts, 'dims' | 'welds' | 'labels' | 'weldmap'> & { textEdit?: boolean; /** sheet: item numbers per point (match the material list) */ items?: Record<number, number[]>; /** sheet: pipe piece letters (match the cut list) */ spools?: Array<{ run: number; t: number; letter: string }> };
@@ -453,6 +454,7 @@ export function IsoSketch() {
           onConn={(c) => setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? { ...q, conn: c } : q))}
           onDelete={() => { setItem(itemSel.run, itemSel.id, (q) => (q.id === itemSel.id ? null : q)); setSel(null); }} /> } : null}
       startOn={armed === 'start'} onStartBtn={() => setArmed(armed === 'start' ? null : 'start')} onNotice={toast}
+      onMode={(m) => setOpts({ mode: m })}
       offsetOn={offOpen} onOffsetBtn={() => { setOffOpen(!offOpen); setSel(null); }} onPlaceText={placeText} onTextMove={moveText}
       onView={(v) => setOpts({ view: v })} onTap={onTap} onDraw={drawTo}>
       <div className="isohist">
@@ -862,11 +864,12 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
 // ------------------------------------------------------------------ canvas
 type Cam = { s: number; tx: number; ty: number };
 export interface CanvasApi { hitAt: (clientX: number, clientY: number) => { sel: Sel; t: number } | null }
-function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, children }: {
+function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, onMode, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
   armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>; onPick: (v: Vec3 | null) => void;
   onItemDrag: (run: number, id: string, t: number) => void; onInlDrag: (node: number, t: number) => void; menu: { at: Vec3; node: React.ReactNode } | null;
   startOn: boolean; onStartBtn: () => void; onNotice: (m: string) => void;
+  onMode?: (m: Mode) => void;
   offsetOn: boolean; onOffsetBtn: () => void; onPlaceText: (node: number, off: Vec3) => void; onTextMove: (id: string, node: number, off: Vec3) => void;
   onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number, split?: { run: number; t: number }) => void; children?: React.ReactNode;
 }) {
@@ -1132,6 +1135,11 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
 
   return (
     <div className={'isostage mode-' + opts.mode + (armed ? ' armed' : '')} ref={wrap}>
+      {/* coloured frame + label for the current mode (working drawing only); tap the label to switch */}
+      <div className="modeframe" aria-hidden="true" />
+      <button className="modebadge" aria-label={`Mode: ${MODE_LABEL[opts.mode]} — tap to switch`} onClick={() => onMode?.(opts.mode === 'draw' ? 'pan' : opts.mode === 'pan' ? 'orbit' : 'draw')}>
+        <span className="dot" />{MODE_LABEL[opts.mode]}
+      </button>
       <svg ref={svg} viewBox={`0 0 ${W} ${H}`} width={W} height={H} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         onWheel={onWheel} role="img" aria-label={`Isometric sketch ${d.name}`}>
         <HatchDefs />

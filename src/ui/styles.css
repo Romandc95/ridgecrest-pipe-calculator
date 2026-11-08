@@ -546,3 +546,13 @@ button { cursor: pointer; }
 .iso-angtap.sel .iso-angbox { fill: var(--accent); stroke-dasharray: none; }
 .iso-angtap.sel text { fill: var(--accent-ink); }
 .itemmenu-in .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+
+/* working drawing: coloured frame + label for the mode you're in */
+.isostage { --mode: #2bb3a3; }
+.isostage.mode-pan { --mode: #f0a524; }
+.isostage.mode-orbit { --mode: #9b7bff; }
+.modeframe { position: absolute; inset: 0; border: 3px solid var(--mode); border-radius: inherit; pointer-events: none; z-index: 4; box-shadow: inset 0 0 0 1px #0004; }
+.modebadge { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 5; display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px 5px 9px; border-radius: 999px; border: 0; background: var(--mode); color: #111; font: 800 12px var(--font); letter-spacing: .4px; text-transform: uppercase; box-shadow: 0 2px 8px #0006; }
+.modebadge .dot { width: 7px; height: 7px; border-radius: 50%; background: #111; opacity: .7; }
+.isostage.armed .modebadge { display: none; }
+.isofull .modebadge { top: max(10px, env(safe-area-inset-top)); }
