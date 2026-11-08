@@ -567,3 +567,7 @@ button { cursor: pointer; }
 .iso-balllead { stroke: var(--accent); stroke-width: .5; opacity: .8; }
 .isosheet .iso-ballc { stroke: #111; } .isosheet .iso-balltxt { fill: #111; } .isosheet .iso-balllead { stroke: #111; }
 .isosheet .iso-spoolbox { stroke: #1f3b3a; } .isosheet .iso-spooltxt { fill: #1f3b3a; }
+.iso-dropmark circle:first-child { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 4 3; }
+.iso-dropmark circle:last-child { fill: var(--accent); }
+.isostage .iso-dropmark { pointer-events: none; }
+.toast { cursor: pointer; }

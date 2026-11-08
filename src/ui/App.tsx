@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useRef, useCallback, useEffect, useMemo, useState } from 'react';
 import { AppCtx, AppCtxT } from './components';
 import { usePersistent, DEFAULT_SETTINGS, Settings, SavedItem, Job, uid } from './store';
 import { Calculator } from './Calculator';
@@ -57,7 +57,9 @@ export function App() {
     return () => mq.removeEventListener?.('change', apply);
   }, [s.theme]);
 
-  const toast = useCallback((m: string) => { setToast(m); window.setTimeout(() => setToast(null), 1800); }, []);
+  const toastTimer = useRef<number | undefined>(undefined);
+  // messages stay up 5 s (a new one restarts the clock); tap to dismiss
+  const toast = useCallback((m: string) => { setToast(m); window.clearTimeout(toastTimer.current); toastTimer.current = window.setTimeout(() => setToast(null), 5000); }, []);
   const ctx: AppCtxT = useMemo(() => ({
     tools,
     setToolField: (tool, key, value) => setTools((p) => ({ ...p, [tool]: { ...(p[tool] ?? {}), [key]: value } })),
@@ -102,7 +104,7 @@ export function App() {
             </button>
           ))}
         </nav>
-        {toastMsg && <div className="toast" role="status">{toastMsg}</div>}
+        {toastMsg && <div className="toast" role="status" onClick={() => setToast(null)}>{toastMsg}</div>}
       </div>
     </AppCtx.Provider>
   );

@@ -124,6 +124,8 @@ export interface IsoDrawing {
   inl?: Record<number, LineItem>;
   /** Weld map: welder stencil, shop / field and notes per weld (keyed by weldList keys). */
   welds?: Record<string, WeldInfo>;
+  /** Line ends joined onto another point (end node → the point it connects to): closes a loop / ties a new line back in. */
+  links?: Record<number, number>;
   /** Title block details asked for when the drawing is named / completed. */
   info?: DrawingInfo;
   /** Free text placed on the drawing. */
@@ -156,14 +158,15 @@ export interface WeldInfo { stencil?: string; field?: boolean; notes?: string }
 /** Text on the drawing, anchored to a point (node) with an offset in sketch units so it follows the drawing. */
 export interface TextNote { id: string; node: number; off: Vec3; text: string }
 /** The inline fitting at a point, if that point is still a straight joint. */
-export const inlineAt = (d: IsoDrawing, node: number): LineItem | null => {
+export const inlineAt = (d: IsoDrawing, node0: number): LineItem | null => {
+  const node = d.links?.[node0] ?? node0;
   const it = d.inl?.[node];
   if (!it) return null;
   const k = nodeKind(d, node).kind;
   // a reducer can also sit on the end of a line, or be welded straight onto the elbow where the line turns
   return k === 'straight' || (isReducer(it.type) && (k === 'end' || k === 'start-end' || k === 'elbow')) ? it : null;
 };
-export const connAt = (d: IsoDrawing, node: number): Conn => d.nodeConn?.[node] ?? d.conn ?? 'bw';
+export const connAt = (d: IsoDrawing, node: number): Conn => d.nodeConn?.[d.links?.[node] ?? node] ?? d.conn ?? 'bw';
 
 export type Vec3 = [number, number, number];
 export const DIRS: Record<string, { v: Vec3; label: string }> = {
@@ -234,14 +237,19 @@ export const runLength = (r: Run) => len(runVec(r));
 export type NodeKind = { kind: 'start-end' | 'end' } | { kind: 'straight' } | { kind: 'elbow'; angle: number } | { kind: 'tee' } | { kind: 'cross' } | { kind: 'multi'; count: number };
 
 /** Unit vectors pointing away from a node along each connected run. */
+/** The point a node really is: a line end joined onto another point is that point. */
+export const canon = (d: IsoDrawing, n: number): number => d.links?.[n] ?? n;
+/** True for a line end that is joined onto another point (it is drawn and counted at that point). */
+export const isLinked = (d: IsoDrawing, n: number): boolean => d.links?.[n] !== undefined;
 export function nodeLegs(d: IsoDrawing, node: number): Array<{ run: number; dir: Vec3 }> {
   const legs: Array<{ run: number; dir: Vec3 }> = [];
+  const c = canon(d, node);
   d.runs.forEach((r, i) => {
     if (r.move) return;
     const v = runVec(r), L = len(v);
     if (L === 0) return;
-    if (r.from === node) legs.push({ run: i, dir: [v[0] / L, v[1] / L, v[2] / L] });
-    if (i + 1 === node) legs.push({ run: i, dir: [-v[0] / L, -v[1] / L, -v[2] / L] });
+    if (canon(d, r.from) === c) legs.push({ run: i, dir: [v[0] / L, v[1] / L, v[2] / L] });
+    if (canon(d, i + 1) === c) legs.push({ run: i, dir: [-v[0] / L, -v[1] / L, -v[2] / L] });
   });
   return legs;
 }
@@ -268,7 +276,8 @@ export interface CutRow {
 }
 
 /** Take-out at one end of a run, using ASME B16.9 fittings for the drawing's NPS and the fitting chosen at that point. */
-function takeoutAt(d0: IsoDrawing, node: number, run: number, note: string[], sizes?: string[]): { to: number; weld: boolean } {
+function takeoutAt(d0: IsoDrawing, node0: number, run: number, note: string[], sizes?: string[]): { to: number; weld: boolean } {
+  const node = canon(d0, node0);
   const d: IsoDrawing = sizes ? sized(d0, sizes[run] ?? d0.nps) : d0;
   const red = d0.inl?.[node];
   if (red && isReducer(red.type) && run === node - 1 && nodeKind(d0, node).kind === 'elbow') {
@@ -448,7 +457,8 @@ export function itemLength(d: IsoDrawing, it: LineItem): { len: number | null; s
 export interface Segment { a: number; b: number; len: number; kind: string; known: boolean; item?: string }
 /** What a dimension measures to: C = fitting center, F = flange / flanged face, E = end (pipe end, cap, threaded, welded …). */
 export type Ref = 'C' | 'F' | 'E';
-export function nodeRef(d: IsoDrawing, node: number): Ref {
+export function nodeRef(d: IsoDrawing, node0: number): Ref {
+  const node = canon(d, node0);
   const k = nodeKind(d, node).kind;
   if (k === 'elbow' || k === 'tee' || k === 'cross' || k === 'multi') return 'C';
   if (k === 'straight') { const it = inlineAt(d, node); return it ? itemRef(it) : 'E'; }
@@ -589,7 +599,8 @@ export function mergeAt(d: IsoDrawing, node: number): IsoDrawing {
   };
   return { ...d, runs, ends: mapRec(d.ends, node), fits: mapRec(d.fits, node), nodeConn: mapRec(d.nodeConn, node), fitSize: mapRec(d.fitSize, node),
     endLen: mapRec(d.endLen, node), inl: mapRec(d.inl, node), notes: d.notes.filter((t) => t.node !== node).map((t) => ({ ...t, node: remap(t.node) })),
-    ...(d.texts ? { texts: d.texts.map((t) => (t.node === node ? { ...t, node: remap(A.from) } : { ...t, node: remap(t.node) })) } : {}) };
+    ...(d.texts ? { texts: d.texts.map((t) => (t.node === node ? { ...t, node: remap(A.from) } : { ...t, node: remap(t.node) })) } : {}),
+    links: Object.fromEntries(Object.entries(d.links ?? {}).filter(([n, t]) => Number(n) !== node && t !== node).map(([n, t]) => [remap(Number(n)), remap(t)])) };
 }
 
 // ---------------------------------------------------------------- offset angle
@@ -652,14 +663,15 @@ export function nodeSize(d: IsoDrawing, sizes: string[], n: number): string {
   return legs.length ? sizes[legs[0].run] ?? d.nps : d.nps;
 }
 /** Joint at a point, using the default joint for the pipe size there. */
-export const connAtSized = (d: IsoDrawing, sizes: string[], n: number): Conn => d.nodeConn?.[n] ?? specFor(d, nodeSize(d, sizes, n)).conn;
+export const connAtSized = (d: IsoDrawing, sizes: string[], n0: number): Conn => { const n = canon(d, n0); return d.nodeConn?.[n] ?? specFor(d, nodeSize(d, sizes, n)).conn; };
 
 export function weldList(d: IsoDrawing): Weld[] {
   const out: Weld[] = [];
   const sizes = runSizes(d);
-  const side = (n: number, ri: number): 'a' | 'b' => (d.runs[ri].from === n ? 'a' : 'b');
+  const side = (n: number, ri: number): 'a' | 'b' => (canon(d, d.runs[ri].from) === n ? 'a' : 'b');
   const push = (n: number, ri: number, conn: Conn, where: Weld['where'], suffix = '') => out.push({ key: `${d.runs[ri].id}:${side(n, ri)}${suffix}`, node: n, run: ri, side: side(n, ri), conn: weldType(conn), where });
   for (let n = 0; n <= d.runs.length; n++) {
+    if (isLinked(d, n)) continue;
     const k = nodeKind(d, n).kind;
     const legs = nodeLegs(d, n);
     if (!legs.length) continue;
@@ -718,6 +730,7 @@ export function materials(d: IsoDrawing): MaterialRow[] {
   cuts.forEach((c) => { if (c.skip) return; const v = c.pieces ? c.pieces.reduce((t, q) => t + (q.ok ? q.cut : 0), 0) : c.ok ? c.cut : 0; pipe[sizes[c.run]] = (pipe[sizes[c.run]] ?? 0) + v; });
   Object.entries(pipe).forEach(([z, v]) => { if (v > 0) add('Pipe', z, `Sch ${specFor(d, z).sch}`, Math.ceil(v) / 12, 'ft'); });
   for (let n = 0; n <= d.runs.length; n++) {
+    if (isLinked(d, n)) continue;
     const k = nodeKind(d, n);
     const legs = nodeLegs(d, n); if (!legs.length) continue;
     const z = sizes[legs[0].run] ?? d.nps;
@@ -820,6 +833,8 @@ export function displayPositions(d: IsoDrawing, scaled: boolean): { P: Vec3[]; k
   const P: Vec3[] = [[0, 0, 0]];
   for (const i of runOrder(d)) { const a = P[d.runs[i].from] ?? [0, 0, 0]; const v = vecs[i]; P[i + 1] = [a[0] + v[0], a[1] + v[1], a[2] + v[2]]; }
   for (let n = 0; n <= d.runs.length; n++) if (!P[n]) P[n] = [0, 0, 0];
+  // a line end joined onto another point is drawn right on that point
+  Object.entries(d.links ?? {}).forEach(([a, t]) => { if (P[t]) P[Number(a)] = P[t]; });
   return { P, k, vecs };
 }
 
@@ -845,7 +860,9 @@ export function deleteSubtree(d: IsoDrawing, i: number): IsoDrawing {
   Object.entries(d.inl ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) inl[m] = f; });
   Object.entries(d.endLen ?? {}).forEach(([n, f]) => { const m = nodeMap.get(Number(n)); if (m !== undefined) endLen[m] = f; });
   const texts = d.texts?.filter((t) => nodeMap.has(t.node)).map((t) => ({ ...t, node: nodeMap.get(t.node)! }));
-  return { ...d, runs, ends, notes, fits, fitSize, nodeConn, inl, endLen, ...(texts ? { texts } : {}) };
+  const links: Record<number, number> = {};
+  Object.entries(d.links ?? {}).forEach(([n, t]) => { const a = nodeMap.get(Number(n)), b = nodeMap.get(t); if (a !== undefined && b !== undefined) links[a] = b; });
+  return { ...d, runs, ends, notes, fits, fitSize, nodeConn, inl, endLen, links, ...(texts ? { texts } : {}) };
 }
 
 /** Human description of a run direction, e.g. "North", "Up 45° East". */

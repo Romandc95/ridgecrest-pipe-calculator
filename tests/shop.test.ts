@@ -313,3 +313,23 @@ describe('drawing notation in length boxes', () => {
     expect(parseLength('67 5/8')).toBe(67.625);
   });
 });
+
+describe('ISO joined line ends', () => {
+  const run = (from: number, v: [number, number, number], id: string): Run => ({ id, from, dx: v[0] / 4, dy: v[1] / 4, dz: v[2] / 4, inline: 'none', sketch: true, meas: v });
+  it('a loop closed back onto the start point makes it an elbow, counted once', () => {
+    const d: IsoDrawing = { ...newDrawing('t', 'x'), runs: [run(0, [48, 0, 0], 'a'), run(1, [0, 48, 0], 'b'), run(2, [-48, 0, 0], 'c'), run(3, [0, -48, 0], 'd')], links: { 4: 0 } };
+    expect(nodeKind(d, 0).kind).toBe('elbow');
+    expect(nodeKind(d, 4).kind).toBe('elbow');
+    expect(weldList(d).length).toBe(8);
+    expect(materials(d).find((m) => m.item.startsWith('LR elbow'))!.qty).toBe(4);
+    const c = cutList(d);
+    expect(Math.abs(c[3].cut - c[0].cut) < 1e-9).toBe(true); // both ends are elbows now
+  });
+  it('a new line tied into the middle of a line makes a tee there', () => {
+    const d: IsoDrawing = { ...newDrawing('t', 'x'), runs: [run(0, [96, 0, 0], 'a'), run(0, [0, 0, 0], 'm'), run(2, [48, 48, 0], 'x')], links: {} };
+    d.runs[1] = { ...d.runs[1], move: true, dx: 12, dy: 12, dz: 0, meas: undefined };
+    const s = splitRun(d, 0, 0.5, 'n');
+    const e: IsoDrawing = { ...s.d, runs: s.d.runs.map((r, i) => (i === 2 ? { ...r, meas: [36, -12, 0] as [number, number, number] } : r)), links: { 3: s.node } };
+    expect(nodeKind(e, s.node).kind).toBe('tee');
+  });
+});
