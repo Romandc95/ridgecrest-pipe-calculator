@@ -597,3 +597,24 @@ button { cursor: pointer; }
 .arrowstyle .chip.tsb { padding: 3px 6px; }
 .arrowstyle .tsl { display: none; }
 .chip.danger { color: #e5534b; border-color: #e5534b66; }
+
+/* full screen: the drawing gets the room, tools sit in a slim panel */
+.isofull.wide { grid-template-columns: minmax(0, 1fr) clamp(190px, 25%, 300px); }
+.isofull:not(.wide) .isoside { max-height: 32vh; }
+.isofull .isoside { padding: 6px; gap: 6px; }
+.isofull .palette.compact .palgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.isofull .palette.compact .palitem { font-size: 9.5px; padding: 3px 1px 3px; border-radius: 8px; }
+.isofull .palette.compact .palitem span { min-height: 2.1em; }
+.isofull .palette.compact .palicon { transform: scale(.82); margin: -3px 0; }
+.isofull .palette .chip, .isofull .chip { font-size: 11.5px; padding: 4px 8px; }
+.isofull .palette .connrow .flabel, .isofull .palhead .muted { display: none; }
+.isofull .card { padding: 8px; }
+@media (min-width: 900px) {
+  .isomain { grid-template-columns: minmax(0, 1fr) clamp(280px, 23vw, 360px); }
+  .palette .palgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+/* text boxes can be tapped any time (not only in Edit / move notes) */
+.isostage .iso-textg .iso-textbox { pointer-events: all; cursor: pointer; }
+.isofull .connrow .chiprow { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.isofull .connrow .chip { font-size: 10.5px; padding: 3px 5px; gap: 3px; justify-content: flex-start; white-space: nowrap; overflow: hidden; }
+.isofull .palhead b { font-size: 14px; }

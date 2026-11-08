@@ -367,7 +367,7 @@ export function IsoSketch() {
   };
   const onTap = (t: Sel, at?: number) => {
     if (armed === 'notes') { setSel(t?.kind === 'text' ? t : null); return; }
-    if (armed === 'text' || armed?.startsWith('arrow:')) return;
+    if (armed === 'text' || armed?.startsWith('arrow:') || armed?.startsWith('tmove:')) return;
     if (armed === 'start') { if (t?.kind === 'node') { setArmed(null); setCursor(t.id); setSel(t); toast(`Drawing from point ${t.id}`); } return; }
     if (armed?.startsWith('mv:')) {
       const n = Number(armed.slice(3));
@@ -456,6 +456,7 @@ export function IsoSketch() {
         : weldSel >= 0 ? { at: disp.P[welds[weldSel].node], node: <WeldPop key={'wp' + welds[weldSel].key} d={d} w={welds[weldSel]} num={weldSel + 1} update={update} onClose={() => setSel(null)} /> }
         : textSel && disp.P[textSel.node] ? { at: add(disp.P[textSel.node], mul(textSel.off, disp.k || 1)), node: <TextPop key={'tp' + textSel.id} note={textSel} onText={(v) => setText(textSel.id, v)}
           onArrow={(aid) => { setArmed('arrow:' + textSel.id + (aid ? ':' + aid : '')); setSel(null); }}
+          onMove={() => { setArmed('tmove:' + textSel.id); setSel(null); }}
           onArrowStyle={(aid, p) => { if (!aid) { setArrowStyle((o) => ({ ...o, ...p })); return; } setArrowStyle((o) => ({ ...o, ...p })); update((x) => ({ ...x, texts: (x.texts ?? []).map((t) => t.id !== textSel.id ? t : { ...t, arrows: (t.arrows ?? []).map((a) => (a.id === aid ? { ...a, ...p } : a)) }) })); }}
           onArrowDelete={(aid) => update((x) => ({ ...x, texts: (x.texts ?? []).map((t) => t.id !== textSel.id ? t : { ...t, arrows: (t.arrows ?? []).filter((a) => a.id !== aid) }) }))}
           arrowStyle={arrowStyle} onStyle={(p) => { setTextStyle((o) => ({ ...o, ...p })); update((x) => ({ ...x, texts: (x.texts ?? []).map((q) => (q.id === textSel.id ? { ...q, ...p } : q)) })); }} onDelete={() => { setText(textSel.id, null); setSel(null); }} onClose={() => closeText(textSel.id)} /> }
@@ -492,6 +493,7 @@ export function IsoSketch() {
         update((x) => ({ ...x, texts: (x.texts ?? []).map((t) => t.id !== tid ? t : { ...t, arrows: aid ? (t.arrows ?? []).map((a) => (a.id === aid ? { ...a, node, off } : a)) : [...(t.arrows ?? []), { id: uid(), node, off, ...arrowStyle }] }) }));
         setArmed('notes'); setSel({ kind: 'text', id: tid });
       }}
+      onTextMoved={(id) => { setArmed(null); setSel({ kind: 'text', id }); }}
       onTextBtn={() => { if (armed === 'text') { setArmed(null); return; } setArmed('text'); setSel(null); setOffOpen(false); }}
       callouts={calloutData}
       offsetOn={offOpen} onOffsetBtn={() => { setOffOpen(!offOpen); setSel(null); }} onPlaceText={placeText} onTextMove={moveText}
@@ -511,7 +513,7 @@ export function IsoSketch() {
           {full ? '✕ Close' : <svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>}
         </button>
       </div>
-      {armed && <div className="isoarmed"><span className="armtxt">{armed === 'start' ? 'Drag on the paper to draw a new line (or tap to set its start)' : armed === 'text' ? 'Set the style below, then tap where the text goes' : armed.startsWith('arrow:') ? 'Tap where the arrow should point' : armed === 'notes' ? 'Drag a note to move · tap to edit' : armed.startsWith('mv:') ? 'Tap where it should go' : armed.startsWith('move:') ? 'Tap a line where it should go' : `Tap where the ${CONN_LABEL[opts.conn].toLowerCase()} ${catalogItem(armed.split(':')[1], armed.split(':')[0] as CatalogItem['kind'])?.label.toLowerCase()} goes`}</span><button className="linkbtn" onClick={() => { setArmed(null); if (sel?.kind === 'text') closeText(sel.id); }}>{armed === 'notes' ? 'done' : 'cancel'}</button></div>}
+      {armed && <div className="isoarmed"><span className="armtxt">{armed === 'start' ? 'Drag on the paper to draw a new line (or tap to set its start)' : armed === 'text' ? 'Set the style below, then tap where the text goes' : armed.startsWith('arrow:') ? 'Tap where the arrow should point' : armed.startsWith('tmove:') ? 'Tap where the text box should go' : armed === 'notes' ? 'Drag a note to move · tap to edit' : armed.startsWith('mv:') ? 'Tap where it should go' : armed.startsWith('move:') ? 'Tap a line where it should go' : `Tap where the ${CONN_LABEL[opts.conn].toLowerCase()} ${catalogItem(armed.split(':')[1], armed.split(':')[0] as CatalogItem['kind'])?.label.toLowerCase()} goes`}</span><button className="linkbtn" onClick={() => { setArmed(null); if (sel?.kind === 'text') closeText(sel.id); }}>{armed === 'notes' ? 'done' : 'cancel'}</button></div>}
       {armed === 'text' && <div className="isodock textdock" onPointerDown={(e) => e.stopPropagation()}>
         <TextStyleBar st={textStyle} onChange={(p) => setTextStyle((o) => ({ ...o, ...p }))} />
       </div>}
@@ -780,7 +782,7 @@ function Palette({ conn, setConn, armed, setArmed, drop, hover, compact }: { con
         <span className="flabel">Connect with</span>
         <div className="chiprow">
           {CONN_ORDER.map((c) => (
-            <button key={c} role="radio" aria-checked={conn === c} className={'chip conn' + (conn === c ? ' on' : '')} onClick={() => setConn(c)}><JointIcon conn={c} />{CONN_LABEL[c]}</button>
+            <button key={c} role="radio" aria-checked={conn === c} title={CONN_LABEL[c]} className={'chip conn' + (conn === c ? ' on' : '')} onClick={() => setConn(c)}><JointIcon conn={c} />{compact ? ({ bw: 'Butt weld', sw: 'Socket wld', thd: 'Threaded', solder: 'Soldered', glue: 'Glued', flg: 'Flanged' } as Record<string, string>)[c] ?? CONN_LABEL[c] : CONN_LABEL[c]}</button>
           ))}
         </div>
       </div>
@@ -920,7 +922,7 @@ function dropHint(key: string): string {
   const [kind] = key.split(':');
   return kind === 'elbow' ? 'Drop elbows on a turn in the drawing' : kind === 'end' ? 'Drop end fittings on the end of a line' : kind === 'branch' ? 'Drop branch fittings on a line or a tee point' : 'Drop it on a straight line';
 }
-function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, onMode, callouts, onTextBtn, onPlaceArrow, children }: {
+function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, onMode, callouts, onTextBtn, onPlaceArrow, onTextMoved, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
   armed: string | null; apiRef: React.MutableRefObject<CanvasApi | null>; onPick: (v: Vec3 | null) => void;
   onItemDrag: (run: number, id: string, t: number) => void; onInlDrag: (node: number, t: number) => void; menu: { at: Vec3; node: React.ReactNode } | null;
@@ -929,6 +931,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   callouts?: Pick<ArtOpts, 'items' | 'spools'>;
   onTextBtn?: () => void;
   onPlaceArrow?: (key: string, node: number, off: Vec3) => void;
+  onTextMoved?: (id: string) => void;
   offsetOn: boolean; onOffsetBtn: () => void; onPlaceText: (node: number, off: Vec3) => void; onTextMove: (id: string, node: number, off: Vec3) => void;
   onView: (v: View) => void; onTap: (s: Sel, t?: number) => void; onDraw: (v: Vec3 | null, from: number, split?: { run: number; t: number }, link?: DrawLink, start?: Vec3) => void; children?: React.ReactNode;
 }) {
@@ -1253,6 +1256,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     if (s.target === 'compass') { onView({ az: stepAz(view.az, 1), el: view.el }); return; }
     if (armed === 'start' && (s.target === 'none' || s.target.kind !== 'node')) { onPick(pickPoint(loc)); return; }
     if (armed === 'text') { const at = textAt(loc); if (at) onPlaceText(at.node, at.off); else onNotice('Turn the view a little to place the note'); return; }
+    if (armed?.startsWith('tmove:')) { const at = textAt(loc); if (at) onTextMove(armed.slice(6), at.node, at.off); onTextMoved?.(armed.slice(6)); return; }
     if (armed?.startsWith('arrow:')) { const at = textAt(loc); if (at) onPlaceArrow?.(armed.slice(6), at.node, at.off); else onNotice('Turn the view a little to place the arrow'); return; }
     if (s.target !== 'none' && s.target) { onTap(s.target, s.target.kind === 'run' ? runT(s.target.id, loc) : s.target.kind === 'item' || s.target.kind === 'dim' ? runT(s.target.run, loc) : undefined); return; }
     onTap(null);
@@ -2309,7 +2313,7 @@ function ArrowStyleBar({ st, onChange }: { st: ArrowStyle; onChange: (p: ArrowSt
   );
 }
 
-function TextPop({ note, onText, onStyle, onDelete, onClose, onArrow, onArrowStyle, onArrowDelete, arrowStyle }: { note: { text: string; arrows?: TextArrow[] } & TextStyle; onText: (v: string) => void; onStyle: (p: TextStyle) => void; onDelete: () => void; onClose: () => void;
+function TextPop({ note, onText, onStyle, onDelete, onClose, onArrow, onArrowStyle, onArrowDelete, arrowStyle, onMove }: { note: { text: string; arrows?: TextArrow[] } & TextStyle; onText: (v: string) => void; onStyle: (p: TextStyle) => void; onDelete: () => void; onClose: () => void; onMove: () => void;
   onArrow: (arrowId?: string) => void; onArrowStyle: (arrowId: string | null, p: ArrowStyle) => void; onArrowDelete: (arrowId: string) => void; arrowStyle: ArrowStyle }) {
   return (
     <div className="itemmenu-in">
@@ -2330,8 +2334,7 @@ function TextPop({ note, onText, onStyle, onDelete, onClose, onArrow, onArrowSty
           <button className="btn" onClick={() => onArrow()}>+ Add arrow (then tap where it points)</button>
         </div>
       </div>
-      <span className="fhint">Drag the text box on the drawing to move it (⋮ → Edit / move notes).</span>
-      <button className="btn danger" onClick={onDelete}>Delete text box</button>
+      <div className="menubtns two"><button className="btn" onClick={onMove}>✥ Move (tap the new spot)</button><button className="btn danger" onClick={onDelete}>Delete text box</button></div>
     </div>
   );
 }
