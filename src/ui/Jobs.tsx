@@ -163,13 +163,14 @@ function Help() {
       <Card>
         <h4>ISO sketch</h4>
         <ul>
-          <li><b>Draw:</b> in Draw mode press on a point and drag — the line follows your finger, snaps to the grid and is placed when you let go (drag from empty space to continue from the dashed-circle point). Drags near an axis go straight. Pick Flat, E–W wall or N–S wall to draw horizontal or vertical lines and offsets. Or type a length (optional) and tap a direction button.</li>
+          <li><b>Draw:</b> in Draw mode press on a point and drag — the line stays on the iso paper (30°, 150° or vertical), snaps to whole squares and is placed when you let go (drag from empty space to continue from the dashed-circle point). Or type a length (optional) and tap a direction button.</li>
+          <li><b>Add offset</b> builds an angled run from the current point: pick the heading, the fitting angle (11¼, 22½, 30, 45, 60 or any), which way it offsets and, for a rolling offset, which way it rolls. Enter the amounts to get the travel and setback, or leave them empty to sketch it and dimension it later.</li>
           <li><b>Two fingers</b> (any mode): pinch to zoom, slide to move, twist to turn the drawing around — it turns with your fingers like the compass.</li>
           <li><b>Fittings &amp; valves:</b> drag one from the palette onto a line (valves, flanges, reducers, strainers, unions…) or a point (elbow types and angle valves at turns, olets, laterals and 3-way valves at tees, caps, flanges, relief/vent/drain valves and instruments at ends) — or tap it, then tap the spot. Tap a line to slide or remove its fittings; tap a point to change its fitting.</li>
           <li><b>Edit:</b> tap a point to draw or branch from it (a branch makes a tee). Tap any line to dimension it, change its direction, add a valve or flange, or delete it. Lines with a yellow ? still need a dimension.</li>
           <li><b>Offsets</b> are shown with their legs dashed and the offset triangle hatched. Enter each leg, or the travel and all but one leg.</li>
           <li><b>To scale</b> redraws the sketch using your dimensions. <b>Rotate 3D</b>: drag to turn the drawing; View buttons jump to ISO, plan or elevations; the Home button under the compass resets to the standard ISO view. Drag the compass to swing North, tap it to turn 90°.</li>
-          <li><b>Undo</b> (lower-left corner of the drawing) steps back through your last 100 changes — lines, dimensions, fittings and deletes.</li>
+          <li><b>Back</b> (lower-left corner of the drawing) steps back through your last 100 changes — lines, dimensions, fittings and deletes. After you go back, <b>Forward</b> appears to put them back; making a new change clears Forward.</li>
           <li><b>Full screen</b> (corner button) opens the drawing landscape with the tools at the side; Hide tools leaves just the drawing.</li>
           <li>The Cut list subtracts B16.9 long-radius elbow and tee take-outs for the size in Setup plus a root gap at every butt weld. Drawings are saved on this device (Library); Setup → Share drawing as image makes a PNG of the current view.</li>
         </ul>

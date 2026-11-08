@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Field, Msg, Select, Segmented, Card, Grid, useApp } from './components';
 import { usePersistent, uid, shareText } from './store';
-import { parseLength, tryParse } from '../engine/parse';
+import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber } from '../engine/format';
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
@@ -56,7 +56,7 @@ export function IsoSketch() {
   const apiFull = useRef(false);
   const [armed, setArmed] = useState<string | null>(null); // catalog key "kind:id" waiting to be placed
   const canvasApi = useRef<CanvasApi | null>(null);
-  const history = useRef<{ id: string; snaps: IsoDrawing[]; last: number; key: string }>({ id: '', snaps: [], last: 0, key: '' });
+  const history = useRef<{ id: string; snaps: IsoDrawing[]; redo: IsoDrawing[]; last: number; key: string }>({ id: '', snaps: [], redo: [], last: 0, key: '' });
   const [, setHistTick] = useState(0);
 
   useEffect(() => {
@@ -76,13 +76,14 @@ export function IsoSketch() {
   const disp = useMemo(() => (d ? displayPositions(d, opts.scaled) : { P: [[0, 0, 0]] as Vec3[], k: 1, vecs: [] as Vec3[] }), [d, opts.scaled]);
   if (!d) return null;
 
-  if (history.current.id !== d.id) history.current = { id: d.id, snaps: [], last: 0, key: '' };
+  if (history.current.id !== d.id) history.current = { id: d.id, snaps: [], redo: [], last: 0, key: '' };
   const update = (f: (d: IsoDrawing) => IsoDrawing, mergeKey = '') => {
     // remember the drawing before each change for Undo; keystrokes in the same field count as one change
     const h = history.current, now = Date.now();
     const merge = mergeKey && mergeKey === h.key && now - h.last < 4000 && h.snaps.length;
     if (!merge) { h.snaps.push(d); if (h.snaps.length > 100) h.snaps.shift(); setHistTick((t) => t + 1); }
     h.last = now; h.key = mergeKey;
+    if (h.redo.length) { h.redo = []; setHistTick((t) => t + 1); } // a new change ends the Forward trail
     setStore((s) => ({ ...s, drawings: s.drawings.map((x) => (x.id === d.id ? { ...f(x), updated: Date.now() } : x)) }));
   };
   const cur = Math.min(cursor, d.runs.length);
@@ -125,12 +126,30 @@ export function IsoSketch() {
     return true;
   };
   const canUndo = history.current.snaps.length > 0;
-  const undo = () => {
-    const prev = history.current.snaps.pop();
-    if (!prev) return;
+  const canRedo = history.current.redo.length > 0;
+  const restore = (to: IsoDrawing) => {
     history.current.last = 0; history.current.key = ''; setHistTick((t) => t + 1);
-    setStore((s) => ({ ...s, drawings: s.drawings.map((x) => (x.id === prev.id ? prev : x)) }));
-    setSel(null); setArmed(null); setCursor(prev.runs.length);
+    setStore((s) => ({ ...s, drawings: s.drawings.map((x) => (x.id === to.id ? to : x)) }));
+    setSel(null); setArmed(null); setCursor(to.runs.length);
+  };
+  /** Back: step to the drawing before the last change. Forward: re-apply what Back took away. */
+  const undo = () => { const prev = history.current.snaps.pop(); if (!prev) return; history.current.redo.push(d); restore(prev); };
+  const redo = () => { const next = history.current.redo.pop(); if (!next) return; history.current.snaps.push(d); restore(next); };
+  /** Incoming direction at the current point, used as the default heading for an offset. */
+  const heading = (() => {
+    const r = d.runs[cur - 1];
+    if (!r || cur === 0) return 'E';
+    const v = sketchVec(r); const L = len3(v);
+    return (Object.keys(DIRS).find((k) => dot3(DIRS[k].v, v) > L * 0.999) ?? 'E');
+  })();
+  const addOffset = (o: OffsetSpec) => {
+    const h = DIRS[o.heading].v, a = DIRS[o.toward].v, b = o.roll ? DIRS[o.roll].v : null;
+    const measured = o.offset !== null && (!b || o.rollAmt !== null);
+    const O = o.offset ?? GRID * 2, R = b ? (o.rollAmt ?? GRID * 2) : 0;
+    const setting = Math.hypot(O, R) / Math.tan((o.angle * Math.PI) / 180);
+    const v = add(add(mul(h, setting), mul(a, O)), b ? mul(b, R) : [0, 0, 0]);
+    addRun({ dx: v[0], dy: v[1], dz: v[2], inline: 'none', sketch: true, ...(measured ? { meas: v } : {}) });
+    toast(`${b ? 'Rolling offset' : 'Offset'} added`);
   };
   const onTap = (t: Sel, at?: number) => {
     if (armed) { if (t) { if (place(armed, t, at)) setArmed(null); } else setArmed(null); return; }
@@ -169,18 +188,22 @@ export function IsoSketch() {
     : selNode !== null ? <NodeEditor d={d} node={selNode} update={update} onClose={() => setSel(null)} /> : null;
 
   const tools = (
-    <DrawTools opts={opts} setOpts={setOpts} lenText={lenText} setLenText={setLenText} addDir={addDir} undo={undo} canUndo={canUndo}
-      cur={cur} isBranch={cur !== d.runs.length} missing={missing} compact={full} />
+    <DrawTools opts={opts} setOpts={setOpts} lenText={lenText} setLenText={setLenText} addDir={addDir} undo={undo} canUndo={canUndo} redo={redo} canRedo={canRedo} heading={heading} addOffset={addOffset}
+      cur={cur} isBranch={cur !== d.runs.length} missing={missing} compact={full} prefs={prefs} />
   );
   const palette = <Palette armed={armed} setArmed={setArmed} drop={(key, cx, cy) => { const h = canvasApi.current?.hitAt(cx, cy); if (!h) { toast('Drop it on a line or a point of the drawing'); return; } place(key, h.sel, h.t); }} compact={full} />;
 
   const stage = (
     <IsoCanvas d={d} disp={disp} opts={opts} prefs={prefs} cursor={cur} sel={sel} rot={rot} fitTick={fitTick} armed={armed} apiRef={canvasApi}
       onView={(v) => setOpts({ view: v })} onTap={onTap} onDraw={drawTo}>
-      <button className="ibtn isoundo" onClick={undo} disabled={!canUndo} aria-label="Undo" title="Undo the last change">
-        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        <span>Undo</span>
-      </button>
+      <div className="isohist">
+        <button className="ibtn" onClick={undo} disabled={!canUndo} aria-label="Back" title="Step back one change">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg><span>Back</span>
+        </button>
+        {canRedo && <button className="ibtn" onClick={redo} aria-label="Forward" title="Put back what Back removed">
+          <span>Forward</span><svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </button>}
+      </div>
       <div className="isobtns">
         {full && <button className="ibtn" onClick={() => setHide(!hide)}>{hide ? 'Show tools' : 'Hide tools'}</button>}
         {full && portrait && <button className="ibtn" onClick={() => { setLand(!land); setFitTick((t) => t + 1); }}>{land ? 'Portrait' : 'Landscape'}</button>}
@@ -264,21 +287,63 @@ function Palette({ armed, setArmed, drop, compact }: { armed: string | null; set
 }
 
 // ------------------------------------------------------------------ tools
-function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, cur, isBranch, missing, compact }: {
+interface OffsetSpec { heading: string; toward: string; offset: number | null; roll: string | null; rollAmt: number | null; angle: number }
+const OPP: Record<string, string> = { N: 'S', S: 'N', E: 'W', W: 'E', U: 'D', D: 'U' };
+const AXIS_OF: Record<string, number> = { E: 0, W: 0, N: 1, S: 1, U: 2, D: 2 };
+const ALL_DIRS = ['N', 'S', 'E', 'W', 'U', 'D'];
+
+function OffsetPanel({ heading, prefs, onAdd, onClose }: { heading: string; prefs: Prefs; onAdd: (o: OffsetSpec) => void; onClose: () => void }) {
+  const [h, setH] = useState(heading);
+  const perp = ALL_DIRS.filter((k) => AXIS_OF[k] !== AXIS_OF[h]);
+  const [to, setTo] = useState(perp.includes('U') ? 'U' : perp[0]);
+  const [off, setOff] = useState('');
+  const [roll, setRoll] = useState('none');
+  const [rollAmt, setRollAmt] = useState('');
+  const [ang, setAng] = useState('45');
+  const toward = perp.includes(to) ? to : perp[0];
+  const rollDirs = ALL_DIRS.filter((k) => AXIS_OF[k] !== AXIS_OF[h] && AXIS_OF[k] !== AXIS_OF[toward]);
+  const rollDir = roll !== 'none' && rollDirs.includes(roll) ? roll : null;
+  const O = tryParse(parseLength, off), R = tryParse(parseLength, rollAmt), A = tryParse(parseAngle, ang);
+  const angle = A && A.ok ? A.v : NaN;
+  const bad = !(angle > 0 && angle < 90) ? 'Fitting angle must be between 0° and 90°' : (O && !O.ok) ? O.err : (R && !R.ok) ? R.err : null;
+  const o = O && O.ok ? O.v : null, r = R && R.ok ? R.v : null;
+  const known = o !== null && (!rollDir || r !== null);
+  const tot = known ? Math.hypot(o!, rollDir ? r! : 0) : NaN;
+  const set = tot / Math.tan((angle * Math.PI) / 180), trav = tot / Math.sin((angle * Math.PI) / 180);
+  const label = (k: string) => DIRS[k].label;
+  return (
+    <div className="offpanel">
+      <div className="row-between"><b>Add offset from this point</b><button className="chip" onClick={onClose}>Close</button></div>
+      <Grid>
+        <Select label="Heading (run)" value={h} options={ALL_DIRS.map((k) => [k, label(k)])} onChange={(v) => { setH(v); setRoll('none'); }} />
+        <Field label="Fitting angle (°)" value={ang} onChange={setAng} placeholder="45" />
+        <Select label="Offset toward" value={toward} options={perp.map((k) => [k, label(k)])} onChange={(v) => { setTo(v); setRoll('none'); }} />
+        <Field label="Offset (optional)" value={off} onChange={setOff} parse={parseLength} placeholder="sketch only" />
+        <Select label="Roll toward" value={rollDir ?? 'none'} options={[['none', 'No roll'], ...rollDirs.map((k) => [k, label(k)] as [string, string])]} onChange={setRoll} />
+        {rollDir && <Field label="Roll (optional)" value={rollAmt} onChange={setRollAmt} parse={parseLength} placeholder="sketch only" />}
+      </Grid>
+      <div className="chiprow">{['11.25', '22.5', '30', '45', '60'].map((a) => <button key={a} className={'chip' + (ang === a ? ' on' : '')} onClick={() => setAng(a)}>{a}°</button>)}</div>
+      {bad ? <Msg kind="warn">{bad}</Msg> : known
+        ? <p className="fhint">{rollDir ? `True offset ${formatFracIn(tot, prefs)} · ` : ''}Travel {formatFtIn(trav, prefs)} · Run (setback) {formatFtIn(set, prefs)}</p>
+        : <p className="fhint">Leave the amounts empty to sketch it now and dimension it later.</p>}
+      <button className="btn primary" disabled={!!bad} onClick={() => onAdd({ heading: h, toward, offset: o, roll: rollDir, rollAmt: rollDir ? r : null, angle })}>Add {rollDir ? 'rolling offset' : 'offset'}</button>
+    </div>
+  );
+}
+
+function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, redo, canRedo, heading, addOffset, prefs, cur, isBranch, missing, compact }: {
   opts: Opts; setOpts: (p: Partial<Opts>) => void; lenText: string; setLenText: (s: string) => void; addDir: (k: string) => void;
-  undo: () => void; canUndo: boolean; cur: number; isBranch: boolean; missing: number; compact: boolean;
+  undo: () => void; canUndo: boolean; redo: () => void; canRedo: boolean; heading: string; addOffset: (o: OffsetSpec) => void; prefs: Prefs;
+  cur: number; isBranch: boolean; missing: number; compact: boolean;
 }) {
+  const [offOpen, setOffOpen] = useState(false);
   const presetOn = VIEW_PRESETS.find((p) => Math.abs(normAz(p.v.az - opts.view.az)) < 0.5 && Math.abs(p.v.el - opts.view.el) < 0.5)?.id ?? '';
   return (
     <Card className={'isotools' + (compact ? ' compact' : '')}>
       <Segmented small value={opts.mode} onChange={(m) => setOpts({ mode: m as Mode })} options={[['draw', '✎ Draw'], ['orbit', '⟳ Rotate 3D'], ['pan', '✥ Move']]} />
       {opts.mode === 'draw' && (
         <>
-          <div className="isorow">
-            <span className="flabel">Draw on</span>
-            <Segmented small value={opts.plane} onChange={(p) => setOpts({ plane: p as Plane })} options={(Object.keys(PLANES) as Plane[]).map((k) => [k, PLANES[k].label])} />
-          </div>
-          <p className="fhint">Drag from a point to draw a line (drag from empty space starts at point {cur}{isBranch ? ', making a tee' : ''}). Tap a line or point to edit it. Two fingers: pinch to zoom, slide to move, twist to turn.</p>
+          <p className="fhint">Drag from a point to draw a line — it follows the 30° / 150° / vertical paper lines (drag from empty space starts at point {cur}{isBranch ? ', making a tee' : ''}). Use Add offset for angled runs. Tap a line or point to edit it. Two fingers: pinch to zoom, slide to move, twist to turn.</p>
         </>
       )}
       {opts.mode === 'orbit' && <p className="fhint">Drag the drawing to turn it in 3D. Drag the compass to swing North; tap it to turn 90°.</p>}
@@ -290,6 +355,9 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
           <button className="chip" onClick={() => setOpts({ view: { ...opts.view, az: normAz(opts.view.az + 90) } })} title="Turn North 90°">N ⟳ 90°</button>
         </div>
       </div>
+      {offOpen
+        ? <OffsetPanel key={heading + cur} heading={heading} prefs={prefs} onAdd={(o) => { addOffset(o); setOffOpen(false); }} onClose={() => setOffOpen(false)} />
+        : <button className="btn offbtn" onClick={() => setOffOpen(true)}>⟋ Add offset from point {cur}</button>}
       <div className="dirbar">
         <Field label="Length (optional)" value={lenText} onChange={setLenText} parse={parseLength} placeholder="e.g. 5' 6" />
         <div className="dirpad">
@@ -300,7 +368,8 @@ function DrawTools({ opts, setOpts, lenText, setLenText, addDir, undo, canUndo, 
         {(['dims', 'welds', 'labels', 'scaled'] as const).map((k) => (
           <label key={k} className="chip"><input type="checkbox" checked={opts[k]} onChange={(e) => setOpts({ [k]: e.target.checked })} /> {({ dims: 'Dimensions', welds: 'Weld dots', labels: 'Point #', scaled: 'To scale' })[k]}</label>
         ))}
-        <button className="chip" onClick={undo} disabled={!canUndo}>↶ Undo</button>
+        <button className="chip" onClick={undo} disabled={!canUndo}>‹ Back</button>
+        {canRedo && <button className="chip" onClick={redo}>Forward ›</button>}
       </div>
       {opts.scaled && missing > 0 && <p className="fhint">{missing} line{missing > 1 ? 's' : ''} without a dimension {missing > 1 ? 'are' : 'is'} drawn at the drawing's average scale.</p>}
     </Card>
@@ -376,18 +445,22 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H };
   };
   const g = GRID * (disp.k || 1);
+  /** Drag snapping: the line follows whichever paper direction (E–W, N–S or vertical) is closest to the drag, in whole grid squares. */
   const snap = (pt: { x: number; y: number }, from: number): Vec3 | null | 'edge' => {
-    const pl = PLANES[opts.plane];
     const o = P[from] ?? [0, 0, 0];
-    const q = unproject((pt.x - cam.tx) / cam.s, (pt.y - cam.ty) / cam.s, view, o, pl.n);
-    if (!q) return 'edge';
-    const rel: Vec3 = [q[0] - o[0], q[1] - o[1], q[2] - o[2]];
-    let ra = dot3(rel, pl.a), rb = dot3(rel, pl.b);
-    // within ~12° of a grid axis → straight along that axis
-    if (Math.abs(rb) < Math.abs(ra) * 0.21) rb = 0; else if (Math.abs(ra) < Math.abs(rb) * 0.21) ra = 0;
-    const ca = Math.round(ra / g) * g, cb = Math.round(rb / g) * g;
-    if (!ca && !cb) return null;
-    return add(mul(pl.a, ca), mul(pl.b, cb));
+    const p0 = T3(o);
+    const dx = pt.x - p0[0], dy = pt.y - p0[1];
+    let best: { ax: Vec3; t: number; perp: number } | null = null;
+    for (const ax of [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as Vec3[]) {
+      const q = T3(add(o, mul(ax, g)));
+      const ex = q[0] - p0[0], ey = q[1] - p0[1], L2 = ex * ex + ey * ey;
+      if (L2 < 4) continue; // seen end-on in this view
+      const t = (dx * ex + dy * ey) / L2, perp = Math.abs(dx * ey - dy * ex) / Math.sqrt(L2);
+      if (!best || perp < best.perp) best = { ax, t, perp };
+    }
+    if (!best) return null;
+    const n = Math.round(best.t);
+    return n ? mul(best.ax, n * g) : null;
   };
   const runT = (i: number, loc: { x: number; y: number }) => {
     const r = d.runs[i]; const a = T3(P[r.from]), b = T3(P[i + 1]);
@@ -520,7 +593,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         onWheel={onWheel} role="img" aria-label={`Isometric sketch ${d.name}`}>
         <HatchDefs />
         <IsoPaper W={W} H={H} T3={T3} g={g} />
-        {opts.mode === 'draw' && !armed && <PlaneGrid W={W} H={H} T3={T3} o={P[gridFrom] ?? [0, 0, 0]} plane={opts.plane} g={g} />}
+        {opts.mode === 'draw' && !armed && <PlaneGrid W={W} H={H} T3={T3} o={P[gridFrom] ?? [0, 0, 0]} g={g} />}
         <IsoArt d={d} disp={disp} T3={T3} sel={sel} cursor={cursor} opts={opts} prefs={prefs} />
         {ghost && (() => {
           const a = T3(P[ghost.from]), b = T3(add(P[ghost.from], ghost.v));
@@ -607,14 +680,13 @@ function IsoPaper({ W, H, T3, g }: { W: number; H: number; T3: (p: Vec3) => [num
   );
 }
 
-/** The two axes of the active drawing plane through the point being drawn from. */
-function PlaneGrid({ W, H, T3, o, plane, g }: { W: number; H: number; T3: (p: Vec3) => [number, number]; o: Vec3; plane: Plane; g: number }) {
-  const { a, b } = PLANES[plane];
+/** The three paper directions through the point being drawn from. */
+function PlaneGrid({ W, H, T3, o, g }: { W: number; H: number; T3: (p: Vec3) => [number, number]; o: Vec3; g: number }) {
   const p0 = T3(o);
   const D = W + H;
   return (
     <g className="isogrid2">
-      {[a, b].map((v, j) => {
+      {([[1, 0, 0], [0, 1, 0], [0, 0, 1]] as Vec3[]).map((v, j) => {
         const q = T3(add(o, mul(v, g))); const dx = q[0] - p0[0], dy = q[1] - p0[1], L = Math.hypot(dx, dy);
         if (L < 0.5) return null;
         const ux = dx / L, uy = dy / L;
