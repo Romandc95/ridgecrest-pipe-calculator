@@ -1,4 +1,4 @@
-# Ridgecrest Pipe Calculator
+# PipeWorks Pro
 
 Pipefitting layout and fabrication calculator for iPhone (installable web app, works offline).
 React + TypeScript. The calculation engine (`src/engine/`) is pure TypeScript with no UI code and is shared by the keypad and the guided screens.

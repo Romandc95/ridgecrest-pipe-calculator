@@ -80,7 +80,7 @@ export function buildPdf(jpg: Uint8Array, pxW: number, pxH: number, pageW: numbe
   offs[5] = size;
   put(`5 0 obj\n<< /Type /XObject /Subtype /Image /Width ${pxW} /Height ${pxH} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`);
   put(jpg); put('\nendstream\nendobj\n');
-  obj(6, `<< /Title (${esc(title)}) /Producer (Ridgecrest Pipe Calculator) >>`);
+  obj(6, `<< /Title (${esc(title)}) /Producer (PipeWorks Pro) >>`);
   const xref = size;
   let x2 = 'xref\n0 7\n0000000000 65535 f \n';
   for (let i = 1; i <= 6; i++) x2 += `${String(offs[i]).padStart(10, '0')} 00000 n \n`;

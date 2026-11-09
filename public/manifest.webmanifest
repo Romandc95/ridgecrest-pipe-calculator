@@ -1,6 +1,6 @@
 {
-  "name": "Ridgecrest Pipe Calculator",
-  "short_name": "Ridgecrest",
+  "name": "PipeWorks Pro",
+  "short_name": "PipeWorks Pro",
   "description": "Pipefitting layout and fabrication calculator.",
   "start_url": "./",
   "scope": "./",

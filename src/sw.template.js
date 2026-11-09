@@ -1,4 +1,4 @@
-// Ridgecrest service worker: precache the app shell so it works offline after the first visit.
+// PipeWorks Pro service worker: precache the app shell so it works offline after the first visit.
 const CACHE = 'ridgecrest-__VERSION__';
 const PRECACHE = __PRECACHE__;
 self.addEventListener('install', (e) => {

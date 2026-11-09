@@ -1,8 +1,9 @@
-# Ridgecrest Pipe Calculator — project notes for Claude
+# PipeWorks Pro — project notes for Claude
 
 Read this first in any new session. It carries the decisions and working rules from earlier conversations.
 
 ## What this is
+The app is named **PipeWorks Pro** (spelled exactly that way). It was renamed from "Ridgecrest Pipe Calculator" — no Ridgecrest Industries name or logo anywhere in the app, icons or sheets. Icon artwork: `public/icons/*` (from the owner's PipeWorks Pro icon, white frame removed); header logo is `src/ui/brand.tsx` (inlined icon + name). Internal names kept on purpose so nothing breaks: the repo / site URL, localStorage prefix `ridgecrest.v1.` (holds the user's saved drawings), service-worker cache prefix, preview file name.
 A React + TypeScript PWA for pipefitters, modelled on the Pipe Trades Pro 4095 calculator, for Ridgecrest Industries.
 - Live site: https://romandc95.github.io/ridgecrest-pipe-calculator/ (GitHub Pages, deployed by `.github/workflows` on push to `main`).
 - Preview artifact (claude.ai): https://claude.ai/artifact/FNujdpStN9TGCQW1cvUDP2 — republish `dist-preview/ridgecrest-pipe-calculator.html` to the same URL after each change.

@@ -2292,7 +2292,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
         <HatchDefs />
         <IsoArt d={d} disp={disp} T3={T3} sel={null} cursor={-1} opts={opts} prefs={prefs} exportMode />
         <Compass x={36} y={36} view={opts.view} />
-        <text x={10} y={H - 10} style={{ font: '700 10px sans-serif', fill: '#111' }}>{d.name} · {d.nps}" NPS · Ridgecrest Pipe Calculator</text>
+        <text x={10} y={H - 10} style={{ font: '700 10px sans-serif', fill: '#111' }}>{d.name} · {d.nps}" NPS · PipeWorks Pro</text>
       </svg>
     </Card>
   );
@@ -2612,7 +2612,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
       <g>
         <rect x={RX} y={tbY} width={RW} height={TB} fill="#fff" stroke="#111" strokeWidth={2} />
         <rect x={RX} y={tbY} width={RW} height={44} fill="#1f3b3a" />
-        <text x={RX + 14} y={tbY + 30} style={{ font: '900 23px sans-serif', fill: '#fff', letterSpacing: '1.5px' }}>RIDGECREST INDUSTRIES</text>
+        <text x={RX + 14} y={tbY + 30} style={{ font: '900 23px sans-serif', fill: '#fff', letterSpacing: '1.5px' }}>PipeWorks Pro</text>
         {tbRows.map(([k, v], i) => (
           <g key={k + i}>
             <line x1={RX} x2={RX + RW} y1={tbY + 44 + i * RH} y2={tbY + 44 + i * RH} stroke="#ccd" />
@@ -2622,7 +2622,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
           </g>
         ))}
       </g>
-      <text x={M + 4} y={SH - 8} style={{ font: '600 11px sans-serif', fill: '#888' }}>11" × 17" iso sheet · Ridgecrest Pipe Calculator · {opts.scaled ? (stretched ? 'drawn to scale — short pieces lengthened so every fitting and dimension shows; use the dimensions' : 'drawn to scale') : 'not to scale — use the dimensions'}</text>
+      <text x={M + 4} y={SH - 8} style={{ font: '600 11px sans-serif', fill: '#888' }}>11" × 17" iso sheet · PipeWorks Pro · {opts.scaled ? (stretched ? 'drawn to scale — short pieces lengthened so every fitting and dimension shows; use the dimensions' : 'drawn to scale') : 'not to scale — use the dimensions'}</text>
     </svg>
   );
 }

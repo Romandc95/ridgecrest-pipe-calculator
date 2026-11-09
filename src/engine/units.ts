@@ -1,4 +1,4 @@
-// Ridgecrest Pipe Calculator — unit constants and quantity model.
+// PipeWorks Pro — unit constants and quantity model.
 // All lengths are stored internally in inches (area in in², volume in in³).
 // Values are kept at full double precision; rounding happens only in format.ts.
 

@@ -12,4 +12,4 @@ const ctx = await context({
 });
 await ctx.watch();
 const { port } = await ctx.serve({ servedir: '.dev', port: 5173, host: '0.0.0.0' });
-console.log(`Ridgecrest dev server: http://localhost:${port}  (service worker disabled in dev)`);
+console.log(`PipeWorks Pro dev server: http://localhost:${port}  (service worker disabled in dev)`);

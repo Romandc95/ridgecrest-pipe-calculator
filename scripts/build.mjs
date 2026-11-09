@@ -36,7 +36,7 @@ let html = readFileSync('index.html', 'utf8');
 
 if (preview) {
   // Fragment for the Claude artifact host (it supplies doctype/head/body).
-  const frag = `<title>Ridgecrest Pipe Calculator</title>
+  const frag = `<title>PipeWorks Pro</title>
 <meta name="theme-color" content="#100f0d">
 <style>html,body{height:100%}${css}</style>
 <div id="root"></div>

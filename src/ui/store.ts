@@ -61,7 +61,7 @@ export function usePersistent<T>(key: string, initial: T): [T, (v: T | ((p: T) =
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
-export async function shareText(text: string, title = 'Ridgecrest Pipe Calculator'): Promise<string> {
+export async function shareText(text: string, title = 'PipeWorks Pro'): Promise<string> {
   try {
     if (navigator.share) { await navigator.share({ title, text }); return 'Shared'; }
   } catch (e) { if ((e as Error).name === 'AbortError') return ''; }
