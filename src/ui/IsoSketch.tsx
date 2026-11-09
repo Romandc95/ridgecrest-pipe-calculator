@@ -1661,8 +1661,6 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     }
 
     if (!exportMode) els.push(<line key={'hit' + i} data-run={i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="iso-hit" />);
-    // on the sheet each pipe gets a thin white casing (drawn under everything) so a grid line can never run along it
-    if (exportMode) casing.push(<line key={'case' + i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="iso-pipecase" />);
     els.push(<line key={'r' + i} data-run={exportMode ? undefined : i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className={'iso-pipe' + (selected ? ' sel' : '')} />);
 
     // fittings and valves on the line
@@ -2571,21 +2569,44 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
     if (!changed) break;
     stretched = true;
   }
-  const disp = { ...disp0, vecs, P: build(vecs) };
-  const pts = [...disp.P, ...(d.texts ?? []).filter((t) => disp.P[t.node]).map((t) => add(disp.P[t.node], mul(t.off, disp.k || 1)))].map((p) => project(p, view));
-  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
-  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
   const aw = DW / KK - 90, ah = DH / KK - 80;
-  const sc = Math.min(aw / Math.max(30, x1 - x0), ah / Math.max(30, y1 - y0));
+  const GS = 40; // iso paper cell on the sheet; one step along any iso direction is GS sheet units
+  // Snap to the iso paper: in the standard iso view every axis lands on a grid direction, so rounding each
+  // run's E/N/up parts to whole grid steps puts every point on a grid crossing and every pipe on a grid line.
+  // (The sheet is not to scale — the written dimensions are the real ones.)
+  const axes = ([[1, 0, 0], [0, 1, 0], [0, 0, 1]] as Vec3[]).map((ax) => project(ax, view));
+  const axLen = axes.map((q) => Math.hypot(q[0], q[1]));
+  const onGrid = axes.every((q) => { const ang = (Math.atan2(q[1], q[0]) * 180) / Math.PI; return [30, 90, 150, -30, -90, -150].some((t) => Math.abs((((ang - t) % 360) + 540) % 360 - 180) < 0.5); })
+    && Math.max(...axLen) - Math.min(...axLen) < 1e-6 * Math.max(...axLen);
+  const extent = (vs: Vec3[]) => {
+    const P = build(vs);
+    const q = [...P, ...(d.texts ?? []).filter((t) => P[t.node]).map((t) => add(P[t.node], mul(t.off, disp0.k || 1)))].map((p) => project(p, view));
+    const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]);
+    return { P, x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+  };
+  let ex = extent(vecs);
+  let sc = Math.min(aw / Math.max(30, ex.x1 - ex.x0), ah / Math.max(30, ex.y1 - ex.y0));
+  if (onGrid) {
+    const cell = GS / KK, L1 = axLen[0];
+    const snapAt = (s0: number) => vecs.map((v) => v.map((c) => { if (Math.abs(c) < 1e-9) return 0; const n = Math.max(1, Math.round((Math.abs(c) * L1 * s0) / cell)); return Math.sign(c) * n * cell / (L1 * s0); }) as Vec3);
+    for (let k = 0; k < 12; k++) {
+      const sv = snapAt(sc), e2 = extent(sv);
+      if ((e2.x1 - e2.x0) * sc <= aw + 1e-6 && (e2.y1 - e2.y0) * sc <= ah + 1e-6) { vecs = sv; ex = e2; break; }
+      sc *= 0.94;
+      if (k === 11) { vecs = snapAt(sc); ex = extent(vecs); }
+    }
+  }
+  const disp = { ...disp0, vecs, P: ex.P };
+  const { x0, x1, y0, y1 } = ex;
   const T3 = (p: Vec3): [number, number] => { const q = project(p, view); return [(q[0] - (x0 + x1) / 2) * sc + DW / KK / 2, (q[1] - (y0 + y1) / 2) * sc + DH / KK / 2 + 6]; };
   // iso paper (30° / 150° / vertical) behind the drawing
-  // The grid is anchored to the drawing's start point and shifted a third of a cell, so pipe runs (which go along the
-  // three iso directions) sit between grid lines instead of landing on top of them and getting lost.
+  // The grid is anchored to the drawing's start point; with the runs snapped to whole grid steps (above), every
+  // pipe sits on a grid line like a sketch on iso paper.
   const grid: React.ReactNode[] = [];
   const gs = 40, t30 = Math.tan(Math.PI / 6), sv = gs / (2 * t30);
   const o0 = disp.P[0] ? T3(disp.P[0]) : [0, 0];
   const Ox = DX + KK * o0[0], Oy = DY + KK * o0[1];
-  const fv = 2 / 3, fa = 1 / 3, fb = 2 / 3; // fa − fb ≡ fv (mod 1) keeps the three families meeting at common points
+  const fv = 0, fa = 0, fb = 0; // grid crossings fall on the drawing's points, so the snapped pipes sit on grid lines
   const first = (base: number, step: number, from: number) => base + Math.ceil((from - base) / step) * step;
   for (let x = first(Ox + fv * sv, sv, DX); x <= DX + DW; x += sv) grid.push(<line key={'v' + x} x1={x} x2={x} y1={DY} y2={DY + DH} />);
   // family a: y + t30·x = A;  family b: y − t30·x = Bc   (written as the y where each line crosses x = DX)
