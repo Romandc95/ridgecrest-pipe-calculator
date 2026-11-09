@@ -117,6 +117,7 @@ export function FitFitTool() {
 
   return (
     <div className="tool">
+      <p className="lead tooldesc"><b>Fit-Fit:</b> make an offset with two elbows cut to the same angle — welded fitting to fitting, or with a pipe piece between them. Enter the offset (or side and rise for a rolling offset) to get the cut angle, pipe length, travel, take off and the cut marks for each elbow.</p>
       <Card>
         <h3 className="cardh">Pipe &amp; elbows</h3>
         <Grid>

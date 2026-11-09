@@ -686,3 +686,4 @@ ol.steps code { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anyw
 .sp-rod { stroke: var(--text); stroke-width: 2; }
 .sp-shoe { fill: var(--surface2); stroke: var(--text); stroke-width: 1.2; }
 .sp-ground { stroke: var(--muted); stroke-width: 1.5; }
+.tooldesc { margin: 2px 2px 10px; font-size: 14px; color: var(--muted); line-height: 1.4; } .tooldesc b { color: var(--text); }
