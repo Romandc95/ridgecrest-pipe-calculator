@@ -636,3 +636,4 @@ button { cursor: pointer; }
 .itemmenu textarea, .itemmenu input { font-size: 16px; }
 .isostage input, .isostage textarea, .isostage select, .isostage .isodock { -webkit-user-select: text; user-select: text; }
 .isostage input, .isostage textarea { touch-action: manipulation; }
+.dg-bore-edge { stroke: var(--text); stroke-width: 1.2; }
