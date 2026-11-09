@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { Field, Msg, Select, Segmented, Card, Grid, useApp } from './components';
 import { usePersistent, uid, shareText } from './store';
 import { parseLength, parseAngle, tryParse } from '../engine/parse';
@@ -409,8 +409,13 @@ export function IsoSketch() {
 
   const placeText = (node: number, off: Vec3) => {
     const id = uid();
-    update((x) => ({ ...x, texts: [...(x.texts ?? []), { id, node, off, text: '', ...textStyle }] }));
-    setArmed('notes'); setSel({ kind: 'text', id });
+    // render the text box now, inside the tap, so iPhone / iPad will open the keyboard on it (they only allow focus during a tap)
+    flushSync(() => {
+      update((x) => ({ ...x, texts: [...(x.texts ?? []), { id, node, off, text: '', ...textStyle }] }));
+      setArmed('notes'); setSel({ kind: 'text', id });
+    });
+    const ta = document.querySelector<HTMLTextAreaElement>('.itemmenu textarea.isotext');
+    try { ta?.focus({ preventScroll: true }); } catch { ta?.focus(); }
   };
   const moveText = (id: string, node: number, off: Vec3) => update((x) => ({ ...x, texts: (x.texts ?? []).map((t) => (t.id === id ? { ...t, node, off } : t)) }), 'tmove' + id);
   const setText = (id: string, text: string | null) => update((x) => ({ ...x, texts: (x.texts ?? []).flatMap((t) => (t.id !== id ? [t] : text === null ? [] : [{ ...t, text }])) }), text === null ? '' : 'ttext' + id);
@@ -1291,6 +1296,9 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     st.current = null;
     setGhost(null);
     if (!s || cancelled) return;
+    // placing a text box / arrow: a fingertip that rolls a little is still a tap
+    const textArm = armed === 'text' || !!armed?.startsWith('tmove:') || !!armed?.startsWith('arrow:');
+    if (s.moved && textArm && s.dist === 0 && !s.pan && Math.hypot(loc.x - s.mid.x, loc.y - s.mid.y) < 24) { s.moved = false; setCam(s.cam); }
     if (s.moved) {
       if (s.blocked && s.dist === 0) { onNotice("Lines can't start from a turn (elbow or offset). Start from a line end, a tee or the middle of a straight line."); return; }
       if (s.drawFrom !== null && s.target !== 'compass' && s.dist === 0) {
@@ -1337,7 +1345,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       <button className="modebadge" aria-label={`Mode: ${MODE_LABEL[opts.mode]} — tap to switch`} onClick={() => onMode?.(opts.mode === 'draw' ? 'pan' : opts.mode === 'pan' ? 'orbit' : 'draw')}>
         <span className="dot" />{MODE_LABEL[opts.mode]}
       </button>
-      <svg ref={svg} viewBox={`0 0 ${W} ${H}`} width={W} height={H} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+      <svg ref={svg} viewBox={`0 0 ${W} ${H}`} width={W} height={H} onMouseDown={(e) => e.preventDefault() /* the tap's follow-up mouse press must not pull focus off a text box that just opened */} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         role="img" aria-label={`Isometric sketch ${d.name}`}>
         <HatchDefs />
         <IsoPaper W={W} H={H} T3={T3} g={g} />

@@ -626,3 +626,10 @@ button { cursor: pointer; }
 .papergrid { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
 .papergrid .flabel { width: 100%; }
 .isomodal-card .sheetopt .flabel { display: block; margin-bottom: 4px; }
+
+/* menus and pop-ups on the drawing: typing must work (iOS won't edit fields inside user-select:none) */
+.isostage .itemmenu, .isostage .itemmenu * { -webkit-user-select: text; user-select: text; touch-action: manipulation; -webkit-touch-callout: default; }
+.isostage .itemmenu button, .isostage .itemmenu .chip { -webkit-user-select: none; user-select: none; }
+.itemmenu textarea, .itemmenu input { font-size: 16px; }
+.isostage input, .isostage textarea, .isostage select, .isostage .isodock { -webkit-user-select: text; user-select: text; }
+.isostage input, .isostage textarea { touch-action: manipulation; }
