@@ -19,15 +19,15 @@ const val = <T,>(fn: (s: string) => T, s: string): T | undefined => {
 const plain = (s: string) => { const q = parseMeasurement(s); if (q.kind !== 'num') throw new CalcError('INPUT', 'Enter a number (unit is chosen separately).'); return q.v; };
 
 export function PipeTools() {
-  const [t, set] = useTool('pipe', { tab: 'data' });
+  const [t0, set] = useTool('pipe', { tab: 'flow' });
+  const t = { ...t0, tab: t0.tab === 'data' ? 'flow' : t0.tab }; // pipe data moved to Specs → Piping
   return (
     <div className="tool">
       <div className="chipgrid four" role="tablist">
-        {([['data', 'Data'], ['flow', 'Flow'], ['expansion', 'Expansion'], ['pfa', 'P·F·A'], ['loss', 'Loss'], ['conv', 'Convert'], ['circle', 'Circle']] as const).map(([k, l]) => (
+        {([['flow', 'Flow'], ['expansion', 'Expansion'], ['pfa', 'P·F·A'], ['loss', 'Loss'], ['conv', 'Convert'], ['circle', 'Circle']] as const).map(([k, l]) => (
           <button key={k} role="tab" aria-selected={t.tab === k} className={t.tab === k ? 'on' : ''} onClick={() => set('tab', k)}>{l}</button>
         ))}
       </div>
-      {t.tab === 'data' && <PipeData />}
       {t.tab === 'flow' && <FlowTool />}
       {t.tab === 'expansion' && <ExpansionTool />}
       {t.tab === 'pfa' && <PFATool />}
@@ -87,7 +87,7 @@ function PipePicker({ p, fluid = false }: { p: ReturnType<typeof usePipe>; fluid
   );
 }
 
-function PipeData() {
+export function PipeData() {
   const p = usePipe('pipedata');
   const f = useFmt();
   const r = p.pipe;

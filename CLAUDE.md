@@ -51,9 +51,18 @@ Browser checks: Playwright + Chromium (`/opt/pw-browsers/...` in the cloud sandb
 - Desktop: wheel zooms over the drawing, scrolls the side panel elsewhere; middle-button pans. Full screen uses the whole screen with a compact tool panel.
 
 ## Layout tab
-- Section order (owner's choice): Offset, Rolling, Combo, Rolled 90, Fit-Fit, Slope, Cutback, Miter, Cope, Take-out, Cut length, Trim. The old Fittings tab was dissolved: its Take-out / Cut length / Trim moved here (`src/ui/FittingTools.tsx` exports them), its Fit-to-Fit was removed and replaced by Fit-Fit, ported from the owner's "Piping Offset Calculator" artifact (claude.ai/artifact/4ZZbYD59vLi1GQDXjCkCXB): math `src/engine/fitfit.ts`, UI `src/ui/FitFit.tsx`. A saved tab value 'fittings' falls back to Layout. Rolled 90 was ported from the owner's standalone "Rolled 90 & Cut-Down Elbow Calculator" artifact (claude.ai/artifact/7sMMfBBRYxvaDbsYT2JYEg): math in `src/engine/rolled90.ts`, UI in `src/ui/Rolled90.tsx`; LR/SR radii now from ASME B16.9 instead of 1.5×/1× nominal. Expansion lives on the Pipe tab (between Flow and P·F·A).
+- Section order (owner's choice): Offset, Rolling, Combo, Rolled 90, Fit-Fit, Slope, Cutback, Miter, Cope, Take-out, Cut length, Trim. The old Fittings tab was dissolved: its Take-out / Cut length / Trim moved here (`src/ui/FittingTools.tsx` exports them), its Fit-to-Fit was removed and replaced by Fit-Fit, ported from the owner's "Piping Offset Calculator" artifact (claude.ai/artifact/4ZZbYD59vLi1GQDXjCkCXB): math `src/engine/fitfit.ts`, UI `src/ui/FitFit.tsx`. A saved tab value 'fittings' falls back to Layout. Rolled 90 was ported from the owner's standalone "Rolled 90 & Cut-Down Elbow Calculator" artifact (claude.ai/artifact/7sMMfBBRYxvaDbsYT2JYEg): math in `src/engine/rolled90.ts`, UI in `src/ui/Rolled90.tsx`; LR/SR radii now from ASME B16.9 instead of 1.5×/1× nominal. Expansion lives on the Conversion tab (between Flow and P·F·A).
 
-## Data tab
+## Bottom bar
+Calc · Layout · ISO · **Specs** · **Conversion** · Jobs (owner's order and names). Internal tab ids are still `data` (Specs) and `pipe` (Conversion) so saved state keeps working.
+
+## Specs tab (id `data`)
+- Sections: Piping (pipe dimensions — moved here from the old Pipe tab), Flanges, Bolting, Gaskets, Fittings, Valves, Pipe & supports.
+
+## Conversion tab (id `pipe`)
+- Flow, Expansion, P·F·A, Loss, Convert, Circle.
+
+## Specs tab details
 - Flanges: B16.5 dimensions, diagram, table, and a "Bolting ›" link. Bolting: the one torque tool (bolt size from flange class/size or entered by hand; stud grade with ASTM A193 yield by size, lubrication/nut-factor presets incl. dry + custom K, target as % yield or psi, optional approved job target, passes, wrench, tightening order, bolt pattern). Torque is calculated by the PCC-1 short form T = K·D·F/12, not copied from vendor charts.
 
 ## Open items / offered but not started

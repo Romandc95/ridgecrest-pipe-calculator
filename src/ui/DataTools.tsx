@@ -1,3 +1,4 @@
+import { PipeData } from './PipeTools';
 import { npsNumber } from '../engine/fittings';
 import React from 'react';
 import { Field, Results, Row, Msg, Formula, ToolActions, Segmented, Select, useTool, Card, Grid, useApp } from './components';
@@ -35,13 +36,14 @@ const CLASS_OPTS = (cs: readonly number[]): Array<[string, string]> => cs.map((c
 const NPS_OPTS = (ns: readonly string[]): Array<[string, string]> => [...ns].sort((a, b) => (npsNumber(a) ?? 0) - (npsNumber(b) ?? 0)).map((n) => [n, `${n}"`]);
 
 export function DataTools() {
-  const [t, set] = useTool('data', { tab: 'flange' });
-  const tabs: Array<[string, string]> = [['flange', 'Flanges'], ['bolting', 'Bolting'], ['gasket', 'Gaskets'], ['fitting', 'Fittings'], ['valve', 'Valves'], ['pipe', 'Pipe & supports']];
+  const [t, set] = useTool('data', { tab: 'piping' });
+  const tabs: Array<[string, string]> = [['piping', 'Piping'], ['flange', 'Flanges'], ['bolting', 'Bolting'], ['gasket', 'Gaskets'], ['fitting', 'Fittings'], ['valve', 'Valves'], ['pipe', 'Pipe & supports']];
   return (
     <div className="tool">
       <div className="chipgrid" role="tablist">
         {tabs.map(([k, l]) => <button key={k} role="tab" aria-selected={t.tab === k} className={t.tab === k ? 'on' : ''} onClick={() => set('tab', k)}>{l}</button>)}
       </div>
+      {t.tab === 'piping' && <PipeData />}
       {t.tab === 'flange' && <FlangeView />}
       {t.tab === 'bolting' && <BoltingView />}
       {t.tab === 'gasket' && <GasketView />}

@@ -53,8 +53,8 @@ button { cursor: pointer; }
 .content { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; min-height: 0; }
 .tab-calc .content { overflow: hidden; }
 
-.tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; justify-items: stretch; border-top: 1px solid var(--line); background: var(--surface); padding-bottom: var(--safe-b); }
-.tabs button { background: none; border: 0; padding: 8px 0 7px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--muted); font-size: 12.5px; min-width: 0; font-weight: 650; min-height: 60px; }
+.tabs { display: flex; justify-content: space-around; border-top: 1px solid var(--line); background: var(--surface); padding-bottom: var(--safe-b); }
+.tabs button { background: none; border: 0; padding: 8px 0 7px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--muted); font-size: clamp(10.5px, 3.3vw, 12.5px); min-width: 0; font-weight: 650; min-height: 60px; flex: 1 1 auto; white-space: nowrap; letter-spacing: -0.01em; }
 .tabs svg { width: 27px; height: 27px; }
 .tabs button.on { color: var(--accent); }
 

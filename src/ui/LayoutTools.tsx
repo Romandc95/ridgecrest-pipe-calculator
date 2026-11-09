@@ -23,7 +23,7 @@ function attempt<T>(f: () => T): { ok: true; v: T } | { ok: false; err: string }
 
 export function LayoutTools() {
   const [t0, set] = useTool('layout', { tab: 'simple' });
-  const t = { ...t0, tab: t0.tab === 'expansion' ? 'simple' : t0.tab }; // Expansion moved to the Pipe tab
+  const t = { ...t0, tab: t0.tab === 'expansion' ? 'simple' : t0.tab }; // Expansion moved to the Conversion tab
   return (
     <div className="tool">
       <div className="chipgrid four" role="tablist">

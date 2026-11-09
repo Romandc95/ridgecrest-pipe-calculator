@@ -195,7 +195,7 @@ function Help() {
           <li><b>Take-out, Cut length, Trim</b> (moved here from the old Fittings tab): elbow take-outs (B16.9 or your own radius & OD), cut length between fittings, and trimming an elbow to an odd angle.</li>
           <li><b>Fit-Fit</b> (last section): an offset made with two elbows cut to the same angle — fitting to fitting, or with a pipe piece between them (know the pipe length → get the angle, or pick the angle → get the pipe). Plain or rolling offset (side and rise, with the clock position to roll elbow 1). Gives the cut angle, pipe piece, travel, C-C run, offset take off, center to face, heel / sides / throat cut marks, a to-scale drawing that checks itself, and a table of other ways to make the same offset (tap a row to use it). O = 2R(1 − cos θ) + L·sin θ.</li>
           <li><b>Rolled 90:</b> a full 90 rolled down θ, welded direct to an elbow cut down to θ that brings the outlet back level. Find angle solves D = [A + B·tan(θ/2) + g]·sin θ for θ; Find drop works it forward. Gives the travel, take-offs, horizontal projection and the throat / centerline / heel arc marks for cutting the elbow, with a lookup table for 1°–90°. Long / short radius from ASME B16.9.</li>
-          <li><b>Expansion</b> (Pipe tab)<b>:</b> ΔL = α · L · ΔT with mean coefficients; check your design code for allowable movement.</li>
+          <li><b>Expansion</b> (Conversion tab)<b>:</b> ΔL = α · L · ΔT with mean coefficients; check your design code for allowable movement.</li>
         </ul>
       </Card>
       <Card>
@@ -211,8 +211,8 @@ function Help() {
         <h4>Not included / limits</h4>
         <ul>
           <li>No bundled dimension tables for brass pipe, cast-iron soil pipe, copper ACR tube or PVC Sch 120 — use manual OD and wall.</li>
-          <li>Automatic take-outs exist only for butt-weld steel / stainless / aluminum elbows (B16.9). Other fittings need a known take-out (the Data tab lists socket-weld and threaded take-outs).</li>
-          <li>Data tab: not included are ring numbers outside Classes 300–600, B16.47 and orifice flanges, flat gaskets, line blanks, weights, reducing-tee outlets and sockolet/threadolet heights. Each table names its source.</li>
+          <li>Automatic take-outs exist only for butt-weld steel / stainless / aluminum elbows (B16.9). Other fittings need a known take-out (the Specs tab lists socket-weld and threaded take-outs).</li>
+          <li>Specs tab: not included are ring numbers outside Classes 300–600, B16.47 and orifice flanges, flat gaskets, line blanks, weights, reducing-tee outlets and sockolet/threadolet heights. Each table names its source.</li>
           <li>Pressure loss: water only, straight pipe, no fittings or valves.</li>
           <li>Fit-Fit models ideal elbows (tangent lengths); verify cut fittings against the actual part.</li>
         </ul>

@@ -386,7 +386,7 @@ function takeoutAt(d0: IsoDrawing, node0: number, run: number, note: string[], s
     case 'elbow': {
       const ang = k.angle;
       if (fit === 'anglevalve') { note.push('angle valve: subtract its center-to-face'); return { to: 0, weld: true }; }
-      if (fit === 'thd90') { note.push('threaded / socket-weld elbow: use the Data tab take-out'); return { to: 0, weld: false }; }
+      if (fit === 'thd90') { note.push('threaded / socket-weld elbow: use the Specs tab take-out'); return { to: 0, weld: false }; }
       if (ang > 90.05) { note.push(`${ang.toFixed(1)}° turn needs two fittings — not deducted`); return { to: 0, weld: true }; }
       const n = npsNumber(d.nps);
       if (fit === 'r3' || fit === 'r5') {
@@ -416,7 +416,7 @@ function takeoutAt(d0: IsoDrawing, node0: number, run: number, note: string[], s
         const header = !!me && legs.some((l) => l !== me && dot(l.dir, me.dir) < -0.9999);
         if (fit === 'weldolet' || fit === 'sockolet' || fit === 'threadolet' || fit === 'stubin') {
           if (header) { note.push(`header runs straight through the ${lbl(fit).toLowerCase()} — one piece of pipe`); return { to: 0, weld: false }; }
-          note.push(fit === 'stubin' ? 'stub-in: subtract ½ header OD' : `${lbl(fit).toLowerCase()}: subtract its height + ½ header OD (Data tab)`);
+          note.push(fit === 'stubin' ? 'stub-in: subtract ½ header OD' : `${lbl(fit).toLowerCase()}: subtract its height + ½ header OD (Specs tab)`);
           return { to: 0, weld: fit !== 'threadolet' && fit !== 'sockolet' };
         }
         if (fit === 'redtee') {

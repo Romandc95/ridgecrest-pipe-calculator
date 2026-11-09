@@ -18,7 +18,7 @@ const TOOL_ROUTE: Record<string, [Tab, string, string]> = {
   miter: ['layout', 'layout', 'miter'], cope: ['layout', 'layout', 'cope'], expansion: ['pipe', 'pipe', 'expansion'], rolled90: ['layout', 'layout', 'rolled90'],
   takeout: ['layout', 'layout', 'takeout'], cutlen: ['layout', 'layout', 'cut'], trim: ['layout', 'layout', 'trim'], f2f: ['layout', 'layout', 'fitfit'], fitfit: ['layout', 'layout', 'fitfit'],
   dflange: ['data', 'data', 'flange'],
-  pipedata: ['pipe', 'pipe', 'data'], flow: ['pipe', 'pipe', 'flow'], pfa: ['pipe', 'pipe', 'pfa'], loss: ['pipe', 'pipe', 'loss'], circle: ['pipe', 'pipe', 'circle'],
+  pipedata: ['data', 'data', 'piping'], flow: ['pipe', 'pipe', 'flow'], pfa: ['pipe', 'pipe', 'pfa'], loss: ['pipe', 'pipe', 'loss'], circle: ['pipe', 'pipe', 'circle'],
 };
 
 const ICONS: Record<Tab, React.ReactNode> = {
@@ -29,7 +29,8 @@ const ICONS: Record<Tab, React.ReactNode> = {
   data: <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.6" /><path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6" /></svg>,
   jobs: <svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z" /><path d="M9 7V5h6v2M4 12h16" /></svg>,
 };
-const TAB_LABEL: Record<Tab, string> = { calc: 'Calc', layout: 'Layout', iso: 'ISO', pipe: 'Pipe', data: 'Data', jobs: 'Jobs' };
+// order here is the order of the bottom bar; ids stay 'data' / 'pipe' so saved state keeps working
+const TAB_LABEL: Record<Tab, string> = { calc: 'Calc', layout: 'Layout', iso: 'ISO', data: 'Specs', pipe: 'Conversion', jobs: 'Jobs' };
 
 export function App() {
   const [tab0, setTab] = usePersistent<Tab>('tab', 'calc');
