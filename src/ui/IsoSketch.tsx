@@ -1536,6 +1536,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
   const S = P.map(T3);
   const under: React.ReactNode[] = [];
   const els: React.ReactNode[] = [];
+  const casing: React.ReactNode[] = [];
   const unit = (a: [number, number], b: [number, number]) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [dx / L, dy / L, L] as const; };
   const sizes = runSizes(d);
   // dimension text: sized to fit its line, and moved to a free spot so no two measurements overlap each other or a pipe
@@ -1660,6 +1661,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     }
 
     if (!exportMode) els.push(<line key={'hit' + i} data-run={i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="iso-hit" />);
+    // on the sheet each pipe gets a thin white casing (drawn under everything) so a grid line can never run along it
+    if (exportMode) casing.push(<line key={'case' + i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="iso-pipecase" />);
     els.push(<line key={'r' + i} data-run={exportMode ? undefined : i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className={'iso-pipe' + (selected ? ' sel' : '')} />);
 
     // fittings and valves on the line
@@ -1948,7 +1951,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       })}
     </g>);
   });
-  return <g>{under}{els}{tags}</g>;
+  return <g>{casing}{under}{els}{tags}</g>;
 }
 
 // ------------------------------------------------------------------ editors
@@ -2298,7 +2301,7 @@ function SetupPanel({ d, disp, opts, prefs, update, toast }: { d: IsoDrawing; di
     </Card>
   );
 }
-const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:700 10px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}.iso-legdim{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-dimlead{stroke:#0a4f4a;stroke-width:.5;stroke-dasharray:1.5 1.5}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textborder{fill:#fff;stroke:#111;stroke-width:1}.iso-arrowline{fill:none;stroke:#111;stroke-width:1.1}.iso-arrowhead{fill:#111}.iso-fit{font:800 6.8px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:2.4px;stroke-linejoin:round}.iso-note{paint-order:stroke;stroke:#fff;stroke-width:2.4px}.iso-spoolbox{fill:#fff;stroke:#1f3b3a;stroke-width:.9}.iso-spooltxt{font:800 6.6px sans-serif;fill:#1f3b3a}.iso-spoollead{stroke:#1f3b3a;stroke-width:.5}.iso-ballc{fill:#fff;stroke:#111;stroke-width:.9}.iso-balltxt{font:800 6.4px sans-serif;fill:#111}.iso-balllead{stroke:#111;stroke-width:.5}.iso-textbox{fill:none;stroke:none}`;
+const EXPORT_CSS = `.iso-pipe{stroke:#111;stroke-width:2.6;stroke-linecap:round}.iso-pipecase{stroke:#fff;stroke-width:6.5;stroke-linecap:round}.iso-hit{stroke:none}.iso-sym{fill:#fff;stroke:#111;stroke-width:1.3}.iso-sym.thick{stroke-width:2.4}.iso-symfill{fill:#111}.iso-weld{fill:#111}.iso-dim{font:700 10px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}.iso-legdim{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-note{font:600 8px sans-serif;fill:#111}.iso-node{font:600 7px sans-serif;fill:#666}.iso-leader{stroke:#666;stroke-width:.6}.iso-off{fill:none;stroke:#777;stroke-width:.9;stroke-dasharray:4 3}.iso-hatch{stroke:none}.iso-hatchline{stroke:#999;stroke-width:.8}.cmp-ring{fill:#fff;stroke:#bbb}.cmp-n{stroke:#1f7f7a;stroke-width:2.2}.cmp-head{fill:#1f7f7a}.cmp-dir{stroke:#999;stroke-width:1.2}.cmp-up{stroke:#bbb;stroke-width:1;stroke-dasharray:2 2}.cmp-t{font:700 9px sans-serif;fill:#777}.cmp-t.n{fill:#1f7f7a}.iso-gap{stroke:#fff;stroke-width:6}.nofill{fill:none}.iso-symball{fill:#fff;stroke:#111;stroke-width:1.2}.iso-symtext{font:800 6px sans-serif;fill:#111}.iso-fit{font:800 7.5px sans-serif;fill:#1f7f7a}.iso-equip{fill:#eee;stroke:#111;stroke-width:1.1}.iso-olet{fill:#bbb;stroke:#111;stroke-width:1.2}.iso-dimsub{font:700 8.5px sans-serif;fill:#333;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.iso-dimtick{stroke:#1f7f7a;stroke-width:.8}.iso-dimlead{stroke:#0a4f4a;stroke-width:.5;stroke-dasharray:1.5 1.5}.iso-pipe.nofill{fill:none}.iso-wlead{stroke:#b4232a;stroke-width:.6}.iso-wdot{fill:#b4232a}.iso-wbox{fill:#fff;stroke:#b4232a;stroke-width:.8}.iso-wtag.field .iso-wbox{stroke-dasharray:2 1.2}.iso-wtxt{font:800 6.4px sans-serif;fill:#b4232a}.iso-wsten{font:700 6.5px sans-serif;fill:#555}.iso-whit{fill:transparent}.iso-textnote{font:700 9px sans-serif;fill:#111}.iso-textborder{fill:#fff;stroke:#111;stroke-width:1}.iso-arrowline{fill:none;stroke:#111;stroke-width:1.1}.iso-arrowhead{fill:#111}.iso-fit{font:800 6.8px sans-serif;fill:#0a4f4a;paint-order:stroke;stroke:#fff;stroke-width:2.4px;stroke-linejoin:round}.iso-note{paint-order:stroke;stroke:#fff;stroke-width:2.4px}.iso-spoolbox{fill:#fff;stroke:#1f3b3a;stroke-width:.9}.iso-spooltxt{font:800 6.6px sans-serif;fill:#1f3b3a}.iso-spoollead{stroke:#1f3b3a;stroke-width:.5}.iso-ballc{fill:#fff;stroke:#111;stroke-width:.9}.iso-balltxt{font:800 6.4px sans-serif;fill:#111}.iso-balllead{stroke:#111;stroke-width:.5}.iso-textbox{fill:none;stroke:none}`;
 
 async function shareImage(d: IsoDrawing, markup: string, W: number, H: number, scale = 3): Promise<string> {
   const svg = markup.replace(/ style="display: ?none;?"/, '').replace(/^(<svg[^>]*>)/, `$1<style>${EXPORT_CSS}</style>`);
@@ -2576,13 +2579,19 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
   const sc = Math.min(aw / Math.max(30, x1 - x0), ah / Math.max(30, y1 - y0));
   const T3 = (p: Vec3): [number, number] => { const q = project(p, view); return [(q[0] - (x0 + x1) / 2) * sc + DW / KK / 2, (q[1] - (y0 + y1) / 2) * sc + DH / KK / 2 + 6]; };
   // iso paper (30° / 150° / vertical) behind the drawing
+  // The grid is anchored to the drawing's start point and shifted a third of a cell, so pipe runs (which go along the
+  // three iso directions) sit between grid lines instead of landing on top of them and getting lost.
   const grid: React.ReactNode[] = [];
-  const gs = 40, t30 = Math.tan(Math.PI / 6);
-  for (let x = DX; x <= DX + DW; x += gs / (2 * t30)) grid.push(<line key={'v' + x} x1={x} x2={x} y1={DY} y2={DY + DH} />);
-  for (let c = -DW; c <= DH + DW; c += gs) {
-    grid.push(<line key={'a' + c} x1={DX} y1={DY + c} x2={DX + DW} y2={DY + c - DW * t30} />);
-    grid.push(<line key={'b' + c} x1={DX} y1={DY + c - DW * t30} x2={DX + DW} y2={DY + c} />);
-  }
+  const gs = 40, t30 = Math.tan(Math.PI / 6), sv = gs / (2 * t30);
+  const o0 = disp.P[0] ? T3(disp.P[0]) : [0, 0];
+  const Ox = DX + KK * o0[0], Oy = DY + KK * o0[1];
+  const fv = 2 / 3, fa = 1 / 3, fb = 2 / 3; // fa − fb ≡ fv (mod 1) keeps the three families meeting at common points
+  const first = (base: number, step: number, from: number) => base + Math.ceil((from - base) / step) * step;
+  for (let x = first(Ox + fv * sv, sv, DX); x <= DX + DW; x += sv) grid.push(<line key={'v' + x} x1={x} x2={x} y1={DY} y2={DY + DH} />);
+  // family a: y + t30·x = A;  family b: y − t30·x = Bc   (written as the y where each line crosses x = DX)
+  const A0 = Oy + t30 * Ox + fa * gs, B0 = Oy - t30 * Ox + fb * gs;
+  for (let A = first(A0, gs, DY + t30 * DX); A <= DY + DH + t30 * (DX + DW); A += gs) { const yL = A - t30 * DX; grid.push(<line key={'a' + A} x1={DX} y1={yL} x2={DX + DW} y2={yL - DW * t30} />); }
+  for (let B = first(B0, gs, DY - t30 * (DX + DW)); B <= DY + DH - t30 * DX; B += gs) { const yL = B + t30 * DX; grid.push(<line key={'b' + B} x1={DX} y1={yL} x2={DX + DW} y2={yL + DW * t30} />); }
   const shop = wl.filter((w) => !d.welds?.[w.key]?.field).length, field = wl.length - shop;
   const date = new Date(d.doneAt ?? d.updated).toLocaleDateString();
   // right column: material, weld log, title block
