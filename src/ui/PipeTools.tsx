@@ -1,4 +1,5 @@
 import React from 'react';
+import { ExpansionTool } from './ShopTools';
 import { Field, Results, Row, Msg, Formula, ToolActions, Segmented, Select, useTool, useFmt, Card, Grid } from './components';
 import { parseLength, parseMeasurement, tryParse } from '../engine/parse';
 import { MATERIALS, MATERIAL_ORDER, Material, typesFor, sizesFor, pipeProps, manualPipe, DATASETS, PipeProps } from '../engine/pipedata';
@@ -21,9 +22,14 @@ export function PipeTools() {
   const [t, set] = useTool('pipe', { tab: 'data' });
   return (
     <div className="tool">
-      <Segmented value={t.tab} onChange={(v) => set('tab', v)} options={[['data', 'Data'], ['flow', 'Flow'], ['pfa', 'P·F·A'], ['loss', 'Loss'], ['conv', 'Convert'], ['circle', 'Circle']]} />
+      <div className="chipgrid four" role="tablist">
+        {([['data', 'Data'], ['flow', 'Flow'], ['expansion', 'Expansion'], ['pfa', 'P·F·A'], ['loss', 'Loss'], ['conv', 'Convert'], ['circle', 'Circle']] as const).map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={t.tab === k} className={t.tab === k ? 'on' : ''} onClick={() => set('tab', k)}>{l}</button>
+        ))}
+      </div>
       {t.tab === 'data' && <PipeData />}
       {t.tab === 'flow' && <FlowTool />}
+      {t.tab === 'expansion' && <ExpansionTool />}
       {t.tab === 'pfa' && <PFATool />}
       {t.tab === 'loss' && <LossTool />}
       {t.tab === 'conv' && <ConvertTool />}
