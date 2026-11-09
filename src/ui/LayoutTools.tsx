@@ -27,7 +27,7 @@ export function LayoutTools() {
   return (
     <div className="tool">
       <div className="chipgrid four" role="tablist">
-        {([['simple', 'Offset'], ['rolling', 'Rolling'], ['slope', 'Slope'], ['cutback', 'Cutback'], ['combo', 'Combo'], ['miter', 'Miter'], ['cope', 'Cope'], ['rolled90', 'Rolled 90'], ['takeout', 'Take-out'], ['cut', 'Cut length'], ['trim', 'Trim'], ['fitfit', 'Fit-Fit']] as const).map(([k, l]) => (
+        {([['simple', 'Offset'], ['rolling', 'Rolling'], ['combo', 'Combo'], ['rolled90', 'Rolled 90'], ['fitfit', 'Fit-Fit'], ['slope', 'Slope'], ['cutback', 'Cutback'], ['miter', 'Miter'], ['cope', 'Cope'], ['takeout', 'Take-out'], ['cut', 'Cut length'], ['trim', 'Trim']] as const).map(([k, l]) => (
           <button key={k} role="tab" aria-selected={t.tab === k} className={t.tab === k ? 'on' : ''} onClick={() => set('tab', k)}>{l}</button>
         ))}
       </div>
