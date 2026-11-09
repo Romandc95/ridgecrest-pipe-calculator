@@ -616,7 +616,7 @@ function SpacingDiagram({ a, b, clear, cc, fmt }: {
 }
 
 function PipeExtras() {
-  const [x, setX] = useTool('dpipe', { nps: '6', sch: 'Std', len: "20'", nps2: '4', sch2: 'Std', ins1: '0', ins2: '0', clear: '1"', fl1: '', fcls: '150', branch: '2', gap: '1/16' });
+  const [x, setX] = useTool('dpipe', { nps: '6', sch: 'Std', len: "20'", nps2: '4', sch2: 'Std', ins1: '0', ins2: '0', clear: '1"', fl1: '', fcls: '150', fl2: '', fcls2: '150', branch: '2', gap: '1/16' });
   const dim = useDim();
   const steelSizes = sizesFor('steel', x.sch);
   const nps = steelSizes.includes(x.nps) ? x.nps : '6';
@@ -629,7 +629,9 @@ function PipeExtras() {
   const sp = attempt(() => {
     const a = steelOD(nps), b = steelOD(x.nps2);
     const fl = x.fl1 === '1' ? flange(Number(x.fcls) as FlangeClass, nps).od : null;
-    return pipeSpacing({ od: a, insul: val(parseLength, x.ins1) ?? 0, flangeOD: fl }, { od: b, insul: val(parseLength, x.ins2) ?? 0 }, val(parseLength, x.clear) ?? 0);
+    const fl2 = x.fl2 === '1' ? flange(Number(x.fcls2) as FlangeClass, x.nps2).od : null;
+    const r = pipeSpacing({ od: a, insul: val(parseLength, x.ins1) ?? 0, flangeOD: fl }, { od: b, insul: val(parseLength, x.ins2) ?? 0, flangeOD: fl2 }, val(parseLength, x.clear) ?? 0);
+    return { ...r, fl, fl2 };
   });
   const ol = attempt(() => weldolet(x.branch, steelOD(nps), val(parseLength, x.gap) ?? 0));
   const span = SUPPORT_SPAN[nps];
@@ -666,10 +668,12 @@ function PipeExtras() {
           <Field label="Clear gap" value={x.clear} onChange={(v) => setX('clear', v)} parse={parseLength} />
         </Grid>
         <label className="toggle sm"><input type="checkbox" checked={x.fl1 === '1'} onChange={(e) => setX('fl1', e.target.checked ? '1' : '')} /> Flange on the {nps}" line at this point</label>
-        {x.fl1 === '1' && <Select label="Flange class" value={x.fcls} options={CLASS_OPTS(FLANGE_CLASSES)} onChange={(v) => setX('fcls', v)} />}
-        {sp.ok && <SpacingDiagram a={{ nps, od: steelOD(nps), insul: val(parseLength, x.ins1) ?? 0, flangeOD: x.fl1 === '1' ? flange(Number(x.fcls) as FlangeClass, nps).od : null, side: sp.v.sideA }}
-          b={{ nps: x.nps2, od: steelOD(x.nps2), insul: val(parseLength, x.ins2) ?? 0, flangeOD: null, side: sp.v.sideB }} clear={val(parseLength, x.clear) ?? 0} cc={sp.v.spacing} fmt={(v) => formatFracIn(v, prefs)} />}
-        {sp.ok ? <Results title="Spacing" rows={[dim(sp.v.spacing, 'Center to center', { strong: true }), dim(sp.v.sideA, `${nps}" side`), dim(sp.v.sideB, `${x.nps2}" side`)]} /> : <Msg>{sp.err}</Msg>}
+        {x.fl1 === '1' && <Select label={`Flange class on the ${nps}" line`} value={x.fcls} options={CLASS_OPTS(FLANGE_CLASSES)} onChange={(v) => setX('fcls', v)} />}
+        <label className="toggle sm"><input type="checkbox" checked={x.fl2 === '1'} onChange={(e) => setX('fl2', e.target.checked ? '1' : '')} /> Flange on the {x.nps2}" (second) line at this point</label>
+        {x.fl2 === '1' && <Select label={`Flange class on the ${x.nps2}" line`} value={x.fcls2} options={CLASS_OPTS(FLANGE_CLASSES)} onChange={(v) => setX('fcls2', v)} />}
+        {sp.ok && <SpacingDiagram a={{ nps, od: steelOD(nps), insul: val(parseLength, x.ins1) ?? 0, flangeOD: sp.v.fl, side: sp.v.sideA }}
+          b={{ nps: x.nps2, od: steelOD(x.nps2), insul: val(parseLength, x.ins2) ?? 0, flangeOD: sp.v.fl2, side: sp.v.sideB }} clear={val(parseLength, x.clear) ?? 0} cc={sp.v.spacing} fmt={(v) => formatFracIn(v, prefs)} />}
+        {sp.ok ? <Results title="Spacing" rows={[dim(sp.v.spacing, 'Center to center', { strong: true }), dim(sp.v.sideA, `${nps}" side`, { sub: sp.v.fl && sp.v.fl / 2 >= sp.v.sideA - 1e-9 ? `½ flange OD (Class ${x.fcls}, ${formatFracIn(sp.v.fl, prefs)} OD)` : 'pipe + insulation' }), dim(sp.v.sideB, `${x.nps2}" side`, { sub: sp.v.fl2 && sp.v.fl2 / 2 >= sp.v.sideB - 1e-9 ? `½ flange OD (Class ${x.fcls2}, ${formatFracIn(sp.v.fl2, prefs)} OD)` : 'pipe + insulation' })]} /> : <Msg>{sp.err}</Msg>}
       </Card>
       <Card>
         <h4>Weldolet branch (STD, reducing)</h4>
