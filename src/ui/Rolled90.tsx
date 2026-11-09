@@ -67,7 +67,7 @@ export function Rolled90Tool() {
 
   return (
     <div className="tool">
-      <p className="lead tooldesc"><b>Rolled 90:</b> drop a line with a full 90 rolled down and an elbow cut down to the same angle, welded straight to it, so the outlet comes back level. Enter the drop to get the roll angle (or the angle to get the drop), plus travel, take-offs and where to mark the cut on the elbow.</p>
+      <p className="lead tooldesc"><b>Rolled 90:</b> Offset a line with a full 90 rolled and a mitered elbow cut down, welded straight fitting to fitting, so the outlet comes back level. Enter the size of pipe and offset to get the roll angle (or the angle to get the drop), and it’ll solve for travel, take-offs and where to mark the cut on the elbow.</p>
       <Card>
         <Segmented value={inp.mode} onChange={(m) => set('mode', m)} options={[['angle', 'Find angle'], ['drop', 'Find drop']]} />
         <Grid>
