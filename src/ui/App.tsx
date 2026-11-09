@@ -26,7 +26,7 @@ const ICONS: Record<Tab, React.ReactNode> = {
   layout: <svg viewBox="0 0 24 24"><path d="M3 18h5l8-12h5" /><circle cx="8" cy="18" r="1.6" /><circle cx="16" cy="6" r="1.6" /></svg>,
   iso: <svg viewBox="0 0 24 24"><path d="M4 16l6-3.5V6l6 3.5 4-2.3" /><path d="M10 12.5l6 3.5" /><circle cx="10" cy="12.5" r="1.4" /></svg>,
   pipe: <svg viewBox="0 0 24 24"><ellipse cx="7" cy="12" rx="3" ry="6" /><path d="M7 6h11a3 6 0 0 1 0 12H7" /></svg>,
-  data: <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.6" /><path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6" /></svg>,
+  data: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4.4" strokeWidth="1.2" /><circle cx="12" cy="12" r="2.2" /><circle cx="18.56" cy="14.72" r="0.85" /><circle cx="14.72" cy="18.56" r="0.85" /><circle cx="9.28" cy="18.56" r="0.85" /><circle cx="5.44" cy="14.72" r="0.85" /><circle cx="5.44" cy="9.28" r="0.85" /><circle cx="9.28" cy="5.44" r="0.85" /><circle cx="14.72" cy="5.44" r="0.85" /><circle cx="18.56" cy="9.28" r="0.85" /></svg>, // flange face: OD, raised face, bore, 8 bolt holes
   jobs: <svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z" /><path d="M9 7V5h6v2M4 12h16" /></svg>,
 };
 // order here is the order of the bottom bar; ids stay 'data' / 'pipe' so saved state keeps working
