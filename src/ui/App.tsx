@@ -16,7 +16,7 @@ type Tab = 'calc' | 'layout' | 'fittings' | 'iso' | 'pipe' | 'data' | 'jobs';
 const TOOL_ROUTE: Record<string, [Tab, string, string]> = {
   simple: ['layout', 'layout', 'simple'], rolling: ['layout', 'layout', 'rolling'], slope: ['layout', 'layout', 'slope'],
   cutback: ['layout', 'layout', 'cutback'], combo: ['layout', 'layout', 'combo'],
-  miter: ['layout', 'layout', 'miter'], cope: ['layout', 'layout', 'cope'], expansion: ['pipe', 'pipe', 'expansion'],
+  miter: ['layout', 'layout', 'miter'], cope: ['layout', 'layout', 'cope'], expansion: ['pipe', 'pipe', 'expansion'], rolled90: ['layout', 'layout', 'rolled90'],
   takeout: ['fittings', 'fittings', 'takeout'], cutlen: ['fittings', 'fittings', 'cut'], trim: ['fittings', 'fittings', 'trim'], f2f: ['fittings', 'fittings', 'f2f'],
   dflange: ['data', 'data', 'flange'],
   pipedata: ['pipe', 'pipe', 'data'], flow: ['pipe', 'pipe', 'flow'], pfa: ['pipe', 'pipe', 'pfa'], loss: ['pipe', 'pipe', 'loss'], circle: ['pipe', 'pipe', 'circle'],

@@ -50,6 +50,9 @@ Browser checks: Playwright + Chromium (`/opt/pw-browsers/...` in the cloud sandb
 - Back / Forward history and the "next line starts here" point are saved on the device (`isohist`, `isocursor`), and pending saves flush on pagehide / hidden — iPhone home-screen apps get closed when you switch away.
 - Desktop: wheel zooms over the drawing, scrolls the side panel elsewhere; middle-button pans. Full screen uses the whole screen with a compact tool panel.
 
+## Layout tab
+- Offset, Rolling, Slope, Cutback, Combo, Miter, Cope, **Rolled 90** (last). Rolled 90 was ported from the owner's standalone "Rolled 90 & Cut-Down Elbow Calculator" artifact (claude.ai/artifact/7sMMfBBRYxvaDbsYT2JYEg): math in `src/engine/rolled90.ts`, UI in `src/ui/Rolled90.tsx`; LR/SR radii now from ASME B16.9 instead of 1.5×/1× nominal. Expansion lives on the Pipe tab (between Flow and P·F·A).
+
 ## Data tab
 - Flanges: B16.5 dimensions, diagram, table, and a "Bolting ›" link. Bolting: the one torque tool (bolt size from flange class/size or entered by hand; stud grade with ASTM A193 yield by size, lubrication/nut-factor presets incl. dry + custom K, target as % yield or psi, optional approved job target, passes, wrench, tightening order, bolt pattern). Torque is calculated by the PCC-1 short form T = K·D·F/12, not copied from vendor charts.
 

@@ -198,6 +198,12 @@
 ✓ ISO joined line ends › a loop closed back onto the start point makes it an elbow, counted once
 ✓ ISO joined line ends › a new line tied into the middle of a line makes a tee there
 ✓ ISO pipe letters follow the pipe › a valve added later to the first line keeps A, B before the next line
+✓ rolled 90 + cut-down elbow › geometry: t = B tan(θ/2), L = A + t + g, D = L sin θ
+✓ rolled 90 + cut-down elbow › 90° gives the full A + B + g drop
+✓ rolled 90 + cut-down elbow › solving for a drop returns the angle that makes it, and matches the A = B, g = 0 closed form
+✓ rolled 90 + cut-down elbow › drops out of range are refused
+✓ rolled 90 + cut-down elbow › cut-down marks: arcs at (B ∓ OD/2)·θ
+✓ rolled 90 + cut-down elbow › dms
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -251,4 +257,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-252 passed, 0 failed, 252 total
+258 passed, 0 failed, 258 total

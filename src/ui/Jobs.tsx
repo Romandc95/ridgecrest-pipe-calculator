@@ -192,6 +192,7 @@ function Help() {
         <ul>
           <li><b>Miter:</b> n welds give n−1 full gores and two half-gore ends; each cut is tilted B/(2n) from square. Wrap the template ordinates around the pipe from the heel.</li>
           <li><b>Cope:</b> ordinates are cut-backs from the square end of the branch, starting at the heel (φ = 0, in line with the header axis).</li>
+          <li><b>Rolled 90:</b> a full 90 rolled down θ, welded direct to an elbow cut down to θ that brings the outlet back level. Find angle solves D = [A + B·tan(θ/2) + g]·sin θ for θ; Find drop works it forward. Gives the travel, take-offs, horizontal projection and the throat / centerline / heel arc marks for cutting the elbow, with a lookup table for 1°–90°. Long / short radius from ASME B16.9.</li>
           <li><b>Expansion</b> (Pipe tab)<b>:</b> ΔL = α · L · ΔT with mean coefficients; check your design code for allowable movement.</li>
         </ul>
       </Card>

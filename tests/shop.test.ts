@@ -367,3 +367,31 @@ describe('ISO pipe letters follow the pipe', () => {
     expect(pipeOrder(s.d)).toEqual([2, 0, 1]);
   });
 });
+
+import { rolled90, rolled90Angle, rolled90Shortcut, cutDownMarks, dms } from '../src/engine/rolled90';
+describe('rolled 90 + cut-down elbow', () => {
+  it('geometry: t = B tan(θ/2), L = A + t + g, D = L sin θ', () => {
+    const r = rolled90(6, 6, 0.125, 30);
+    const t = 6 * Math.tan(Math.PI / 12);
+    expect(r.t).toBeCloseTo(t, 12); expect(r.L).toBeCloseTo(6 + t + 0.125, 12);
+    expect(r.D).toBeCloseTo((6 + t + 0.125) * 0.5, 12); expect(r.H).toBeCloseTo((6 + t + 0.125) * Math.cos(Math.PI / 6), 12);
+  });
+  it('90° gives the full A + B + g drop', () => { expect(rolled90(6, 6, 0.1, 90).D).toBeCloseTo(12.1, 9); });
+  it('solving for a drop returns the angle that makes it, and matches the A = B, g = 0 closed form', () => {
+    const s = rolled90Angle(6, 6, 0, 2);
+    expect(rolled90(6, 6, 0, s.deg).D).toBeCloseTo(2, 9);
+    expect(s.deg).toBeCloseTo(rolled90Shortcut(6, 2), 6);
+    const s2 = rolled90Angle(6, 4, 0.0625, 5);
+    expect(rolled90(6, 4, 0.0625, s2.deg).D).toBeCloseTo(5, 9);
+  });
+  it('drops out of range are refused', () => {
+    expect(() => rolled90Angle(6, 6, 0, 0.05)).toThrow(/less than 1°/);
+    expect(() => rolled90Angle(6, 6, 0, 13)).toThrow(/more than this pair/);
+  });
+  it('cut-down marks: arcs at (B ∓ OD/2)·θ', () => {
+    const m = cutDownMarks(6, 4.5, 45);
+    expect(m.ri).toBeCloseTo(3.75, 12); expect(m.ro).toBeCloseTo(8.25, 12);
+    expect(m.throat).toBeCloseTo(3.75 * Math.PI / 4, 12); expect(m.heel).toBeCloseTo(8.25 * Math.PI / 4, 12); expect(m.center).toBeCloseTo(6 * Math.PI / 4, 12);
+  });
+  it('dms', () => { expect(dms(16.5)).toBe('16° 30′ 0″'); expect(dms(29.99999)).toBe('30° 0′ 0″'); });
+});
