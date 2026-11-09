@@ -103,7 +103,7 @@ function FlangeView() {
         {!r.ok && <Msg>{r.err}</Msg>}
       </Card>
       {f && <Results title={`Class ${p.cls} · NPS ${p.nps} · ASME B16.5`} rows={rows} />}
-      {f && <FlangeTorque f={f} />}
+      {f && <BoltingLink cls={p.inp.cls} nps={p.nps} />}
       <Card>
         <label className="toggle sm"><input type="checkbox" checked={x.table === '1'} onChange={(e) => setX('table', e.target.checked ? '1' : '')} /> Show the full Class {p.cls} table</label>
         {x.table === '1' && <FlangeTable cls={p.cls} />}
@@ -114,12 +114,11 @@ function FlangeView() {
   );
 }
 /** Torque spec for the selected flange: bolt size and count from B16.5, stud grade, lubricant (nut factor) and target stress. */
-function FlangeTorque({ f }: { f: Flange }) {
+function BoltTorque({ d, n, title, source }: { d: number; n: number; title: string; source: React.ReactNode }) {
   const prefs = useAppPrefs();
   const [x, setX] = useTool('dftorque', { grade: 'B7', lube: 'oilgraph', k: '', mode: 'pct', pct: '50', psi: '50000', job: '' });
   const grade = BOLT_GRADES[x.grade] ? x.grade : 'B7';
   const lube = NUT_FACTORS.find((n) => n.id === x.lube) ?? NUT_FACTORS[0];
-  const d = f.boltDia, n = f.nBolts;
   const Sy = boltYieldPsi(grade, d);
   const r = attempt(() => {
     const K = lube.id === 'custom' ? Number(x.k) : lube.k;
@@ -146,8 +145,8 @@ function FlangeTorque({ f }: { f: Flange }) {
   return (
     <>
       <Card>
-        <h3 className="cardh">Bolt torque</h3>
-        <p className="lead">{n} × {formatFracIn(d, prefs)}-{boltTPI(d)} studs (from B16.5). Pick the stud grade, lubricant and target stress — or enter the torque your job procedure gives.</p>
+        {source}
+        <p className="lead">{n} × {formatFracIn(d, prefs)}-{boltTPI(d)} studs. Pick the stud grade, lubricant and target stress — or enter the torque your job procedure gives.</p>
         <Grid>
           <Select label="Stud grade" value={grade} options={Object.entries(BOLT_GRADES).map(([k, g]) => [k, g.label.replace('A193 ', '').replace(/ \(.*\)/, '').replace('Class', 'Cl.')])} onChange={(s) => setX('grade', s)} />
           <Select label="Lubrication" value={lube.id} options={NUT_FACTORS.map((q) => [q.id, q.id === 'custom' ? 'Custom K' : q.short])} onChange={(s) => setX('lube', s)} />
@@ -161,9 +160,9 @@ function FlangeTorque({ f }: { f: Flange }) {
         <p className="fhint">{lube.id !== 'custom' && <b>K {lube.k.toFixed(2)} — </b>}{lube.note}</p>
         {!r.ok && <Msg>{r.err}</Msg>}
       </Card>
-      {v && <Results title={`Torque · Class ${f.cls} · NPS ${f.nps}`} rows={[
+      {v && <Results title={title} rows={[
         { label: v.job != null ? 'Job target torque' : 'Final torque (100%)', value: `${formatNumber(final, 0)} ft·lb`, sub: `${formatNumber(final * 1.3558179, 0)} N·m${v.job != null ? ` · calculated ${formatNumber(v.t.torqueFtLb, 0)} ft·lb` : ''}`, strong: true },
-        ...[30, 70].map((pc) => ({ label: `Pass at ${pc}%`, value: `${formatNumber((final * pc) / 100, 0)} ft·lb` })),
+        ...v.t.passes.filter((q) => q.pct < 100).map((q) => ({ label: `Pass at ${q.pct}%`, value: `${formatNumber((final * q.pct) / 100, 0)} ft·lb` })),
         { label: 'Studs', value: `${n} × ${formatFracIn(d, prefs)}-${boltTPI(d)}`, sub: `${BOLT_GRADES[grade].label} · ${BOLT_GRADES[grade].nut} heavy-hex nuts` },
         { label: 'Target bolt stress', value: `${formatNumber(v.S, 0)} psi`, sub: pctY != null ? `${formatNumber(pctY, 0)}% of ${formatNumber(Sy! / 1000, 0)} ksi minimum yield` : 'yield not tabulated for this size' },
         { label: 'Preload per stud', value: `${formatNumber(v.t.preload, 0)} lbf`, sub: `stress area ${formatNumber(v.t.As, 4)} in² · total ${formatNumber(v.t.preload * n, 0)} lbf` },
@@ -173,11 +172,14 @@ function FlangeTorque({ f }: { f: Flange }) {
       ]} />}
       {v && <BoltPattern n={n} seq={v.seq} />}
       {warns.map((w, i) => <Msg key={i} kind="warn">{w}</Msg>)}
+      <Msg kind="warn">Torque values depend on the gasket, bolt material, lubricant and your site procedure. Use the procedure's target stress and nut factor; these defaults are only a starting point.</Msg>
       <Formula title="How the torque is worked out">
         <ul>
-          <li>Preload F = target stress × tensile stress area As (ASME B1.1, UNC to 1", 8-UN above). Torque T = K × D × F ÷ 12 ft·lb — the ASME PCC-1 short-form method.</li>
+          <li>Tensile stress area As = 0.7854 (D − 0.9743/n)², n = threads per inch (UNC to 1", 8-UN above) — ASME B1.1.</li>
+          <li>Preload F = target stress × As. Torque T = K × D × F ÷ 12 ft·lb — the ASME PCC-1 short-form method.</li>
           <li>Lubrication changes K, so a dry stud needs more torque for the same preload. Presets are typical published values; your lubricant data sheet or procedure governs.</li>
-          <li>Passes: snug, 30%, 70%, 100% in the cross pattern, then rotate at 100% until nuts stop turning (PCC-1 legacy method).</li>
+          <li>Passes: snug, then about 20–30%, 50–70%, 100% in the cross pattern, then rotate clockwise at 100% until nuts stop turning (ASME PCC-1 legacy method).</li>
+          <li>Cross pattern numbers bolts clockwise from 1. Wrench size = heavy hex nut across flats, 1.5D + 1/8" (ASME B18.2.2).</li>
           <li>{BOLT_GRADE_SOURCE}</li>
           <li>General service guide only. High temperature, high pressure, hydrotest and critical joints need the specified joint procedure and gasket maker's values.</li>
         </ul>
@@ -313,51 +315,38 @@ function FlangeDiagram({ f, type, fmt }: { f: Flange; type: string; fmt: (v: num
 // ------------------------------------------------------------------ bolting
 function BoltingView() {
   const p = useClassSize('dbolt');
-  const [x, setX] = useTool('dbolt2', { stress: '50000', k: '0.17', src: 'flange', dia: '', n: '8' });
-  const r = attempt(() => {
-    let d: number, n: number;
-    if (x.src === 'flange') { const f = flange(p.cls, p.nps); d = f.boltDia; n = f.nBolts; }
-    else { d = val(parseLength, x.dia)!; n = Number(x.n); if (d === undefined) throw new CalcError('INPUT', 'Enter the bolt diameter.'); }
-    const S = Number(x.stress), K = Number(x.k);
-    return { d, n, t: boltTorque(d, S, K), seq: tighteningSequence(n) };
-  });
-  const v = r.ok ? r.v : null;
+  const [x, setX] = useTool('dbolt2', { src: 'flange', dia: '', n: '8' });
   const prefs = useAppPrefs();
-  return (
+  const r = attempt(() => {
+    if (x.src === 'flange') { const f = flange(p.cls, p.nps); return { d: f.boltDia, n: f.nBolts, title: `Torque · Class ${p.cls} · NPS ${p.nps}` }; }
+    const d = val(parseLength, x.dia); const n = Number(x.n);
+    if (d === undefined) throw new CalcError('INPUT', 'Enter the bolt diameter.');
+    if (!(n >= 4 && n % 4 === 0)) throw new CalcError('INPUT', 'Pick the number of bolts.');
+    return { d, n, title: `Torque · ${n} × ${formatFracIn(d, prefs)} studs` };
+  });
+  const source = (
     <>
-      <Card>
-        <Segmented small value={x.src} onChange={(s) => setX('src', s)} options={[['flange', 'From flange size'], ['manual', 'Enter bolt size']]} />
-        {x.src === 'flange' ? <ClassSize p={p} /> : (
-          <Grid>
-            <Field label="Bolt diameter" value={x.dia} onChange={(s) => setX('dia', s)} parse={parseLength} hint={'e.g. 7/8"'} />
-            <Select label="Number of bolts" value={x.n} options={['4', '8', '12', '16', '20', '24'].map((s) => [s, s])} onChange={(s) => setX('n', s)} />
-          </Grid>
-        )}
+      <Segmented small value={x.src} onChange={(s) => setX('src', s)} options={[['flange', 'From flange size'], ['manual', 'Enter bolt size']]} />
+      {x.src === 'flange' ? <ClassSize p={p} /> : (
         <Grid>
-          <Field label="Target bolt stress (psi)" value={x.stress} onChange={(s) => setX('stress', s)} inputMode="decimal" hint="from your bolting procedure" />
-          <Field label="Nut factor K" value={x.k} onChange={(s) => setX('k', s)} inputMode="decimal" hint="≈0.16–0.20 lubricated" />
+          <Field label="Bolt diameter" value={x.dia} onChange={(s) => setX('dia', s)} parse={parseLength} hint={'e.g. 7/8"'} />
+          <Select label="Number of bolts" value={x.n} options={['4', '8', '12', '16', '20', '24'].map((s) => [s, s])} onChange={(s) => setX('n', s)} />
         </Grid>
-        {!r.ok && <Msg>{r.err}</Msg>}
-      </Card>
-      {v && <BoltPattern n={v.n} seq={v.seq} />}
-      {v && <Results title="Torque" rows={[
-        { label: 'Bolt', value: `${v.n} × ${formatFracIn(v.d, prefs)}-${boltTPI(v.d)}`, sub: `stress area ${formatNumber(v.t.As, 4)} in²` },
-        { label: 'Target preload per bolt', value: `${formatNumber(v.t.preload, 0)} lbf` },
-        { label: 'Final torque (100%)', value: `${formatNumber(v.t.torqueFtLb, 0)} ft·lb`, sub: `${formatNumber(v.t.torqueFtLb * 1.3558179, 0)} N·m`, strong: true },
-        ...v.t.passes.filter((q) => q.pct < 100).map((q) => ({ label: `Pass at ${q.pct}%`, value: `${formatNumber(q.ftlb, 0)} ft·lb` })),
-        { label: 'Wrench (heavy hex nut)', value: formatFracIn(heavyHexAcrossFlats(v.d), prefs) },
-        { label: 'Tightening order', value: v.seq.join(' – ') },
-      ]} />}
-      <Msg kind="warn">Torque values depend on the gasket, bolt material, lubricant and your site procedure. Use the procedure's target stress and nut factor; these defaults are only a starting point.</Msg>
-      <Formula>
-        <ul>
-          <li>Tensile stress area As = 0.7854 (D − 0.9743/n)², n = threads per inch (UNC to 1", 8-UN above) — ASME B1.1.</li>
-          <li>Preload F = target stress × As. Torque T = K × D × F ÷ 12 (ft·lb).</li>
-          <li>Passes: snug, then about 20–30%, 50–70%, 100% in the cross pattern, then rotate clockwise at 100% until nuts stop turning (ASME PCC-1 legacy method).</li>
-          <li>Cross pattern numbers bolts clockwise from 1. Wrench size = heavy hex nut across flats, 1.5D + 1/8" (ASME B18.2.2).</li>
-        </ul>
-      </Formula>
+      )}
     </>
+  );
+  if (!r.ok) return <Card>{source}<Msg>{r.err}</Msg></Card>;
+  return <BoltTorque d={r.v.d} n={r.v.n} title={r.v.title} source={source} />;
+}
+
+/** On Flanges: torque lives on the Bolting screen — one tap takes this flange there. */
+function BoltingLink({ cls, nps }: { cls: string; nps: string }) {
+  const { setToolField } = useApp();
+  const go = () => { setToolField('dbolt', 'cls', cls); setToolField('dbolt', 'nps', nps); setToolField('dbolt2', 'src', 'flange'); setToolField('data', 'tab', 'bolting'); };
+  return (
+    <Card>
+      <div className="row-between"><span className="lead">Bolt torque for this flange is on the Bolting screen.</span><button className="btn" onClick={go}>Bolting ›</button></div>
+    </Card>
   );
 }
 

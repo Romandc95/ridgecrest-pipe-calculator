@@ -51,7 +51,7 @@ Browser checks: Playwright + Chromium (`/opt/pw-browsers/...` in the cloud sandb
 - Desktop: wheel zooms over the drawing, scrolls the side panel elsewhere; middle-button pans. Full screen uses the whole screen with a compact tool panel.
 
 ## Data tab
-- Flanges: B16.5 dimensions, diagram, table, and a **Bolt torque** card (stud grade with ASTM A193 yield by size, lubrication/nut-factor presets incl. dry, target as % yield or psi, optional approved job target, passes, wrench, tightening order). Torque is calculated by the PCC-1 short form T = K·D·F/12, not copied from vendor charts.
+- Flanges: B16.5 dimensions, diagram, table, and a "Bolting ›" link. Bolting: the one torque tool (bolt size from flange class/size or entered by hand; stud grade with ASTM A193 yield by size, lubrication/nut-factor presets incl. dry + custom K, target as % yield or psi, optional approved job target, passes, wrench, tightening order, bolt pattern). Torque is calculated by the PCC-1 short form T = K·D·F/12, not copied from vendor charts.
 
 ## Open items / offered but not started
 - Account login + sync across devices via **Supabase** — waiting on the owner's Supabase Project URL and anon key. Don't start without them.
