@@ -1,3 +1,4 @@
+import { MiterDiagram, CopeDiagram } from './ShopDiagrams';
 import React from 'react';
 import { Field, Results, Msg, Formula, ToolActions, Segmented, Select, useTool, useFmt, Card, Grid, useApp } from './components';
 import { parseLength, parseAngle, parseMeasurement, tryParse } from '../engine/parse';
@@ -119,6 +120,7 @@ export function MiterTool() {
         ] : []),
         { label: 'Template: heel to throat difference', value: f.len(2 * (m.od / 2) * Math.tan((m.cutAngle * Math.PI) / 180)) },
       ]} />}
+      {m && <MiterDiagram bend={m.bend} welds={m.welds} R={m.R} od={m.od} cut={m.cutAngle} fmt={f.len} />}
       {m && <TemplatePlot pts={m.template.map((p) => ({ arc: p.arc, y: p.offset, deg: p.deg }))} circ={Math.PI * m.od} yLabel="± from square line" baseline="square reference line (center of cut)" signed />}
       {m && <Card><h4>Cut ordinates (+ toward the heel side, − toward the throat)</h4><Ordinates rows={m.template.map((p, i) => ({ n: i + 1, deg: p.deg, arc: p.arc, y: p.offset }))} /></Card>}
       <Formula>
@@ -162,6 +164,7 @@ export function CopeTool() {
         { label: 'Depth of cut (tips to deepest point)', value: f.len(c.depth), sub: f.dec(c.depth), strong: true },
         { label: 'Branch circumference', value: f.len(c.circumference), sub: `${inp.div} spaces of ${f.len(c.circumference / Number(inp.div))}` },
       ]} />}
+      {c && r.ok && <CopeDiagram H={r.v.H} B={r.v.B} angle={r.v.a} off={val(parseLength, inp.off) ?? 0} depth={c.depth} fmt={f.len} />}
       {c && <TemplatePlot pts={c.points.map((p) => ({ arc: p.arc, y: p.cutback, deg: p.deg }))} circ={c.circumference} yLabel="cut back" baseline="square end of branch" />}
       {c && <Card><h4>Cut-back ordinates from the square end</h4><Ordinates rows={c.points.map((p, i) => ({ n: i + 1, deg: p.deg, arc: p.arc, y: p.cutback }))} />
         <p className="fhint">Line 1 (0°) lies in the plane of the header axis{r.ok && r.v.a < 90 ? ', on the heel (obtuse) side; 180° is the crotch' : ''}. 90° and 270° are the sides.</p></Card>}

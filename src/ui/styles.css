@@ -692,3 +692,11 @@ ol.steps code { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anyw
 .sp-shoe { fill: var(--surface2); stroke: var(--text); stroke-width: 1.2; }
 .sp-ground { stroke: var(--muted); stroke-width: 1.5; }
 .tooldesc { margin: 2px 2px 10px; font-size: 14px; color: var(--muted); line-height: 1.4; } .tooldesc b { color: var(--text); }
+.shp-lead { fill: color-mix(in srgb, var(--muted) 22%, var(--surface)); stroke: var(--muted); stroke-width: 1.3; }
+.shp-piece { fill: color-mix(in srgb, var(--accent) 24%, var(--surface)); stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; }
+.shp-piece.end { fill: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.shp-weld { stroke: #e0533f; stroke-width: 2.6; }
+.shp-saddle { stroke: #e0533f; stroke-width: 2.2; }
+.shp-radius { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
+.shp-dot { fill: var(--muted); }
+.dg-lbl.shp-cuttxt { fill: #e0533f; font-weight: 700; }
