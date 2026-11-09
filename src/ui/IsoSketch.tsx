@@ -2738,6 +2738,7 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
   };
   const share = () => shareImage(d, markup(), SW, SH, 2).then((m) => m && toast(m));
   const mid = { x: size.w / 2, y: size.h / 2 };
+  const optRef = useRef<HTMLDivElement>(null);
   const zoomBar = (
     <div className="sheetbar">
       <button className="ibtn" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.5, mid)}>−</button>
@@ -2757,7 +2758,8 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
     <>
       <div className="sheetwrap">{!full && sheet}{!full && zoomBar}</div>
       {full && createPortal(<div className={'sheetfull' + (rot ? ' rot' : '')}><div className="sheetfull-in">{sheet}</div></div>, document.body)}
-      <div className="sheetopt">
+      <button className="sheethint" onClick={() => optRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><span className="bob">▼</span> Scroll down: weld map, print, save &amp; share <span className="bob">▼</span></button>
+      <div className="sheetopt" ref={optRef}>
         <Segmented small value={showWelds ? 'on' : 'off'} onChange={(v) => setShowWelds(v === 'on')} options={[['on', 'Weld map on'], ['off', 'Weld map off']]} />
       </div>
       <div className="chiprow sheetacts">

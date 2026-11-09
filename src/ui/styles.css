@@ -529,7 +529,12 @@ button { cursor: pointer; }
 
 .isosheet .iso-dim.seg { font-size: 10px; }
 .sheetwrap > .sheetbar { position: static; justify-content: flex-end; padding: 6px 8px; background: var(--surface); opacity: 1; }
-@media (max-width: 700px) { .sheetwrap .sheetbox { aspect-ratio: auto; height: 58vh; } }
+/* phones: the box hugs the 17×11 sheet so the options below stay in sight (pinch to zoom inside it) */
+@media (max-width: 700px) { .sheetwrap .sheetbox { aspect-ratio: auto; height: calc((100vw - 34px) * 0.647 + 14px); min-height: 0; } }
+.sheethint { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin: 6px 0 2px; padding: 8px; border: 0; border-radius: 10px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font: 700 13.5px var(--font); }
+.sheethint .bob { display: inline-block; animation: sheetbob 1.4s ease-in-out infinite; }
+@keyframes sheetbob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+@media (prefers-reduced-motion: reduce) { .sheethint .bob { animation: none; } }
 .iso-dimlead { stroke: var(--accent); stroke-width: .5; stroke-dasharray: 1.5 1.5; pointer-events: none; }
 
 /* ISO on iPad / desktop: use the whole width — drawing left, tools in a side panel */
