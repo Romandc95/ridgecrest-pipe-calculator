@@ -2458,6 +2458,9 @@ function NameModal({ title, d, action, note, onSave, onClose }: { title: string;
 }
 
 // ------------------------------------------------------------------ completed drawing: 11×17 sheet
+/** Running as an iPhone / iPad home-screen app (window.print() does nothing there). */
+const IOS_HOME_APP = typeof navigator !== 'undefined' && (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
+  && ((navigator as unknown as { standalone?: boolean }).standalone === true || (typeof matchMedia !== 'undefined' && matchMedia('(display-mode: standalone)').matches));
 const SW = 1700, SH = 1100; // 17" × 11" in hundredths of an inch
 type TRow = Array<string>;
 function svgTable(key: string, x: number, y: number, w: number, hMax: number, title: string, cols: Array<{ h: string; w: number; r?: boolean }>, rows0: TRow[]): React.ReactNode {
@@ -2726,7 +2729,28 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
   const [fmt, setFmt] = usePersistent<'pdf' | 'jpg'>('isosavefmt', 'pdf');
   const [busy, setBusy] = useState(false);
   const fileBase = (d.name.replace(/[^\w-]+/g, '_') || 'iso') + (d.info?.jobNo ? '_' + d.info.jobNo.replace(/[^\w-]+/g, '_') : '');
-  const doPrint = () => { setOut(null); setTimeout(() => { if (!printSheet(exportSvg(), SW, SH, paperById(paper), d.name)) toast('Printing is not available here — use Save → PDF and print that'); }, 50); };
+  // iPhone / iPad home-screen apps ignore window.print(), so there the PDF goes to the share sheet, which has Print.
+  // The PDF is made while the dialog is open: the share sheet only opens straight from the tap.
+  const iosApp = IOS_HOME_APP;
+  const [pdfReady, setPdfReady] = useState<{ key: string; file: File } | null>(null);
+  const pdfKey = `${paper}|${showWelds}|${d.updated}`;
+  useEffect(() => {
+    if (out !== 'print' || !iosApp || pdfReady?.key === pdfKey) return;
+    let live = true; setPdfReady(null);
+    sheetPdf(exportSvg(), SW, SH, paperById(paper), d.name).then((b) => { if (live) setPdfReady({ key: pdfKey, file: new File([b], `${fileBase}_${paperById(paper).id}.pdf`, { type: 'application/pdf' }) }); }).catch(() => {});
+    return () => { live = false; };
+  }, [out, pdfKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const doPrint = () => {
+    if (iosApp) {
+      const f = pdfReady?.file; if (!f) return;
+      navigator.share({ files: [f], title: d.name }).then(() => setOut(null)).catch((e) => { if ((e as Error).name !== 'AbortError') toast('Could not open the share sheet — use Save → PDF'); });
+      return;
+    }
+    // straight from the tap (a timer loses the tap and Safari ignores the print)
+    const ok = printSheet(exportSvg(), SW, SH, paperById(paper), d.name);
+    setOut(null);
+    if (!ok) toast('Printing is not available here — use Save → PDF and print that');
+  };
   const doSave = async () => {
     setBusy(true);
     try {
@@ -2783,12 +2807,12 @@ function SheetView({ d, opts, prefs, toast }: { d: IsoDrawing; opts: Opts; prefs
             </div>
           )}
           <p className="fhint">{out === 'print'
-            ? 'Landscape, drawing scaled to fit with ¼" margins. Your printer dialog opens next — pick the printer there and check its paper matches. If nothing opens, use Save → PDF and print the PDF.'
+            ? (iosApp ? 'Landscape, drawing scaled to fit with ¼" margins. Tap Print, then tap Print in the share sheet that opens to get your iPhone’s printer options (printer, copies, paper).' : 'Landscape, drawing scaled to fit with ¼" margins. Your printer dialog opens next — pick the printer there and check its paper matches. If nothing opens, use Save → PDF and print the PDF.')
             : fmt === 'pdf' ? 'A one-page PDF at this paper size (landscape, scaled to fit, about 200 dpi) — opens and prints anywhere.' : 'A full 11×17 sheet image (3400 × 2200 px).'}
             {showWelds ? ' Weld map is on.' : ' Weld map is off.'}</p>
           <div className="chiprow sheetacts">
             {out === 'print'
-              ? <button className="btn primary" onClick={doPrint}>Print</button>
+              ? <button className="btn primary" disabled={iosApp && pdfReady?.key !== pdfKey} onClick={doPrint}>{iosApp && pdfReady?.key !== pdfKey ? 'Preparing…' : 'Print'}</button>
               : <button className="btn primary" disabled={busy} onClick={doSave}>{busy ? 'Making file…' : `Save ${fmt === 'pdf' ? 'PDF' : 'JPEG'}`}</button>}
             <button className="btn" onClick={() => setOut(null)}>Cancel</button>
           </div>
