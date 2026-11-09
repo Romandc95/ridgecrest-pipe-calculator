@@ -204,6 +204,12 @@
 ✓ rolled 90 + cut-down elbow › drops out of range are refused
 ✓ rolled 90 + cut-down elbow › cut-down marks: arcs at (B ∓ OD/2)·θ
 ✓ rolled 90 + cut-down elbow › dms
+✓ Fit-Fit offset with two cut elbows › fitting to fitting: θ makes exactly the offset, travel × sin θ = offset
+✓ Fit-Fit offset with two cut elbows › no gap: cos θ = 1 − O/(2R)
+✓ Fit-Fit offset with two cut elbows › too much offset for fitting to fitting is refused with pipe-piece options
+✓ Fit-Fit offset with two cut elbows › pipe piece known → angle; angle known → pipe piece (round trip)
+✓ Fit-Fit offset with two cut elbows › cut marks are radius × θ (rad)
+✓ Fit-Fit offset with two cut elbows › options table and helpers
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -257,4 +263,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-258 passed, 0 failed, 258 total
+264 passed, 0 failed, 264 total

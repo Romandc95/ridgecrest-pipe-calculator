@@ -1,12 +1,12 @@
 import React from 'react';
 import { Field, Results, Row, Msg, Formula, ToolActions, Segmented, Select, useTool, useFmt, Card, Grid } from './components';
+// Take-out, Cut length and Trim — shown on the Layout tab (the Fittings tab was folded into Layout).
 import { TrimDiagram } from './diagrams';
 import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { elbowTakeout, B169, ELBOW_ORDER, ELBOW_LABEL, ElbowType, arcs, idealTakeout, trimElbow, steelOD, B169_SOURCE } from '../engine/fittings';
 import { NPS_SORTED } from '../engine/fittings';
 import { CalcError } from '../engine/units';
 import { CutSection, CUT_DEFAULTS } from './LayoutTools';
-import { FitToFit } from './FitToFit';
 
 const val = <T,>(fn: (s: string) => T, s: string): T | undefined => {
   const r = tryParse(fn, s);
@@ -19,19 +19,6 @@ function attempt<T>(f: () => T): { ok: true; v: T } | { ok: false; err: string }
 }
 const NPS_OPTS: Array<[string, string]> = NPS_SORTED.map((k) => [k, `${k}" NPS`]);
 const EL_OPTS: Array<[string, string]> = ELBOW_ORDER.map((e) => [e, `${e} — ${ELBOW_LABEL[e]}`]);
-
-export function FittingTools() {
-  const [t, set] = useTool('fittings', { tab: 'takeout' });
-  return (
-    <div className="tool">
-      <Segmented value={t.tab} onChange={(v) => set('tab', v)} options={[['takeout', 'Take-out'], ['cut', 'Cut length'], ['trim', 'Trim'], ['f2f', 'Fit-to-Fit']]} />
-      {t.tab === 'takeout' && <TakeoutTool />}
-      {t.tab === 'cut' && <CutTool />}
-      {t.tab === 'trim' && <TrimTool />}
-      {t.tab === 'f2f' && <FitToFit />}
-    </div>
-  );
-}
 
 function GeometrySource({ inp, set, withElbow }: { inp: Record<string, string>; set: (k: string, v: string) => void; withElbow: boolean }) {
   return (
@@ -53,7 +40,7 @@ function GeometrySource({ inp, set, withElbow }: { inp: Record<string, string>; 
   );
 }
 
-function TakeoutTool() {
+export function TakeoutTool() {
   const [inp, set, reset] = useTool('takeout', { src: 'nps', nps: '6', el: 'BW-L', R: '', OD: '', angle: '45' });
   const f = useFmt();
   const r = attempt(() => {
@@ -101,7 +88,7 @@ function TakeoutTool() {
   );
 }
 
-function CutTool() {
+export function CutTool() {
   const [inp, set, reset] = useTool('cutlen', { L: '', theta: '45', ...CUT_DEFAULTS, cut: '1' });
   const f = useFmt();
   const r = attempt(() => {
@@ -128,7 +115,7 @@ function CutTool() {
   );
 }
 
-function TrimTool() {
+export function TrimTool() {
   const [inp, set, reset] = useTool('trim', { src: 'nps', nps: '6', rad: 'LR', R: '', OD: '', keep: '30' });
   const f = useFmt();
   const r = attempt(() => {

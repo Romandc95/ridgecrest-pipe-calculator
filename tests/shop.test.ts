@@ -395,3 +395,40 @@ describe('rolled 90 + cut-down elbow', () => {
   });
   it('dms', () => { expect(dms(16.5)).toBe('16° 30′ 0″'); expect(dms(29.99999)).toBe('30° 0′ 0″'); });
 });
+
+import { fitFit, solveTheta, offsetOf, fitFitOptions, clockStr } from '../src/engine/fitfit';
+describe('Fit-Fit offset with two cut elbows', () => {
+  it('fitting to fitting: θ makes exactly the offset, travel × sin θ = offset', () => {
+    const r = fitFit({ R: 6, od: 4.5, O: 6, g: 0.125, mode: 'f2f' });
+    const s = r.sol!;
+    expect(offsetOf(6, 0.125, s.theta)).toBeCloseTo(6, 9);
+    expect(s.T * Math.sin(s.theta * Math.PI / 180)).toBeCloseTo(6, 9);
+    expect(s.C).toBeCloseTo(6 * Math.tan(s.theta * Math.PI / 360), 12);
+    expect(s.pipe).toBe(0);
+  });
+  it('no gap: cos θ = 1 − O/(2R)', () => {
+    const s = fitFit({ R: 6, od: null, O: 3, g: 0, mode: 'f2f' }).sol!;
+    expect(Math.cos(s.theta * Math.PI / 180)).toBeCloseTo(1 - 3 / 12, 9);
+  });
+  it('too much offset for fitting to fitting is refused with pipe-piece options', () => {
+    const r = fitFit({ R: 6, od: 4.5, O: 20, g: 0, mode: 'f2f' });
+    expect(r.sol).toBeNull(); expect(r.W[0].tooMuch!.p90).toBeCloseTo(8, 9);
+  });
+  it('pipe piece known → angle; angle known → pipe piece (round trip)', () => {
+    const a = fitFit({ R: 6, od: 4.5, O: 24, g: 0.125, mode: 'pipeAng', angle: 45 }).sol!;
+    const b = fitFit({ R: 6, od: 4.5, O: 24, g: 0.125, mode: 'pipeLen', pipeLen: a.pipe }).sol!;
+    expect(b.theta).toBeCloseTo(45, 9);
+    expect(a.run).toBeCloseTo(2 * 6 * Math.sin(Math.PI / 4) + a.L * Math.cos(Math.PI / 4), 9);
+  });
+  it('cut marks are radius × θ (rad)', () => {
+    const s = fitFit({ R: 6, od: 4.5, O: 6, g: 0, mode: 'f2f' }).sol!;
+    const tr = s.theta * Math.PI / 180;
+    expect(s.marks!.heel).toBeCloseTo(8.25 * tr, 12); expect(s.marks!.throat).toBeCloseTo(3.75 * tr, 12); expect(s.marks!.cl).toBeCloseTo(6 * tr, 12);
+  });
+  it('options table and helpers', () => {
+    const rows = fitFitOptions(6, 6, 0);
+    expect(rows[0].f2f).toBe(true); expect(rows.length).toBe(7);
+    expect(Number.isNaN(solveTheta(6, 0, 30))).toBe(true);
+    expect(clockStr(90)).toBe('3:00'); expect(clockStr(0)).toBe('12:00'); expect(clockStr(45)).toBe('1:30');
+  });
+});

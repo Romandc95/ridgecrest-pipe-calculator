@@ -2,6 +2,8 @@ import React from 'react';
 import { Field, Results, Row, Msg, Formula, ToolActions, Segmented, Select, useTool, useFmt, Card, Grid, LEN_HINT } from './components';
 import { MiterTool, CopeTool } from './ShopTools';
 import { Rolled90Tool } from './Rolled90';
+import { TakeoutTool, CutTool, TrimTool } from './FittingTools';
+import { FitFitTool } from './FitFit';
 import { SimpleOffsetDiagram, RollingOffsetDiagram, CutbackDiagram, CombinationDiagram } from './diagrams';
 import { parseLength, parseAngle, parseMeasurement, tryParse } from '../engine/parse';
 import { solveSimpleOffset, solveRollingOffset, parallelCutback, combinationOffset, AXES, Axis } from '../engine/layout';
@@ -25,7 +27,7 @@ export function LayoutTools() {
   return (
     <div className="tool">
       <div className="chipgrid four" role="tablist">
-        {([['simple', 'Offset'], ['rolling', 'Rolling'], ['slope', 'Slope'], ['cutback', 'Cutback'], ['combo', 'Combo'], ['miter', 'Miter'], ['cope', 'Cope'], ['rolled90', 'Rolled 90']] as const).map(([k, l]) => (
+        {([['simple', 'Offset'], ['rolling', 'Rolling'], ['slope', 'Slope'], ['cutback', 'Cutback'], ['combo', 'Combo'], ['miter', 'Miter'], ['cope', 'Cope'], ['rolled90', 'Rolled 90'], ['takeout', 'Take-out'], ['cut', 'Cut length'], ['trim', 'Trim'], ['fitfit', 'Fit-Fit']] as const).map(([k, l]) => (
           <button key={k} role="tab" aria-selected={t.tab === k} className={t.tab === k ? 'on' : ''} onClick={() => set('tab', k)}>{l}</button>
         ))}
       </div>
@@ -37,6 +39,10 @@ export function LayoutTools() {
       {t.tab === 'miter' && <MiterTool />}
       {t.tab === 'cope' && <CopeTool />}
       {t.tab === 'rolled90' && <Rolled90Tool />}
+      {t.tab === 'takeout' && <TakeoutTool />}
+      {t.tab === 'cut' && <CutTool />}
+      {t.tab === 'trim' && <TrimTool />}
+      {t.tab === 'fitfit' && <FitFitTool />}
     </div>
   );
 }
