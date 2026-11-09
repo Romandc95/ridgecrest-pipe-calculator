@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { Field, Msg, Select, Segmented, Card, Grid, useApp } from './components';
 import { usePersistent, uid, shareText, load, save } from './store';
+const save_ = save; // used inside components that have their own `save`
 import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber, splitFtIn } from '../engine/format';
 /** Measurements on the drawing: feet and inches joined by a dash, a 0 before a fraction with no whole inches — 10'-6 1/8", 1'-0 1/2"; inches are always shown as feet and inches (67 5/8 → 5'-7 5/8"). */
@@ -2432,18 +2433,21 @@ function IsoModal({ title, onClose, children }: { title: string; onClose: () => 
 
 function NameModal({ title, d, action, note, onSave, onClose }: { title: string; d: IsoDrawing; action: string; note?: string; onSave: (n: string, info: DrawingInfo) => void; onClose: () => void }) {
   const [v, setV] = useState(d.name);
-  const [info, setInfo] = useState<DrawingInfo>({ ...(d.info ?? {}) });
+  // company and drawn-by carry over from the last drawing you filled in
+  const [info, setInfo] = useState<DrawingInfo>(() => { const last = load<{ company?: string; drawnBy?: string }>('isolastinfo', {}); return { company: last.company, drawnBy: last.drawnBy, ...Object.fromEntries(Object.entries(d.info ?? {}).filter(([, x]) => x)) }; });
   const ok = v.trim().length > 0;
-  const save = () => { if (ok) onSave(v.trim(), Object.fromEntries(Object.entries(info).map(([k, x]) => [k, (x ?? '').trim()])) as DrawingInfo); };
-  const field = (k: keyof DrawingInfo, label: string, ph: string) => (
+  const save = () => { if (!ok) return; const clean = Object.fromEntries(Object.entries(info).map(([k, x]) => [k, (x ?? '').trim()])) as DrawingInfo; save_('isolastinfo', { company: clean.company, drawnBy: clean.drawnBy }); onSave(v.trim(), clean); };
+  const field = (k: keyof DrawingInfo, label: string, ph: string, focus?: boolean) => (
     <label className="field"><span className="flabel">{label}</span>
-      <span className="finput"><input value={info[k] ?? ''} placeholder={ph} onChange={(e) => setInfo((o) => ({ ...o, [k]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') save(); }} /></span></label>
+      <span className="finput"><input value={info[k] ?? ''} placeholder={ph} autoFocus={focus} onChange={(e) => setInfo((o) => ({ ...o, [k]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') save(); }} /></span></label>
   );
   return (
     <IsoModal title={title} onClose={onClose}>
       {note && <p className="fhint">{note}</p>}
+      {field('company', 'Company name', 'Your company', true)}
+      {field('drawnBy', 'Drawn by', 'Your name or initials')}
       <label className="field"><span className="flabel">Drawing name</span>
-        <span className="finput"><input value={v} autoFocus onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); }} /></span></label>
+        <span className="finput"><input value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); }} /></span></label>
       {field('customer', 'Customer', 'Customer name')}
       {field('site', 'Job site address', 'Street, city')}
       {field('jobNo', 'Job number', 'e.g. 24-118')}
@@ -2580,7 +2584,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
   const date = new Date(d.doneAt ?? d.updated).toLocaleDateString();
   // right column: material, weld log, title block
   const info = d.info ?? {};
-  const tbRows: Array<[string, string]> = [['DRAWING', d.name], ['CUSTOMER', info.customer ?? ''], ['JOB #', info.jobNo ?? ''], ['JOB SITE', info.site ?? ''], ['SYSTEM', info.system ?? ''],
+  const tbRows: Array<[string, string]> = [['DRAWING', d.name], ['CUSTOMER', info.customer ?? ''], ['JOB #', info.jobNo ?? ''], ['JOB SITE', info.site ?? ''], ['SYSTEM', info.system ?? ''], ['DRAWN BY', info.drawnBy ?? ''],
     ...drawingSizes(d).map((z, i): [string, string] => { const sp = specFor(d, z); return [i ? '' : 'PIPE', `${z}" Sch ${sp.sch} · Class ${sp.cls} · ${CONN_LABEL[sp.conn]} · gap ${formatFracIn(sp.gap, prefs)}`]; }), ['DATE', date], ['STATUS', `COMPLETE · ${d.runs.filter((r) => !r.move).length} lines · ${wl.length} welds${showWelds ? '' : ' (map off)'}`]];
   const RH = 25, TB = 44 + tbRows.length * RH + 6, tbY = SH - M - 10 - TB;
   const matH = Math.min(tbY - DY - 10 - (weldRows.length ? 150 : 0), 34 + (mat.length + 1) * 24 + 4);
@@ -2612,7 +2616,8 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
       <g>
         <rect x={RX} y={tbY} width={RW} height={TB} fill="#fff" stroke="#111" strokeWidth={2} />
         <rect x={RX} y={tbY} width={RW} height={44} fill="#1f3b3a" />
-        <text x={RX + 14} y={tbY + 30} style={{ font: '900 23px sans-serif', fill: '#fff', letterSpacing: '1.5px' }}>PipeWorks Pro</text>
+        {(() => { const co = (info.company ?? '').trim() || 'PipeWorks Pro', fs = Math.max(12, Math.min(23, (RW - 28) / (co.length * 0.66)));
+          return <text x={RX + 14} y={tbY + 22 + fs * 0.36} style={{ font: `900 ${fs}px sans-serif`, fill: '#fff', letterSpacing: '1px' }}>{co}</text>; })()}
         {tbRows.map(([k, v], i) => (
           <g key={k + i}>
             <line x1={RX} x2={RX + RW} y1={tbY + 44 + i * RH} y2={tbY + 44 + i * RH} stroke="#ccd" />

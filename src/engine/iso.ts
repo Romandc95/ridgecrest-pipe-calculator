@@ -213,7 +213,7 @@ export function drawingSizes(d: IsoDrawing): string[] {
   const sz = runSizes(d).filter((_, i) => !d.runs[i]?.move);
   return [d.nps, ...[...new Set(sz)].filter((z) => z !== d.nps)];
 }
-export interface DrawingInfo { customer?: string; site?: string; jobNo?: string; system?: string }
+export interface DrawingInfo { /** shown in the title block header */ company?: string; drawnBy?: string; customer?: string; site?: string; jobNo?: string; system?: string }
 export interface WeldInfo { stencil?: string; field?: boolean; notes?: string }
 /** Text on the drawing, anchored to a point (node) with an offset in sketch units so it follows the drawing. */
 export type TextBorder = 'none' | 'box' | 'round' | 'cloud';
