@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { Field, Msg, Select, Segmented, Card, Grid, useApp } from './components';
-import { usePersistent, uid, shareText } from './store';
+import { usePersistent, uid, shareText, load, save } from './store';
 import { parseLength, parseAngle, tryParse } from '../engine/parse';
 import { formatFtIn, formatFracIn, formatNumber, splitFtIn } from '../engine/format';
 /** Measurements on the drawing: feet and inches joined by a dash, a 0 before a fraction with no whole inches — 10'-6 1/8", 1'-0 1/2"; inches are always shown as feet and inches (67 5/8 → 5'-7 5/8"). */
@@ -74,7 +74,10 @@ export function IsoSketch() {
   const [opts, setOptsRaw] = usePersistent<Opts>('isoview', { dims: true, welds: true, labels: false, scaled: false, view: ISO_VIEW, mode: 'draw', plane: 'EN', conn: 'bw' });
   const setOpts = (p: Partial<Opts>) => setOptsRaw((o) => ({ ...o, ...p }));
   const [sel, setSel] = useState<Sel>(null);
-  const [cursor, setCursor] = useState(0);
+  // where the next line starts, remembered per drawing (so coming back to the app carries on from the same point)
+  const [cursors, setCursors] = usePersistent<Record<string, number>>('isocursor', {});
+  const curId = useRef<string | null>(null);
+  const setCursor = (n: number) => { const id = curId.current; if (id) setCursors((m) => (m[id] === n ? m : { ...m, [id]: n })); };
   const [lenText, setLenText] = useState('');
   const [panel, setPanel] = useState<'cut' | 'setup' | 'library'>('cut');
   const [full, setFull] = useState(false);
@@ -92,8 +95,24 @@ export function IsoSketch() {
   const [textStyle, setTextStyle] = usePersistent<TextStyle>('isotextstyle', { border: 'none', size: 9, color: '' }); // the style for the next text box
   const [arrowStyle, setArrowStyle] = usePersistent<Pick<TextArrow, 'head' | 'dash' | 'curve'>>('isoarrowstyle', { head: 'single', dash: false, curve: false });
   useEffect(() => setMore(false), [JSON.stringify(sel)]);
-  const history = useRef<{ id: string; snaps: IsoDrawing[]; redo: IsoDrawing[]; last: number; key: string }>({ id: '', snaps: [], redo: [], last: 0, key: '' });
-  const [, setHistTick] = useState(0);
+  // Back / Forward history — kept on the device too, so it survives the app being closed or reloaded
+  const history = useRef<{ id: string; snaps: IsoDrawing[]; redo: IsoDrawing[]; last: number; key: string }>(
+    (() => { const h = load<{ id: string; snaps: IsoDrawing[]; redo: IsoDrawing[] } | null>('isohist', null); return h && h.id && Array.isArray(h.snaps) && Array.isArray(h.redo) ? { id: h.id, snaps: h.snaps, redo: h.redo, last: 0, key: '' } : { id: '', snaps: [], redo: [], last: 0, key: '' }; })());
+  const [histTick, setHistTick] = useState(0);
+  const histSave = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    const write = () => {
+      window.clearTimeout(histSave.current);
+      const h = history.current; if (!h.id) return;
+      // newest steps first if storage is tight: 40, then 15, then 5, then none
+      const last = (a: IsoDrawing[], k: number) => (k ? a.slice(-k) : []);
+      for (const keep of [40, 15, 5, 0]) if (save('isohist', { id: h.id, snaps: last(h.snaps, keep), redo: last(h.redo, keep) })) break;
+    };
+    histSave.current = window.setTimeout(write, 400);
+    const now = () => { if (document.visibilityState === 'hidden') write(); };
+    window.addEventListener('pagehide', write); document.addEventListener('visibilitychange', now);
+    return () => { window.clearTimeout(histSave.current); window.removeEventListener('pagehide', write); document.removeEventListener('visibilitychange', now); };
+  }, [histTick, store]);
 
   useEffect(() => {
     const onR = () => setWin({ w: window.innerWidth, h: window.innerHeight });
@@ -113,6 +132,8 @@ export function IsoSketch() {
   if (!d) return null;
 
   if (history.current.id !== d.id) history.current = { id: d.id, snaps: [], redo: [], last: 0, key: '' };
+  curId.current = d.id;
+  const cursor = cursors[d.id] ?? d.runs.length; // a drawing you come back to carries on from its last point
   const update = (f: (d: IsoDrawing) => IsoDrawing, mergeKey = '') => {
     // remember the drawing before each change for Undo; keystrokes in the same field count as one change
     const h = history.current, now = Date.now();
@@ -420,7 +441,7 @@ export function IsoSketch() {
   const moveText = (id: string, node: number, off: Vec3) => update((x) => ({ ...x, texts: (x.texts ?? []).map((t) => (t.id === id ? { ...t, node, off } : t)) }), 'tmove' + id);
   const setText = (id: string, text: string | null) => update((x) => ({ ...x, texts: (x.texts ?? []).flatMap((t) => (t.id !== id ? [t] : text === null ? [] : [{ ...t, text }])) }), text === null ? '' : 'ttext' + id);
   const closeText = (id: string) => { const t = d.texts?.find((q) => q.id === id); if (t && !t.text.trim()) setText(id, null); setSel(null); };
-  const openDrawing = (id: string) => { setStore((s) => ({ ...s, current: id })); setSel(null); setArmed(null); setCursor(0); setOffOpen(false); setFitTick((t) => t + 1); };
+  const openDrawing = (id: string) => { setStore((s) => ({ ...s, current: id })); setSel(null); setArmed(null); setOffOpen(false); setFitTick((t) => t + 1); };
   const newDrawingNow = () => { const nd = newDrawing(`Iso ${store.drawings.length + 1}`, uid()); setStore((s) => ({ drawings: [nd, ...s.drawings], current: nd.id })); setOpts({ view: { ...ISO_VIEW }, mode: 'draw' }); openDrawing(nd.id); toast('New drawing'); }; // a new drawing opens in the home (standard ISO) view
   const calloutData = (() => { if (opts.callouts === false) return undefined; const sd = sheetData(d, prefs); return { spools: sd.spools }; })(); // working drawing: pipe letters only (item numbers go on the completed sheet)
   const welds = opts.weldmap ? weldList(d) : [];

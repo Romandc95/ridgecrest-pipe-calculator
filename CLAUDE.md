@@ -46,6 +46,7 @@ Browser checks: Playwright + Chromium (`/opt/pw-browsers/...` in the cloud sandb
 - Text boxes (border none/box/rounded/cloud, size, colour) with arrows (single/double/none, solid/dashed, straight/curved); tap a text box for its menu incl. Move.
 - Weld map with W#/FW# tags, stencil / shop-field / notes; sheet-level weld map on/off.
 - Complete → locked 11×17 sheet: title block (customer, job site, job #, system, per-size rows), material list (#), lettered cut list, weld log; pinch / wheel zoom; Print… (paper size picker, prints the sheet in the page via `printSheet` — not a hidden iframe, which fails on iOS) and Save… (PDF at a chosen paper size or JPEG, built in `src/ui/sheetExport.ts` with a hand-written PDF writer — no libraries), Share as image. No hidden info on the sheet (incl. "to scale").
+- Back / Forward history and the "next line starts here" point are saved on the device (`isohist`, `isocursor`), and pending saves flush on pagehide / hidden — iPhone home-screen apps get closed when you switch away.
 - Desktop: wheel zooms over the drawing, scrolls the side panel elsewhere; middle-button pans. Full screen uses the whole screen with a compact tool panel.
 
 ## Data tab

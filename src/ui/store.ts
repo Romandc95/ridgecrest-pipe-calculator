@@ -30,8 +30,16 @@ export function load<T>(key: string, fallback: T): T {
     return v as T;
   } catch { return fallback; }
 }
-export function save(key: string, v: unknown) {
-  try { localStorage.setItem(PREFIX + key, JSON.stringify(v)); } catch { /* storage unavailable (private mode / preview) */ }
+export function save(key: string, v: unknown): boolean {
+  try { localStorage.setItem(PREFIX + key, JSON.stringify(v)); return true; } catch { return false; /* storage full or unavailable (private mode / preview) */ }
+}
+
+/** Saves waiting on a timer; written at once when the app is hidden (iPhone may close a home-screen app as soon as you switch away). */
+const pending = new Map<string, () => void>();
+export function flushSaves() { for (const f of [...pending.values()]) f(); pending.clear(); }
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushSaves);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSaves(); });
 }
 export function storageAvailable(): boolean {
   try { const k = PREFIX + '__t'; localStorage.setItem(k, '1'); localStorage.removeItem(k); return true; } catch { return false; }
@@ -43,7 +51,9 @@ export function usePersistent<T>(key: string, initial: T): [T, (v: T | ((p: T) =
   const t = useRef<number | undefined>(undefined);
   useEffect(() => {
     window.clearTimeout(t.current);
-    t.current = window.setTimeout(() => save(key, v), 150);
+    const write = () => { window.clearTimeout(t.current); pending.delete(key); save(key, v); };
+    pending.set(key, write);
+    t.current = window.setTimeout(write, 150);
     return () => window.clearTimeout(t.current);
   }, [key, v]);
   return [v, setV];
