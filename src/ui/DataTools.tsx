@@ -356,6 +356,45 @@ function BoltingLink({ cls, nps }: { cls: string; nps: string }) {
   );
 }
 
+/** Elevation of a straight run on supports at the B31.1 maximum spans — water-filled vs steam / gas / air. */
+function SupportSpanDiagram({ nps, water, gas }: { nps: string; water: number; gas: number }) {
+  const W = 340, x0 = 20, x1 = W - 20, n = 3; // three spans of the longer (gas) spacing fill the width
+  const k = (x1 - x0) / (n * Math.max(water, gas));
+  const row = (y: number, ft: number, label: string, cls: string) => {
+    const xs = Array.from({ length: n + 1 }, (_, i) => x0 + i * ft * k);
+    const end = xs[n];
+    return (
+      <g>
+        <text className="dg-lbl sm strong" x={x0} y={y - 16}>{label}</text>
+        <rect className={'sp-pipe ' + cls} x={x0 - 6} y={y - 5} width={end - x0 + 12} height={10} rx={2} />
+        {xs.map((x, i) => (
+          <g key={i}>
+            <line className="sp-rod" x1={x} x2={x} y1={y + 5} y2={y + 19} />
+            <path className="sp-shoe" d={`M${x - 8},${y + 27} L${x},${y + 19} L${x + 8},${y + 27} Z`} />
+            <line className="sp-ground" x1={x - 11} x2={x + 11} y1={y + 27} y2={y + 27} />
+          </g>
+        ))}
+        {xs.slice(0, n).map((x, i) => (
+          <g key={'d' + i}>
+            <line className="dg-dim" x1={x + 1} x2={xs[i + 1] - 1} y1={y + 38} y2={y + 38} markerStart="url(#spa)" markerEnd="url(#spa)" />
+            <text className={'dg-lbl sm ' + (i === 0 ? 'acc' : '')} x={(x + xs[i + 1]) / 2} y={y + 51} textAnchor="middle">{ft} ft max</text>
+          </g>
+        ))}
+      </g>
+    );
+  };
+  return (
+    <figure className="diagram">
+      <svg viewBox={`0 0 ${W} 205`} role="img" aria-label={`Maximum support spacing for NPS ${nps}: ${water} ft water, ${gas} ft steam, gas or air`}>
+        <defs><marker id="spa" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" className="dg-arrowhead" /></marker></defs>
+        {row(40, water, `Water service · NPS ${nps}`, 'water')}
+        {row(140, gas, `Steam, gas or air · NPS ${nps}`, 'gas')}
+      </svg>
+      <figcaption>Side view of a straight run on supports, drawn to the same scale: supports no farther apart than the maximum span (water-filled lines are heavier, so their spans are shorter). Spans are for straight runs — add supports near concentrated loads such as valves and flanges, and at changes of direction.</figcaption>
+    </figure>
+  );
+}
+
 function BoltPattern({ n, seq }: { n: number; seq: number[] }) {
   const cx = 170, cy = 105, R = 78;
   const pos = (b: number) => { const a = -Math.PI / 2 + ((b - 1) / n) * 2 * Math.PI; return [cx + R * Math.cos(a), cy + R * Math.sin(a)]; };
@@ -522,6 +561,58 @@ function ValveView() {
 }
 
 // ------------------------------------------------------------------ pipe extras: volume, surface area, spacing, supports, outlets
+/** End view of the two parallel lines, to scale: pipe, insulation, flange (if any), the clear gap and the spacing. */
+function SpacingDiagram({ a, b, clear, cc, fmt }: {
+  a: { nps: string; od: number; insul: number; flangeOD: number | null; side: number };
+  b: { nps: string; od: number; insul: number; flangeOD: number | null; side: number };
+  clear: number; cc: number; fmt: (v: number) => string;
+}) {
+  const W = 340, ml = 18, mr = 18;
+  const span = a.side + cc + b.side; // outer edge to outer edge
+  const s = Math.min((W - ml - mr) / span, 150 / (2 * Math.max(a.side, b.side)));
+  const H = 2 * Math.max(a.side, b.side) * s + 134;
+  const cy = 58 + Math.max(a.side, b.side) * s;
+  const xa = ml + ((W - ml - mr) - span * s) / 2 + a.side * s, xb = xa + cc * s;
+  const edgeA = xa + a.side * s, edgeB = xb - b.side * s;
+  const yTop = cy - Math.max(a.side, b.side) * s - 14, yBot = cy + Math.max(a.side, b.side) * s + 14;
+  const pipe = (x: number, p: typeof a, k: string) => (
+    <g key={k}>
+      {p.flangeOD != null && p.flangeOD / 2 > p.od / 2 + p.insul && <circle className="dg-sp-flange" cx={x} cy={cy} r={(p.flangeOD / 2) * s} />}
+      {p.insul > 0 && <circle className="dg-sp-insul" cx={x} cy={cy} r={(p.od / 2 + p.insul) * s} />}
+      <circle className="dg-solid" cx={x} cy={cy} r={(p.od / 2) * s} />
+      <line className="dg-center" x1={x - p.side * s - 4} x2={x + p.side * s + 4} y1={cy} y2={cy} />
+      <line className="dg-center" x1={x} x2={x} y1={cy - p.side * s - 4} y2={yBot + 22} />
+      <text className="dg-lbl sm strong" x={x} y={cy + 4} textAnchor="middle">{p.nps}"</text>
+    </g>
+  );
+  return (
+    <figure className="diagram">
+      <svg viewBox={`0 0 ${W} ${H.toFixed(0)}`} role="img" aria-label="Spacing between two parallel lines, end view">
+        <defs><marker id="spa" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" className="dg-arrowhead" /></marker></defs>
+        {pipe(xa, a, 'a')}{pipe(xb, b, 'b')}
+        {/* center to center, above */}
+        <line className="dg-ext" x1={xa} x2={xa} y1={cy - a.side * s - 2} y2={yTop - 18} />
+        <line className="dg-ext" x1={xb} x2={xb} y1={cy - b.side * s - 2} y2={yTop - 18} />
+        <line className="dg-dim" x1={xa} x2={xb} y1={yTop - 12} y2={yTop - 12} markerStart="url(#spa)" markerEnd="url(#spa)" />
+        <text className="dg-lbl sm acc" x={(xa + xb) / 2} y={yTop - 17} textAnchor="middle">C-C {fmt(cc)}</text>
+        {/* the clear gap between the outsides */}
+        {clear > 0 && <>
+          <line className="dg-ext" x1={edgeA} x2={edgeA} y1={cy} y2={yBot + 2} />
+          <line className="dg-ext" x1={edgeB} x2={edgeB} y1={cy} y2={yBot + 2} />
+          <line className="dg-dim" x1={edgeA} x2={edgeB} y1={yBot - 2} y2={yBot - 2} markerStart="url(#spa)" markerEnd="url(#spa)" />
+          <text className="dg-lbl sm" x={(edgeA + edgeB) / 2} y={yBot + 12} textAnchor="middle">gap {fmt(clear)}</text>
+        </>}
+        {/* each side: center to the outside of pipe / insulation / flange */}
+        <line className="dg-dim" x1={xa} x2={edgeA} y1={yBot + 18} y2={yBot + 18} markerStart="url(#spa)" markerEnd="url(#spa)" />
+        <text className="dg-lbl sm" x={Math.max(ml + 60, Math.min(W - mr - 60, (xa + edgeA) / 2))} y={yBot + 34} textAnchor="middle">{a.nps}" side {fmt(a.side)}</text>
+        <line className="dg-dim" x1={edgeB} x2={xb} y1={yBot + 18} y2={yBot + 18} markerStart="url(#spa)" markerEnd="url(#spa)" />
+        <text className="dg-lbl sm" x={Math.max(ml + 60, Math.min(W - mr - 60, (edgeB + xb) / 2))} y={yBot + 50} textAnchor="middle">{b.nps}" side {fmt(b.side)}</text>
+      </svg>
+      <figcaption>End view, to scale. Teal: pipe OD{a.insul > 0 || b.insul > 0 ? ' · dashed ring: insulation' : ''}{a.flangeOD != null ? ' · dotted ring: flange OD' : ''}. Each side is measured from the pipe center to whichever is biggest — pipe, insulation or flange; C-C = both sides + the clear gap.</figcaption>
+    </figure>
+  );
+}
+
 function PipeExtras() {
   const [x, setX] = useTool('dpipe', { nps: '6', sch: 'Std', len: "20'", nps2: '4', sch2: 'Std', ins1: '0', ins2: '0', clear: '1"', fl1: '', fcls: '150', branch: '2', gap: '1/16' });
   const dim = useDim();
@@ -540,6 +631,7 @@ function PipeExtras() {
   });
   const ol = attempt(() => weldolet(x.branch, steelOD(nps), val(parseLength, x.gap) ?? 0));
   const span = SUPPORT_SPAN[nps];
+  const prefs = useAppPrefs();
   const n = (v: number, d = 4) => formatNumber(v, d);
   return (
     <>
@@ -562,6 +654,7 @@ function PipeExtras() {
         { label: 'Water service, max span', value: `${span[0]} ft`, strong: true },
         { label: 'Steam, gas or air service, max span', value: `${span[1]} ft` },
       ] : [{ label: 'Max span', value: '—', sub: 'B31.1 Table 121.5 lists NPS 1, 2, 3, 4, 6, 8, 12, 16, 20, 24 only' }]} />
+      {span && <SupportSpanDiagram nps={nps} water={span[0]} gas={span[1]} />}
       <Card>
         <h4>Pipe spacing (parallel lines)</h4>
         <Grid>
@@ -572,6 +665,8 @@ function PipeExtras() {
         </Grid>
         <label className="toggle sm"><input type="checkbox" checked={x.fl1 === '1'} onChange={(e) => setX('fl1', e.target.checked ? '1' : '')} /> Flange on the {nps}" line at this point</label>
         {x.fl1 === '1' && <Select label="Flange class" value={x.fcls} options={CLASS_OPTS(FLANGE_CLASSES)} onChange={(v) => setX('fcls', v)} />}
+        {sp.ok && <SpacingDiagram a={{ nps, od: steelOD(nps), insul: val(parseLength, x.ins1) ?? 0, flangeOD: x.fl1 === '1' ? flange(Number(x.fcls) as FlangeClass, nps).od : null, side: sp.v.sideA }}
+          b={{ nps: x.nps2, od: steelOD(x.nps2), insul: val(parseLength, x.ins2) ?? 0, flangeOD: null, side: sp.v.sideB }} clear={val(parseLength, x.clear) ?? 0} cc={sp.v.spacing} fmt={(v) => formatFracIn(v, prefs)} />}
         {sp.ok ? <Results title="Spacing" rows={[dim(sp.v.spacing, 'Center to center', { strong: true }), dim(sp.v.sideA, `${nps}" side`), dim(sp.v.sideB, `${x.nps2}" side`)]} /> : <Msg>{sp.err}</Msg>}
       </Card>
       <Card>

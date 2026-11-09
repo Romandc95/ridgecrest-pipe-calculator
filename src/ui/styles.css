@@ -678,3 +678,11 @@ code.ff-f { color: var(--accent); }
 ol.steps code { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
 .ff-cmp tbody tr { cursor: pointer; }
 .ff-cmp td small { color: var(--muted); font-family: var(--font); }
+.dg-sp-insul { fill: color-mix(in srgb, var(--muted) 16%, transparent); stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.dg-sp-flange { fill: none; stroke: var(--text); stroke-width: 1.2; stroke-dasharray: 1.5 3; }
+.sp-pipe { stroke: var(--text); stroke-width: 1.2; }
+.sp-pipe.water { fill: color-mix(in srgb, var(--accent) 45%, var(--surface)); }
+.sp-pipe.gas { fill: color-mix(in srgb, var(--muted) 35%, var(--surface)); }
+.sp-rod { stroke: var(--text); stroke-width: 2; }
+.sp-shoe { fill: var(--surface2); stroke: var(--text); stroke-width: 1.2; }
+.sp-ground { stroke: var(--muted); stroke-width: 1.5; }
