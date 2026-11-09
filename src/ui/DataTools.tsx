@@ -247,8 +247,6 @@ function FlangeDiagram({ f, type, fmt }: { f: Flange; type: string; fmt: (v: num
   const s = Math.min(boxW / L, maxHalf / (H / 2));
   const ox = boxX + (boxW - L * s) / 2;
   const X = (x: number) => ox + x * s, Yt = (r: number) => cy - r * s, Yb = (r: number) => cy + r * s;
-  const poly = (fy: (r: number) => number) => top.map(([x, r]) => `${X(x).toFixed(1)},${fy(r).toFixed(1)}`).join(' ');
-  const holeTop = [f.boltCircle / 2 - f.holeDia / 2, f.boltCircle / 2 + f.holeDia / 2];
   const half = H / 2;
 
   // ---- face view
@@ -264,18 +262,21 @@ function FlangeDiagram({ f, type, fmt }: { f: Flange; type: string; fmt: (v: num
           <pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" className="dg-hatch" /></pattern>
         </defs>
         {/* section */}
-        <polygon className="dg-section" points={poly(Yt)} />
-        <polygon className="dg-section" points={poly(Yb)} />
-        {/* edges seen through the bore: the socket shoulder (SW), the counterbore step on a lap-joint / slip-on face */}
-        {type === 'SW' && f.socketDepth != null && <line className="dg-bore-edge" x1={X(x3 - f.socketDepth)} x2={X(x3 - f.socketDepth)} y1={Yt((A + 0.07) / 2)} y2={Yb((A + 0.07) / 2)} />}
-        {!blind && [Yt, Yb].map((fyy, i) => (
-          <g key={i}>
-            <rect className="dg-hole" x={X(x1)} y={Math.min(fyy(holeTop[0]), fyy(holeTop[1]))} width={(x2 - x1) * s} height={f.holeDia * s} />
-            <line className="dg-center" x1={X(x1) - 4} x2={X(x2) + 4} y1={fyy(f.boltCircle / 2)} y2={fyy(f.boltCircle / 2)} />
-          </g>
-        ))}
-        {blind && [Yt, Yb].map((fyy, i) => <rect key={i} className="dg-hole" x={X(x1)} y={Math.min(fyy(holeTop[0]), fyy(holeTop[1]))} width={(x2 - x1) * s} height={f.holeDia * s} />)}
-        {type === 'THD' && [Yt, Yb].map((fyy, i) => <line key={i} className="dg-thread" x1={X(0)} x2={X(x3)} y1={fyy(A / 2 + 0.035)} y2={fyy(A / 2 + 0.035)} />)}
+        {/* side view: the outside of the flange, solid (nothing cut away) */}
+        {(() => {
+          const prof: Array<[number, number]> = blind
+            ? [[0, f.rfDia / 2], [x1, f.rfDia / 2], [x1, f.od / 2], [x2, f.od / 2], [x2, 0]]
+            : [...(lap ? [] as Array<[number, number]> : [[0, f.rfDia / 2], [x1, f.rfDia / 2]] as Array<[number, number]>), [x1, f.od / 2], [x2, f.od / 2], [x2, f.hubDia / 2],
+              ...(type === 'WN' ? [[x3 - Math.max(0, ((A - pid) / 2 - Math.min(0.0625, (A - pid) * 0.15)) * Math.tan((37.5 * Math.PI) / 180)), A / 2], [x3, A / 2 - Math.min(0.06, (A - pid) / 4)]] as Array<[number, number]> : [[x3, f.hubDia / 2]] as Array<[number, number]>)];
+          const pts = [...prof.map(([x, r]) => [X(x), Yt(r)]), ...[...prof].reverse().map(([x, r]) => [X(x), Yb(r)])];
+          return <>
+            <polygon className="dg-solid" points={pts.map((q) => q.map((v) => v.toFixed(1)).join(',')).join(' ')} />
+            {/* visible edges across the part: raised face, back of the flange ring, weld bevel */}
+            {!lap && <line className="dg-edge" x1={X(x1)} x2={X(x1)} y1={Yt(f.rfDia / 2)} y2={Yb(f.rfDia / 2)} />}
+            {!blind && <line className="dg-edge" x1={X(x2)} x2={X(x2)} y1={Yt(f.hubDia / 2)} y2={Yb(f.hubDia / 2)} />}
+            {type === 'WN' && prof.length > 1 && <line className="dg-edge" x1={X(prof[prof.length - 2][0])} x2={X(prof[prof.length - 2][0])} y1={Yt(A / 2)} y2={Yb(A / 2)} />}
+          </>;
+        })()}
         <line className="dg-center" x1={X(0) - 8} x2={X(x3) + 8} y1={cy} y2={cy} />
         {/* O, dimensioned from the centerline */}
         <line className="dg-ext" x1={X(x1) - 2} x2={boxX - 44} y1={Yt(half)} y2={Yt(half)} />
@@ -309,10 +310,10 @@ function FlangeDiagram({ f, type, fmt }: { f: Flange; type: string; fmt: (v: num
         <line className="dg-center" x1={fx} x2={fx} y1={fy - fR - 5} y2={fy + fR + 5} />
         <text className="dg-lbl sm" x={fx} y={fy + fR + 16} textAnchor="middle">BC {fmt(f.boltCircle)}</text>
         <text className="dg-lbl sm" x={fx} y={fy + fR + 29} textAnchor="middle">{f.nBolts} holes Ø{fmt(f.holeDia)}</text>
-        <text className="dg-lbl sm strong" x={fx} y={214} textAnchor="middle">◂ FULL SECTION</text>
+        <text className="dg-lbl sm strong" x={fx} y={214} textAnchor="middle">◂ SIDE VIEW</text>
         <text className="dg-lbl sm strong" x={fx} y={fy - fR - 12} textAnchor="middle">FACE</text>
       </svg>
-      <figcaption>{typeName}, Class {f.cls}, NPS {f.nps}, drawn to scale from the table values. Full section through the pipe centerline, cut through two opposite bolt holes (hatched = metal). {lap ? 'Lap joint flanges have no raised face; the stub end forms the gasket face.' : `Raised face ${fmt(f.rfHeight)} high, shown on the left; tf and Y exclude it.`} {type === 'WN' ? 'Bore shown for standard-weight pipe; it matches the pipe ordered.' : ''}{!made ? ' This type is not made in this class and size.' : ''}</figcaption>
+      <figcaption>{typeName}, Class {f.cls}, NPS {f.nps}, drawn to scale from the table values. Side view of the whole flange (left) and the face (right). {lap ? 'Lap joint flanges have no raised face; the stub end forms the gasket face.' : `Raised face ${fmt(f.rfHeight)} high, shown on the left; tf and Y exclude it.`} {type === 'WN' ? 'Bore shown for standard-weight pipe; it matches the pipe ordered.' : ''}{!made ? ' This type is not made in this class and size.' : ''}</figcaption>
     </figure>
   );
 }

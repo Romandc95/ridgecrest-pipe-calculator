@@ -637,3 +637,5 @@ button { cursor: pointer; }
 .isostage input, .isostage textarea, .isostage select, .isostage .isodock { -webkit-user-select: text; user-select: text; }
 .isostage input, .isostage textarea { touch-action: manipulation; }
 .dg-bore-edge { stroke: var(--text); stroke-width: 1.2; }
+.dg-solid { fill: color-mix(in srgb, var(--accent) 22%, var(--surface)); stroke: var(--text); stroke-width: 1.4; stroke-linejoin: round; }
+.dg-edge { stroke: var(--text); stroke-width: 1; }
