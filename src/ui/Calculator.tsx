@@ -18,7 +18,7 @@ export const KEYPAD: KeyDef[][] = [
   [L('angle', <>Angle<br />Slope</>, 'proj', 'Angle/Slope'), L('offset', 'Offset', 'proj'), L('run', 'Run', 'proj'), L('travel', 'Travel', 'proj'), L('material', <>Pipe<br />Matl</>, 'proj', 'Pipe Material')],
   [L('pow', <>x<sup>y</sup></>, 'fn', 'x to the y'), L('sin', 'Sin', 'fn'), L('cos', 'Cos', 'fn'), L('tan', 'Tan', 'fn'), L('size', <>Pipe<br />Size</>, 'proj', 'Pipe Size')],
   [L('(', '(', 'fn'), L(')', ')', 'fn'), L('circle', 'Circle', 'fn'), L('sq', <>x<sup>2</sup></>, 'fn', 'x squared'), L('sqrt', '√x', 'fn', 'square root')],
-  [L('mm', 'mm', 'unit'), L('ft', 'Feet', 'unit'), L('in', 'Inch', 'unit'), L('frac', <span className="fracglyph">⁄</span>, 'unit', 'Fraction'), L('bksp', <BackIcon />, 'unit back', 'Back one keystroke')],
+  [L('bksp', <BackIcon />, 'unit back', 'Back one keystroke'), L('mm', 'mm', 'unit'), L('ft', 'Feet', 'unit'), L('in', 'Inch', 'unit'), L('frac', <span className="fracglyph">⁄</span>, 'unit', 'Fraction')],
   [L('conv', 'Conv', 'conv'), L('7', '7', 'num'), L('8', '8', 'num'), L('9', '9', 'num'), L('div', '÷', 'op', 'divide')],
   [L('store', 'Stor', 'mem', 'Store'), L('4', '4', 'num'), L('5', '5', 'num'), L('6', '6', 'num'), L('mul', '×', 'op', 'multiply')],
   [L('recall', 'Rcl', 'mem', 'Recall'), L('1', '1', 'num'), L('2', '2', 'num'), L('3', '3', 'num'), L('sub', '−', 'op', 'subtract')],
