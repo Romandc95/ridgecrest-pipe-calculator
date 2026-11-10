@@ -1683,6 +1683,13 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
 }) {
   const { P, vecs } = disp;
   const S = P.map(T3);
+  // screen direction of a flange face on a line at a point: the real-world direction square to the pipe (straight up
+  // off level pipe, East–West off a vertical one), so flange faces sit on the iso grid lines like a hand-drawn iso
+  const faceAt = (n: number, run: number | undefined): [number, number] | undefined => {
+    const r = run !== undefined ? d.runs[run] : undefined; if (!r || !P[n]) return undefined;
+    const sw = stemDir(runVec(r)), q0 = T3(P[n]), q1 = T3(add(P[n], mul(sw, 12))), l = Math.hypot(q1[0] - q0[0], q1[1] - q0[1]);
+    return l > 0.5 ? [(q1[0] - q0[0]) / l, (q1[1] - q0[1]) / l] : undefined;
+  };
   const under: React.ReactNode[] = [];
   const els: React.ReactNode[] = [];
   const casing: React.ReactNode[] = [];
@@ -1850,7 +1857,7 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       </g>);
       if (opts.welds && !['spool', 'flange', 'orifice', 'spectacle', 'union', 'coupling', 'dielectric', 'swage'].includes(it.type)) {
         const off = sz * 1.15 + 4;
-        for (const sgn of [-1, 1]) els.push(...jointMark(it.conn ?? 'bw', [c[0] + ux * off * sgn, c[1] + uy * off * sgn], [ux, uy], `jm${it.id}${sgn}`));
+        for (const sgn of [-1, 1]) els.push(...jointMark(it.conn ?? 'bw', [c[0] + ux * off * sgn, c[1] + uy * off * sgn], [ux, uy], `jm${it.id}${sgn}`, stemScreen));
       }
     });
     const m: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
@@ -1893,7 +1900,7 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       const fit = d.fits?.[n];
       if (opts.welds) legScreen.forEach(([ux, uy], j) => {
         const jm = legJoint(fit, legScreen, j, connAtSized(d, sizes, n));
-        if (jm) { els.push(...jointMark(jm.conn, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy], `w${n}-${j}`)); weldHit(n, legs[j].run, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy]); }
+        if (jm) { els.push(...jointMark(jm.conn, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy], `w${n}-${j}`, faceAt(n, legs[j].run))); weldHit(n, legs[j].run, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy]); }
       });
       // a flange set welded straight onto this fitting (fitting to fitting): the flange pair just past the fitting weld,
       // then the flange-to-pipe weld
@@ -1902,7 +1909,7 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         if (!fw0 || !d.wfits?.[fw0.key]) return;
         const off0 = legJoint(fit, legScreen, j2, connAtSized(d, sizes, n))?.off ?? 8;
         const at1: [number, number] = [p[0] + ux * (off0 + 8), p[1] + uy * (off0 + 8)], at2: [number, number] = [p[0] + ux * (off0 + 16), p[1] + uy * (off0 + 16)];
-        els.push(<g key={'wf' + fw0.key} className="iso-item">{lineSymbol('flange', at1, [ux, uy], 7, 'wfs' + fw0.key)}</g>);
+        els.push(<g key={'wf' + fw0.key} className="iso-item">{lineSymbol('flange', at1, [ux, uy], 7, 'wfs' + fw0.key, faceAt(n, legs[j2].run))}</g>);
         if (!exportMode) topHits.push(<circle key={'wft' + fw0.key} className="iso-weldhit" data-weld={fw0.key} cx={at1[0]} cy={at1[1]} r={6} />);
         if (opts.welds) { els.push(...jointMark('bw', at2, [ux, uy], 'wfd' + fw0.key)); weldHitKey(fw0.key + ':f', at2, [ux, uy]); }
       });
@@ -1951,7 +1958,7 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
           const off = pair ? 6.5 : ['union', 'coupling', 'dielectric'].includes(it.type) ? sz * 0.9 + 3 : sz * 1.15 + 4;
           for (const sgn of [-1, 1]) {
             const at: [number, number] = [p[0] + u[0] * off * sgn, p[1] + u[1] * off * sgn];
-            els.push(...jointMark(jc, at, u, `ij${n}${sgn}`));
+            els.push(...jointMark(jc, at, u, `ij${n}${sgn}`, stemS));
             let bj = 0, bd = -2; legScreen.forEach((ls, j) => { const dd = ls[0] * u[0] * sgn + ls[1] * u[1] * sgn; if (dd > bd) { bd = dd; bj = j; } });
             weldHit(n, legs[bj]?.run, at, u);
           }
@@ -1970,14 +1977,14 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         } else els.push(...endSymbol(er.type === 'eccreducer' ? 'eccreducer' : 'reducer', p, legScreen[0], 'er' + n));
         if (er.size && opts.dims) callouts.push({ key: 'ers' + n, text: `${sizes[n - 1] ?? d.nps}"×${er.size}"`, at: [p[0] - legScreen[0][0] * 7, p[1] - legScreen[0][1] * 7], dir: [-legScreen[0][0], -legScreen[0][1]], dist: 16 });
         if (opts.welds) els.push(...jointMark(er.conn ?? 'bw', p, legScreen[0], 'erj' + n));
-      } else els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode, connAtSized(d, sizes, n)));
+      } else els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode, connAtSized(d, sizes, n), faceAt(n, legs[0]?.run)));
       // the joint between the pipe and the end fitting, shown with the chosen connection's mark
       // (a flange end shows how the flange is joined to the pipe: weld dot = weld neck, tick = threaded …; the nozzle draws its own)
       const ec0 = connAtSized(d, sizes, n);
       const dze = sized(d, sizes[legScreen[0] ? (nodeLegs(d, n)[0]?.run ?? 0) : 0] ?? d.nps);
       const ec: Conn = ['flange', 'blind'].includes(endT) && ec0 !== 'thd' ? (effFt(dze, endFtAt(dze, n)) === 'SW' ? 'sw' : 'bw') : ec0;
       if (opts.welds && legScreen[0] && !['open', 'weld', 'nozzle'].includes(endT) && !(['flange', 'blind'].includes(endT) && ec === 'flg'))
-        els.push(...jointMark(ec, [p[0] + legScreen[0][0] * (['flange', 'blind'].includes(endT) ? 6 : 3), p[1] + legScreen[0][1] * (['flange', 'blind'].includes(endT) ? 6 : 3)], legScreen[0], 'ej' + n));
+        els.push(...jointMark(ec, [p[0] + legScreen[0][0] * (['flange', 'blind'].includes(endT) ? 6 : 3), p[1] + legScreen[0][1] * (['flange', 'blind'].includes(endT) ? 6 : 3)], legScreen[0], 'ej' + n, faceAt(n, legs[0]?.run)));
     }
     if (!exportMode) {
       const isCursor = n === cursor, isSel = sel?.kind === 'node' && sel.id === n;

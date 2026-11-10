@@ -27,6 +27,8 @@ export function lineSymbol(type: string, m: V2, u: V2, s: number, key: string, s
   const k = (x: string) => key + x;
   const line = (a: [number, number], b: [number, number], cls = 'iso-sym', kk = 'l' + out.length) => out.push(<line key={k(kk)} className={cls} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />);
   const gap = () => line(X(-s * 1.05, 0), X(s * 1.05, 0), 'iso-gap', 'gap');
+  /** along the pipe (a) and across it along the iso direction square to it (b): flange faces sit on the iso grid lines */
+  const F = (a: number, b: number): [number, number] => { const q = X(a, 0); return [q[0] + t[0] * b, q[1] + t[1] * b]; };
   if (VALVES.has(type)) {
     out.push(<polygon key={k('b')} className="iso-sym" points={`${P(-s, -s * 0.75)} ${P(s, s * 0.75)} ${P(s, -s * 0.75)} ${P(-s, s * 0.75)}`} />);
     const stem = (h = 1.5) => line(T(0, 0), T(0, s * h), 'iso-sym', 'st');
@@ -54,8 +56,8 @@ export function lineSymbol(type: string, m: V2, u: V2, s: number, key: string, s
     return out;
   }
   switch (type) {
-    case 'flange': for (const t of [-2.2, 2.2]) line(X(t, s), X(t, -s), 'iso-sym thick', 'f' + t); break;
-    case 'orifice': for (const t of [-2.6, 2.6]) line(X(t, s), X(t, -s), 'iso-sym thick', 'f' + t); line(X(0, s * 1.25), X(0, -s * 1.25), 'iso-sym', 'pl');
+    case 'flange': for (const t of [-2.2, 2.2]) line(F(t, s), F(t, -s), 'iso-sym thick', 'f' + t); break;
+    case 'orifice': for (const t of [-2.6, 2.6]) line(F(t, s), F(t, -s), 'iso-sym thick', 'f' + t); line(F(0, s * 1.25), F(0, -s * 1.25), 'iso-sym', 'pl');
       { const t = X(0, s * 2); out.push(<text key={k('t')} className="iso-symtext" x={t[0]} y={t[1] + 3} textAnchor="middle">FO</text>); } break;
     case 'spectacle': { line(X(0, s), X(0, -s), 'iso-sym thick', 'b'); const r = X(0, s * 1.7), f = X(0, -s * 1.7); line(X(0, s), r, 'iso-sym', 'w1'); line(X(0, -s), f, 'iso-sym', 'w2');
       out.push(<circle key={k('r')} className="iso-symball" cx={r[0]} cy={r[1]} r={s * 0.55} />); out.push(<circle key={k('f')} className="iso-symfill" cx={f[0]} cy={f[1]} r={s * 0.55} />); break; }
@@ -180,18 +182,20 @@ export function legJoint(type: string | undefined, legs: V2[], j: number, conn: 
 }
 
 /** Symbol at the end of a line. u = unit screen direction from the end back along the pipe. */
-export function endSymbol(type: string, p: V2, u: V2, key: string, exportMode?: boolean, conn?: Conn): React.ReactNode[] {
+export function endSymbol(type: string, p: V2, u: V2, key: string, exportMode?: boolean, conn?: Conn, face?: V2): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   const o: V2 = [-u[0], -u[1]]; // outward
-  const { P, X } = frame(p, o);
+  const { P, X, n: nn } = frame(p, o);
+  const fc: V2 = face ?? nn; // flange faces: along the iso direction square to the pipe
+  const F = (a: number, b: number): [number, number] => { const q = X(a, 0); return [q[0] + fc[0] * b, q[1] + fc[1] * b]; };
   const s = 6.5;
   const txt = (t: string, a: number, b: number) => { const q = X(a, b); out.push(<text key={key + 't' + t} className="iso-fit" x={q[0]} y={q[1] + 3} textAnchor="middle">{t}</text>); };
   switch (type) {
     case 'open': if (!exportMode) out.push(<circle key={key} className="iso-endpt" cx={p[0]} cy={p[1]} r={2.6} />); break;
     case 'cap': { const a = X(0, s), b = X(0, -s), c = X(s * 1.1, 0); out.push(<path key={key} className="iso-sym" d={`M${a[0]},${a[1]} Q${c[0]},${c[1]} ${b[0]},${b[1]}`} />); break; }
     case 'flange': case 'blind': {
-      const a = X(0, s * 1.2), b = X(0, -s * 1.2); out.push(<line key={key} className="iso-sym thick" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />);
-      if (type === 'blind') { const c = X(3, s * 1.2), d = X(3, -s * 1.2); out.push(<line key={key + 'b'} className="iso-sym thick" x1={c[0]} y1={c[1]} x2={d[0]} y2={d[1]} />); }
+      const a = F(0, s * 1.2), b = F(0, -s * 1.2); out.push(<line key={key} className="iso-sym thick" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />);
+      if (type === 'blind') { const c = F(3, s * 1.2), d = F(3, -s * 1.2); out.push(<line key={key + 'b'} className="iso-sym thick" x1={c[0]} y1={c[1]} x2={d[0]} y2={d[1]} />); }
       break;
     }
     case 'plug': out.push(<polygon key={key} className="iso-symfill" points={`${P(0, -3)} ${P(5, -3)} ${P(5, 3)} ${P(0, 3)}`} />); break;
@@ -202,7 +206,7 @@ export function endSymbol(type: string, p: V2, u: V2, key: string, exportMode?: 
       const cn = conn ?? 'flg';
       const gap = 9; // a short nozzle stub between the joint and the equipment, so the joint mark reads clearly
       out.push(<line key={key + 'nz'} className="iso-pipe thin" {...seg(X(0, 0), X(gap, 0))} />);
-      out.push(...jointMark(cn, X(cn === 'flg' ? 2.5 : 2, 0), o, key + 'j'));
+      out.push(...jointMark(cn, X(cn === 'flg' ? 2.5 : 2, 0), o, key + 'j', face));
       out.push(<polygon key={key} className="iso-equip" points={`${P(gap, -s * 2.4)} ${P(gap + s * 2.6, -s * 2.4)} ${P(gap + s * 2.6, s * 2.4)} ${P(gap, s * 2.4)}`} />);
       break;
     }
@@ -245,8 +249,8 @@ export function PaletteIcon({ item }: { item: CatalogItem }) {
  * butt weld ●, socket weld ● with a socket bracket, threaded | (one tick), soldered ○, glued ■, flanged ‖.
  * p = where the joint is, u = unit direction of the pipe there.
  */
-export function jointMark(conn: Conn, p: V2, u: V2, key: string): React.ReactNode[] {
-  const n: V2 = [u[1], -u[0]];
+export function jointMark(conn: Conn, p: V2, u: V2, key: string, face?: V2): React.ReactNode[] {
+  const n: V2 = face ?? [u[1], -u[0]]; // across the pipe: the iso direction square to it when given
   const L = (a: number, b: number, c: number, d: number, cls: string, k: string) =>
     <line key={key + k} className={cls} x1={p[0] + u[0] * a + n[0] * b} y1={p[1] + u[1] * a + n[1] * b} x2={p[0] + u[0] * c + n[0] * d} y2={p[1] + u[1] * c + n[1] * d} />;
   switch (conn) {
