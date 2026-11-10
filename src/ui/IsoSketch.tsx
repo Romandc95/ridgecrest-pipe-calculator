@@ -378,6 +378,7 @@ export function IsoSketch() {
   const moveInline = (n: number, targetRun: number, t: number) => update((x) => {
     const it = x.inl?.[n]; if (!it) return x;
     const tgtId = x.runs[targetRun]?.id; if (!tgtId || x.runs[targetRun].move) return x;
+    const infos = weldList(x).filter((w) => w.node === n).map((w) => x.welds?.[w.key]); // stencil / field / notes go with it
     let y: IsoDrawing, tgt = tgtId, tJ = t;
     const sd = sidesOf(x, n);
     if (sd && nodeKind(x, n).kind === 'straight') {
@@ -395,7 +396,10 @@ export function IsoSketch() {
     let tt = snapSplitT(r, tJ);
     if (isMeasured(r)) { const L = runLength(r); tt = Math.max(1, Math.min(L - 1, Math.round(tJ * L))) / L; }
     const sp = splitRun(y, k, tt, uid());
-    return { ...sp.d, inl: { ...(sp.d.inl ?? {}), [sp.node]: it } };
+    const out: IsoDrawing = { ...sp.d, inl: { ...(sp.d.inl ?? {}), [sp.node]: it } };
+    const welds = { ...(out.welds ?? {}) };
+    weldList(out).filter((w) => w.node === sp.node).forEach((w, j) => { const v = infos[j] ?? infos[0]; if (v) welds[w.key] = v; });
+    return { ...out, welds };
   });
   /** Move a tee (its branch) to another line: break that line, hang the branch there, join the old header back. */
   const moveTee = (n: number, targetRun: number, t: number): boolean => {
@@ -493,7 +497,7 @@ export function IsoSketch() {
   const openDrawing = (id: string) => { setStore((s) => ({ ...s, current: id })); setSel(null); setArmed(null); setOffOpen(false); setFitTick((t) => t + 1); };
   const newDrawingNow = () => { const nd = newDrawing(`Iso ${store.drawings.length + 1}`, uid()); setStore((s) => ({ drawings: [nd, ...s.drawings], current: nd.id })); setOpts({ view: { ...ISO_VIEW }, mode: 'draw' }); openDrawing(nd.id); toast('New drawing'); }; // a new drawing opens in the home (standard ISO) view
   const calloutData = (() => { if (opts.callouts === false) return undefined; const sd = sheetData(d, prefs); return { spools: sd.spools }; })(); // working drawing: pipe letters only (item numbers go on the completed sheet)
-  const welds = opts.weldmap ? weldList(d) : [];
+  const welds = weldList(d); // any weld can be tapped to edit it (weld map on or off)
   const weldSel = sel?.kind === 'weld' ? welds.findIndex((w) => w.key === sel.key) : -1;
   const textSel = sel?.kind === 'text' ? d.texts?.find((t) => t.id === sel.id) ?? null : null;
 
@@ -539,7 +543,9 @@ export function IsoSketch() {
       onInlDrag={() => {}}
       onItemDrag={(run, id, t) => setItem(run, id, (q) => (q.id === id ? { ...q, t, at: undefined } : q), 'drag' + id)}
       menu={sel?.kind === 'angle' && offsetAt(d, sel.node) ? { at: disp.P[sel.node], node: <AnglePop key={'ap' + sel.node + ':' + d.updated} d={d} node={sel.node} onSet={(a) => { const nd = setOffsetAngle(d, sel.node, a); if (nd) { update(() => nd); toast(`Offset now ${formatNumber(a, 2)}°`); } else toast('Enter an angle between 1° and 89°'); }} onClose={() => setSel(null)} /> }
-        : weldSel >= 0 ? { at: disp.P[welds[weldSel].node], node: <WeldPop key={'wp' + welds[weldSel].key} d={d} w={welds[weldSel]} num={weldSel + 1} update={update} onClose={() => setSel(null)} /> }
+        : weldSel >= 0 ? { at: disp.P[welds[weldSel].node], node: <WeldPop key={'wp' + welds[weldSel].key} d={d} w={welds[weldSel]} num={weldSel + 1} update={update} onClose={() => setSel(null)}
+          onMove={inlineAt(d, welds[weldSel].node)?.type === 'spool' ? () => { setArmed('mv:' + welds[weldSel].node); setSel(null); } : undefined}
+          onRemove={inlineAt(d, welds[weldSel].node)?.type === 'spool' ? () => { const n = welds[weldSel].node; update((x) => mergeAt(x, n)); setSel(null); toast('Weld removed — one pipe again'); } : undefined} /> }
         : textSel && disp.P[textSel.node] ? { at: add(disp.P[textSel.node], mul(textSel.off, disp.k || 1)), node: <TextPop key={'tp' + textSel.id} note={textSel} onText={(v) => setText(textSel.id, v)}
           onArrow={(aid) => { setArmed('arrow:' + textSel.id + (aid ? ':' + aid : '')); setSel(null); }}
           onMove={() => { setArmed('tmove:' + textSel.id); setSel(null); }}
@@ -1200,6 +1206,13 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         return false;
       };
       const fw = kind === 'end' && id === 'weld';
+      if (fw && svg.current) {
+        let bw: { key: string; x: number; y: number } | null = null, bdw = 30;
+        svg.current.querySelectorAll('[data-wk]').forEach((el) => { const rr = el.getBoundingClientRect(); const x = rr.x + rr.width / 2, y = rr.y + rr.height / 2; const dd = Math.hypot(x - cx, y - cy); if (dd < bdw) { bdw = dd; bw = { key: el.getAttribute('data-wk')!, x, y }; } });
+        const hit = bw as { key: string; x: number; y: number } | null;
+        const w = hit ? weldList(d).find((q) => q.key === hit.key) : undefined;
+        if (hit && w) { const l2 = toLocal({ clientX: hit.x, clientY: hit.y }); return { sel: { kind: 'node', id: w.node }, t: 0.5, at: [l2.x, l2.y], leg: w.run }; }
+      }
       const weldNodes = new Set(fw ? weldList(d).map((w) => w.node) : []);
       let bn = -1, bd = kind === 'line' || kind === 'branch' || fw ? 22 : 48;
       P.forEach((p, n) => { if (n > d.runs.length || !okNode(n) || nodeLegs(d, n).length === 0) return; const q = T3(p); const dd = Math.hypot(loc.x - q[0], loc.y - q[1]); if (dd < bd) { bd = dd; bn = n; } });
@@ -1586,7 +1599,21 @@ function Compass({ x, y, view, interactive }: { x: number; y: number; view: View
 }
 
 /** Drawing content in screen coordinates. Shared by the canvas and the image export. */
-export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
+export /** Shortest distance between two segments [x1, y1, x2, y2, r] (0 when they cross). No allocation — it runs thousands of times per drawing. */
+function segDist(p: LSeg, q: LSeg): number {
+  const ax = p[0], ay = p[1], bx = p[2], by = p[3], cx = q[0], cy = q[1], dx = q[2], dy = q[3];
+  const c1 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax), c2 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax);
+  const c3 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx), c4 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx);
+  if (Math.sign(c1) !== Math.sign(c2) && Math.sign(c3) !== Math.sign(c4)) return 0;
+  return Math.min(ptSeg(ax, ay, cx, cy, dx, dy), ptSeg(bx, by, cx, cy, dx, dy), ptSeg(cx, cy, ax, ay, bx, by), ptSeg(dx, dy, ax, ay, bx, by));
+}
+function ptSeg(x: number, y: number, x1: number, y1: number, x2: number, y2: number): number {
+  const vx = x2 - x1, vy = y2 - y1, l2 = vx * vx + vy * vy || 1e-9;
+  const t = Math.max(0, Math.min(1, ((x - x1) * vx + (y - y1) * vy) / l2));
+  const ex = x - x1 - t * vx, ey = y - y1 - t * vy;
+  return Math.sqrt(ex * ex + ey * ey);
+}
+function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
   d: IsoDrawing; disp: { P: Vec3[]; vecs: Vec3[]; k?: number }; T3: (p: Vec3) => [number, number]; sel: Sel; cursor: number; opts: ArtOpts; prefs: Prefs; exportMode?: boolean;
 }) {
   const { P, vecs } = disp;
@@ -1596,15 +1623,19 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
   const casing: React.ReactNode[] = [];
   const unit = (a: [number, number], b: [number, number]) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [dx / L, dy / L, L] as const; };
   const sizes = runSizes(d);
+  // every weld dot gets an invisible tap target (tap a weld to edit it) that the field weld also snaps to
+  const wlist = weldList(d);
+  const whits: React.ReactNode[] = [];
+  const weldHit = (n: number, run: number | undefined, at: [number, number], u?: [number, number]) => {
+    const w = wlist.find((q) => q.node === n && (run === undefined || q.run === run) && !q.key.endsWith(':r')) ?? wlist.find((q) => q.node === n && (run === undefined || q.run === run));
+    // a field weld at a fitting gets "FW" beside its dot too (the weld map's numbered tag does this when it is on)
+    if (w && u && d.welds?.[w.key]?.field && !opts.weldmap) { let nx = -u[1], ny = u[0]; if (ny > 0) { nx = -nx; ny = -ny; } els.push(<text key={'fwl' + w.key} className="iso-fwlbl" x={at[0] + nx * 9} y={at[1] + ny * 9} textAnchor="middle" dominantBaseline="middle">FW</text>); }
+    if (exportMode) return;
+    if (w) whits.push(<circle key={'wh' + w.key + whits.length} className="iso-weldhit" data-weld={w.key} data-wk={w.key} cx={at[0]} cy={at[1]} r={7} />);
+  };
   // dimension text: sized to fit its line, and moved to a free spot so no two measurements overlap each other or a pipe
   type LSeg = [number, number, number, number, number]; // x1 y1 x2 y2 half-thickness
-  const segSeg = (p: LSeg, q: LSeg) => {
-    const pd = (x: number, y: number, g: LSeg) => { const dx = g[2] - g[0], dy = g[3] - g[1], l2 = dx * dx + dy * dy || 1e-9; const t = Math.max(0, Math.min(1, ((x - g[0]) * dx + (y - g[1]) * dy) / l2)); return Math.hypot(x - g[0] - t * dx, y - g[1] - t * dy); };
-    const cross = (a: number[], b: number[], c: number[]) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-    const A = [p[0], p[1]], B = [p[2], p[3]], C = [q[0], q[1]], D = [q[2], q[3]];
-    if (Math.sign(cross(A, B, C)) !== Math.sign(cross(A, B, D)) && Math.sign(cross(C, D, A)) !== Math.sign(cross(C, D, B))) return 0;
-    return Math.min(pd(p[0], p[1], q), pd(p[2], p[3], q), pd(q[0], q[1], p), pd(q[2], q[3], p));
-  };
+  const segSeg = segDist;
   const pipeSegs: LSeg[] = [];
   d.runs.forEach((r, i) => { if (r.move) return; const a = S[r.from], b = S[i + 1]; if (a && b) pipeSegs.push([a[0], a[1], b[0], b[1], 1.5]); });
   const placed: LSeg[] = [];
@@ -1617,11 +1648,19 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     const r = kd === 'straight' ? (inlineAt(d, n) ? 10 : 0) : kd === 'end' || kd === 'start-end' ? ((d.ends[n] ?? 'open') === 'open' && !inlineAt(d, n) ? 0 : (d.ends[n] === 'nozzle' ? 14 : 8)) : 5;
     if (r) symObs.push([p[0], p[1], p[0], p[1], r]);
   }
-  const crowd = (me: LSeg) => {
+  // how crowded a label box would be. Each test is first screened with bounding boxes, so far-away pipes and labels
+  // cost almost nothing; `limit` stops counting once the spot is already worse than the best one found.
+  const crowd = (me: LSeg, limit = Infinity) => {
     let sc = 0;
-    for (const q of placed) { const dd = segSeg(me, q) - me[4] - q[4] - 1.5; if (dd < 0) sc += 10 - dd; }
-    for (const q of pipeSegs) { const dd = segSeg(me, q) - me[4] - q[4] - 0.8; if (dd < 0) sc += 5 - dd; }
-    for (const q of symObs) { const dd = segSeg(me, q) - me[4] - q[4]; if (dd < 0) sc += 4 - dd; }
+    const r0 = me[4], x0 = Math.min(me[0], me[2]), x1 = Math.max(me[0], me[2]), y0 = Math.min(me[1], me[3]), y1 = Math.max(me[1], me[3]);
+    const near = (q: LSeg, pad: number) => {
+      const m = r0 + q[4] + pad;
+      const gx = Math.max(0, Math.min(q[0], q[2]) - x1, x0 - Math.max(q[0], q[2])), gy = Math.max(0, Math.min(q[1], q[3]) - y1, y0 - Math.max(q[1], q[3]));
+      return gx < m && gy < m;
+    };
+    for (const q of placed) { if (!near(q, 1.5)) continue; const dd = segSeg(me, q) - r0 - q[4] - 1.5; if (dd < 0) { sc += 10 - dd; if (sc > limit) return sc; } }
+    for (const q of pipeSegs) { if (!near(q, 0.8)) continue; const dd = segSeg(me, q) - r0 - q[4] - 0.8; if (dd < 0) { sc += 5 - dd; if (sc > limit) return sc; } }
+    for (const q of symObs) { if (!near(q, 0)) continue; const dd = segSeg(me, q) - r0 - q[4]; if (dd < 0) { sc += 4 - dd; if (sc > limit) return sc; } }
     return sc;
   };
   /** Find a free spot for a horizontal box (half-width hw, half-height hh) near (ax, ay), starting in direction (dx, dy). */
@@ -1630,7 +1669,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     let best: [number, number, number] = [ax + dx * d0, ay + dy * d0, Infinity];
     search: for (const dist of [d0, d0 * 1.35, d0 * 1.8, d0 * 2.4, d0 * 3.2]) for (const da of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.2, -2.2, Math.PI]) {
       const x = ax + Math.cos(a0 + da) * dist, y = ay + Math.sin(a0 + da) * dist;
-      const sc = crowd([x - hw, y, x + hw, y, hh]) + dist * 0.01 + Math.abs(da) * 0.05;
+      const pen = dist * 0.01 + Math.abs(da) * 0.05;
+      const sc = crowd([x - hw, y, x + hw, y, hh], best[2] - pen) + pen;
       if (sc < best[2]) best = [x, y, sc];
       if (sc < 0.3) break search;
     }
@@ -1659,7 +1699,8 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         if (Math.abs(along) + h2 > L / 2 + h2 * 0.6 && along !== 0) continue;
         const cx = mx + nx * o + ux * along, cy = my + ny * o + uy * along;
         const me: LSeg = [cx - ux * h2, cy - uy * h2, cx + ux * h2, cy + uy * h2, f * 0.5];
-        const score = Math.abs(o - oo) * 0.01 + Math.abs(along) * 0.005 + crowd(me);
+        const pen = Math.abs(o - oo) * 0.01 + Math.abs(along) * 0.005;
+        const score = pen + crowd(me, b2.score - pen);
         if (score < b2.score) b2 = { o, along, score };
         if (score < 0.2) break;
       }
@@ -1781,7 +1822,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       const fit = d.fits?.[n];
       if (opts.welds) legScreen.forEach(([ux, uy], j) => {
         const jm = legJoint(fit, legScreen, j, connAtSized(d, sizes, n));
-        if (jm) els.push(...jointMark(jm.conn, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy], `w${n}-${j}`));
+        if (jm) { els.push(...jointMark(jm.conn, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy], `w${n}-${j}`)); weldHit(n, legs[j].run, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy]); }
       });
       const fs = d.fitSize?.[n];
       els.push(...nodeSymbol(fit, k.kind, p, legScreen, 'ns' + n, undefined, fs ? (fit === 'redtee' ? `${sizes[n - 1] ?? d.nps}"×${fs}"` : `${fs}"`) : undefined,
@@ -1815,6 +1856,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         if (it.type === 'spool') {
           // a weld joint along the line (field weld or shop joint): a weld dot like any other, "FW" beside a field weld
           els.push(<g key={'inl' + n} className="iso-item">{jointMark('bw', p, u, 'fwd' + n)}</g>);
+          weldHit(n, undefined, [p[0], p[1]]);
           const field = weldList(d).some((w) => w.node === n && d.welds?.[w.key]?.field);
           if (field && !opts.weldmap) { let nx = -u[1], ny = u[0]; if (ny > 0) { nx = -nx; ny = -ny; } els.push(<text key={'fw' + n} className="iso-fwlbl" x={p[0] + nx * 10} y={p[1] + ny * 10} textAnchor="middle" dominantBaseline="middle">FW</text>); }
         } else els.push(<g key={'inl' + n} className="iso-item">{lineSymbol(it.type, p, u, sz, 'inl' + n, stemS)}</g>);
@@ -1825,7 +1867,12 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
           const dzn = sized(d, sizes[n - 1] ?? d.nps);
           const jc: Conn = isFlangePair(it.type) ? (effFt(dzn, itemFt(dzn, it)) === 'SW' ? 'sw' : 'bw') : pair && (it.conn ?? 'bw') === 'flg' ? 'bw' : (it.conn ?? 'bw');
           const off = pair ? 6.5 : ['union', 'coupling', 'dielectric'].includes(it.type) ? sz * 0.9 + 3 : sz * 1.15 + 4;
-          for (const sgn of [-1, 1]) els.push(...jointMark(jc, [p[0] + u[0] * off * sgn, p[1] + u[1] * off * sgn], u, `ij${n}${sgn}`));
+          for (const sgn of [-1, 1]) {
+            const at: [number, number] = [p[0] + u[0] * off * sgn, p[1] + u[1] * off * sgn];
+            els.push(...jointMark(jc, at, u, `ij${n}${sgn}`));
+            let bj = 0, bd = -2; legScreen.forEach((ls, j) => { const dd = ls[0] * u[0] * sgn + ls[1] * u[1] * sgn; if (dd > bd) { bd = dd; bj = j; } });
+            weldHit(n, legs[bj]?.run, at, u);
+          }
         }
       } else if (opts.welds) els.push(...jointMark(connAtSized(d, sizes, n), p, legScreen[0] ?? [1, 0], 'sw' + n));
     } else {
@@ -2011,7 +2058,7 @@ export function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       })}
     </g>);
   });
-  return <g>{casing}{under}{els}{tags}</g>;
+  return <g>{casing}{under}{els}{tags}{whits}</g>;
 }
 
 // ------------------------------------------------------------------ editors
@@ -2384,19 +2431,23 @@ async function shareImage(d: IsoDrawing, markup: string, W: number, H: number, s
 }
 
 // ------------------------------------------------------------------ weld map, text notes, dialogs
-function WeldPop({ d, w, num, update, onClose }: { d: IsoDrawing; w: Weld; num: number; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void; onClose: () => void }) {
+function WeldPop({ d, w, num, update, onClose, onMove, onRemove }: { d: IsoDrawing; w: Weld; num: number; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void; onClose: () => void; onMove?: () => void; onRemove?: () => void }) {
   const info: WeldInfo = d.welds?.[w.key] ?? {};
   const set = (p: Partial<WeldInfo>, mk?: string) => update((x) => ({ ...x, welds: { ...(x.welds ?? {}), [w.key]: { ...(x.welds?.[w.key] ?? {}), ...p } } }), mk);
   const where = { fitting: 'fitting weld', inline: 'valve / fitting weld', joint: 'pipe-to-pipe weld', end: 'end fitting weld', reducer: 'reducer-to-elbow weld' }[w.where];
   return (
     <div className="itemmenu-in weldpop">
       <div className="row-between"><b>{info.field ? 'FW' : 'W'}{num} · {w.conn === 'sw' ? 'Socket weld' : 'Butt weld'}</b><button className="linkbtn" onClick={onClose}>Done</button></div>
-      <span className="fhint">Point {w.node}, line {w.run + 1} — {where}</span>
+      <span className="fhint">{where}{onMove ? ' — Move weld, then tap a line where it goes' : ''}</span>
       <label className="field"><span className="flabel">Welder stencil</span>
         <span className="finput"><input value={info.stencil ?? ''} placeholder="e.g. RC-12" autoCapitalize="characters" autoCorrect="off" spellCheck={false} onChange={(e) => set({ stencil: e.target.value }, 'wst' + w.key)} /></span></label>
       <Segmented small value={info.field ? 'field' : 'shop'} onChange={(v) => set({ field: v === 'field' })} options={[['shop', 'Shop weld'], ['field', 'Field weld']]} />
       <label className="field"><span className="flabel">Notes</span>
         <textarea className="isotext" rows={3} value={info.notes ?? ''} placeholder="Rod, process, inspection, date…" onChange={(e) => set({ notes: e.target.value }, 'wno' + w.key)} /></label>
+      {(onMove || onRemove) && <div className="menubtns">
+        {onMove && <button className="btn" onClick={onMove}>✥ Move weld</button>}
+        {onRemove && <button className="btn danger" onClick={onRemove}>✕ Remove weld</button>}
+      </div>}
     </div>
   );
 }

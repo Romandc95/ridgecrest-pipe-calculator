@@ -280,6 +280,7 @@ button { cursor: pointer; }
 .iso-sym.thick { stroke-width: 2.6; }
 .iso-symfill { fill: var(--text); }
 .iso-weld { fill: var(--accent); }
+.iso-weldhit { fill: transparent; cursor: pointer; }
 .iso-fwlbl { font: 800 9px sans-serif; fill: var(--accent); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; pointer-events: none; }
 .iso-dim { font: 700 10.5px sans-serif; fill: var(--accent); paint-order: stroke; stroke: var(--surface); stroke-width: 3.5px; stroke-linejoin: round; }
 .iso-note { font: 600 9px sans-serif; fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }

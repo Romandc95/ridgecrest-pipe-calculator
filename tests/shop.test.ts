@@ -465,3 +465,28 @@ describe('ISO measurement points and field welds', () => {
     expect(c[0].cut).toBeCloseTo(c[0].pieces![0].cut + last.cut, 9);
   });
 });
+
+describe('ISO weld info stays with its weld when lines are split or joined', () => {
+  const run = (from: number, v: [number, number, number], id: string): Run => ({ id, from, dx: v[0] / 4, dy: v[1] / 4, dz: v[2] / 4, inline: 'none', sketch: true, meas: v });
+  // elbow at point 1 (A east → B up); B's start weld at the elbow is "b:a"
+  const draw = (): IsoDrawing => ({ ...newDrawing('t', 'x'), nps: '4', gap: 0.125, runs: [run(0, [48, 0, 0], 'a'), run(1, [0, 0, 60], 'b')], welds: { 'b:a': { field: true, stencil: 'RC-7' } } });
+  it('splitting the line keeps the elbow weld FW (not the new point)', () => {
+    const { d: e, node } = splitRun(draw(), 1, 0.5, 'n');
+    e.inl = { [node]: { id: 'j', type: 'spool', t: 0.5, conn: 'bw' } };
+    const elbowW = weldList(e).filter((w) => w.node === 1);
+    const onB = elbowW.find((w) => w.run !== 0)!;
+    expect(e.welds![onB.key]).toEqual({ field: true, stencil: 'RC-7' });
+    const joint = weldList(e).find((w) => w.node === node)!;
+    expect(e.welds![joint.key]).toBe(undefined);
+  });
+  it('joining the lines back drops the joint weld and keeps the far-end weld', () => {
+    const { d: e, node } = splitRun(draw(), 1, 0.5, 'n');
+    e.inl = { [node]: { id: 'j', type: 'spool', t: 0.5, conn: 'bw' } };
+    const jk = weldList(e).find((w) => w.node === node)!.key;
+    e.welds = { ...e.welds, [jk]: { field: true, notes: 'joint' } };
+    const m = mergeAt(e, node);
+    expect(Object.values(m.welds!).some((v) => v.notes === 'joint')).toBe(false);
+    const onB = weldList(m).filter((w) => w.node === 1).find((w) => w.run !== 0)!;
+    expect(m.welds![onB.key]).toEqual({ field: true, stencil: 'RC-7' });
+  });
+});

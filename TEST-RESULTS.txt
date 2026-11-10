@@ -252,6 +252,8 @@
 ✓ ISO measurement points and field welds › the pipe runs through it: one cut, no root gaps at the point
 ✓ ISO measurement points and field welds › a field weld (pipe joint) at the point splits the pipe: two cuts, two root gaps, one butt weld
 ✓ ISO measurement points and field welds › a fitting with pieces on one side folds into the same pipe
+✓ ISO weld info stays with its weld when lines are split or joined › splitting the line keeps the elbow weld FW (not the new point)
+✓ ISO weld info stays with its weld when lines are split or joined › joining the lines back drops the joint weld and keeps the far-end weld
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -305,4 +307,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-306 passed, 0 failed, 306 total
+308 passed, 0 failed, 308 total

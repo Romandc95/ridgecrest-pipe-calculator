@@ -291,7 +291,16 @@ export function splitRun(d: IsoDrawing, i: number, t: number, newId: string): { 
     ...(r.meas ? { meas: [r.meas[0] * (1 - t), r.meas[1] * (1 - t), r.meas[2] * (1 - t)] as Vec3 } : {}),
     items: items.filter((it) => it.t >= t).map((it) => ({ ...it, t: (it.t - t) / (1 - t) })),
   };
-  return { d: { ...d, runs: [...d.runs.map((q, k) => (k === i ? rest : q)), first] }, node };
+  // the weld at the old start now belongs to the first piece (new id); keep its stencil / field / notes with it
+  const welds = renameWelds(d.welds, (k) => (k.startsWith(r.id + ':a') ? newId + k.slice(r.id.length) : k));
+  return { d: { ...d, runs: [...d.runs.map((q, k) => (k === i ? rest : q)), first], ...(welds ? { welds } : {}) }, node };
+}
+/** Weld-map info keyed by `${runId}:${side}…`: rename (or drop with null) keys when lines are split or joined. */
+function renameWelds(w: IsoDrawing['welds'], f: (k: string) => string | null): IsoDrawing['welds'] {
+  if (!w) return w;
+  const out: NonNullable<IsoDrawing['welds']> = {};
+  for (const [k, v] of Object.entries(w)) { const nk = f(k); if (nk !== null) out[nk] = v; }
+  return out;
 }
 
 const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2]);
@@ -310,17 +319,25 @@ export type NodeKind = { kind: 'start-end' | 'end' } | { kind: 'straight' } | { 
 export const canon = (d: IsoDrawing, n: number): number => d.links?.[n] ?? n;
 /** True for a line end that is joined onto another point (it is drawn and counted at that point). */
 export const isLinked = (d: IsoDrawing, n: number): boolean => d.links?.[n] !== undefined;
-export function nodeLegs(d: IsoDrawing, node: number): Array<{ run: number; dir: Vec3 }> {
-  const legs: Array<{ run: number; dir: Vec3 }> = [];
-  const c = canon(d, node);
-  d.runs.forEach((r, i) => {
-    if (r.move) return;
-    const v = runVec(r), L = len(v);
-    if (L === 0) return;
-    if (canon(d, r.from) === c) legs.push({ run: i, dir: [v[0] / L, v[1] / L, v[2] / L] });
-    if (canon(d, i + 1) === c) legs.push({ run: i, dir: [-v[0] / L, -v[1] / L, -v[2] / L] });
-  });
-  return legs;
+// Legs of every point, built once per drawing (runs + links) instead of rescanning every line for each point.
+type Leg = { run: number; dir: Vec3 };
+const legCache = new WeakMap<Run[], { links: IsoDrawing['links']; refs: Run[]; byNode: Map<number, Leg[]> }>();
+export function nodeLegs(d: IsoDrawing, node: number): Leg[] {
+  let c = legCache.get(d.runs);
+  if (!c || c.links !== d.links || c.refs.length !== d.runs.length || c.refs.some((r, i) => r !== d.runs[i])) {
+    const byNode = new Map<number, Leg[]>();
+    const add = (n: number, l: Leg) => { const a = byNode.get(n); if (a) a.push(l); else byNode.set(n, [l]); };
+    d.runs.forEach((r, i) => {
+      if (r.move) return;
+      const v = runVec(r), L = len(v);
+      if (L === 0) return;
+      const a = canon(d, r.from), b = canon(d, i + 1);
+      add(a, { run: i, dir: [v[0] / L, v[1] / L, v[2] / L] });
+      add(b, { run: i, dir: [-v[0] / L, -v[1] / L, -v[2] / L] });
+    });
+    c = { links: d.links, refs: d.runs.slice(), byNode }; legCache.set(d.runs, c);
+  }
+  return (c.byNode.get(canon(d, node)) ?? []).map((l) => ({ run: l.run, dir: l.dir }));
 }
 
 export function nodeKind(d: IsoDrawing, node: number): NodeKind {
@@ -715,7 +732,9 @@ export function mergeAt(d: IsoDrawing, node: number): IsoDrawing {
     Object.entries(o ?? {}).forEach(([n, v]) => { const k = Number(n); if (k === skip) return; out[remap(k)] = v; });
     return out;
   };
-  return { ...d, runs, ends: mapRec(d.ends, node), fits: mapRec(d.fits, node), nodeConn: mapRec(d.nodeConn, node), fitSize: mapRec(d.fitSize, node),
+  // welds at the joined point go away; the far end of B is now the joined line's end
+  const welds = renameWelds(d.welds, (k) => (k.startsWith(A.id + ':b') || k.startsWith(B.id + ':a') ? null : k.startsWith(B.id + ':b') ? A.id + k.slice(B.id.length) : k));
+  return { ...d, ...(welds ? { welds } : {}), runs, ends: mapRec(d.ends, node), fits: mapRec(d.fits, node), nodeConn: mapRec(d.nodeConn, node), fitSize: mapRec(d.fitSize, node),
     endLen: mapRec(d.endLen, node), inl: mapRec(d.inl, node), notes: d.notes.filter((t) => t.node !== node).map((t) => ({ ...t, node: remap(t.node) })),
     ...(d.texts ? { texts: d.texts.map((t) => (t.node === node ? { ...t, node: remap(A.from) } : { ...t, node: remap(t.node) })) } : {}),
     links: Object.fromEntries(Object.entries(d.links ?? {}).filter(([n, t]) => Number(n) !== node && t !== node).map(([n, t]) => [remap(Number(n)), remap(t)])) };
