@@ -18,7 +18,7 @@ function ftHint(text: string, prefs: Prefs): string | undefined {
 }
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, cutRowRef, isMeasurePoint, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, pipeOrder, TextStyle, TextBorder, TextArrow, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, cutRowRef, isMeasurePoint, syncF2F, isEndElbow, endBase, endElbowDir, DIR_VEC, DIR_LABEL, endLabel, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, pipeOrder, TextStyle, TextBorder, TextArrow, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
   FlangeType, FLANGE_TYPE_LABEL, itemFt, endFtAt, effFt, flangeFit, isFlangePair, LineItem,
 } from '../engine/iso';
@@ -155,7 +155,7 @@ export function IsoSketch() {
     if (!merge) { h.snaps.push(d); if (h.snaps.length > 100) h.snaps.shift(); setHistTick((t) => t + 1); }
     h.last = now; h.key = mergeKey;
     if (h.redo.length) { h.redo = []; setHistTick((t) => t + 1); } // a new change ends the Forward trail
-    setStore((s) => ({ ...s, drawings: s.drawings.map((x) => (x.id === d.id ? { ...f(x), updated: Date.now() } : x)) }));
+    setStore((s) => ({ ...s, drawings: s.drawings.map((x) => (x.id === d.id ? { ...syncF2F(f(x)), updated: Date.now() } : x)) }));
   };
   const cur = Math.min(cursor, d.runs.length);
   const isTurn = (node: number) => nodeKind(d, node).kind === 'elbow';
@@ -583,6 +583,7 @@ export function IsoSketch() {
               else update((x) => ({ ...x, endFt: { ...(x.endFt ?? {}), [selNode]: f }, ...(x.ends[selNode] !== 'nozzle' ? { nodeConn: { ...(x.nodeConn ?? {}), [selNode]: f === 'SW' ? 'sw' : 'bw' } } : {}) }));
               toast(`${FLANGE_TYPE_LABEL[f]} flange${it && !isFlangePair(it.type) ? 's' : ''}`); },
             joint: (c) => inlineAt(d, selNode) ? update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], conn: c } } })) : update((x) => ({ ...x, nodeConn: { ...(x.nodeConn ?? {}), [selNode]: c } })),
+            endDir: (k) => update((x) => ({ ...x, ends: { ...x.ends, [selNode]: `${endBase(x.ends[selNode])}:${k}` } })),
             change: (id) => { const pk = pointKind(d, selNode); update((x) => pk === 'inline' ? { ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], type: id } } } : pk === 'end' ? { ...x, ends: { ...x.ends, [selNode]: id } } : { ...x, fits: { ...(x.fits ?? {}), [selNode]: id } }); },
             len: (v) => inlineAt(d, selNode) ? update((x) => ({ ...x, inl: { ...(x.inl ?? {}), [selNode]: { ...x.inl![selNode], len: v } } }), 'plen' + selNode)
               : update((x) => { const e = { ...(x.endLen ?? {}) }; if (v == null) delete e[selNode]; else e[selNode] = v; return { ...x, endLen: e }; }, 'plen' + selNode),
@@ -727,7 +728,7 @@ function pointKind(d: IsoDrawing, n: number): PKind | null {
   return null;
 }
 const SIZED = ['redtee', 'weldolet', 'sockolet', 'threadolet', 'stubin', 'lateral'];
-interface PointActs { close: () => void; more: () => void; joint: (c: Conn) => void; ft: (f: FlangeType) => void; change: (id: string) => void; len: (v: number | undefined) => void; size: (s: string | undefined) => void; move: () => void; del: () => void }
+interface PointActs { endDir: (k: string) => void; close: () => void; more: () => void; joint: (c: Conn) => void; ft: (f: FlangeType) => void; change: (id: string) => void; len: (v: number | undefined) => void; size: (s: string | undefined) => void; move: () => void; del: () => void }
 function PointMenu({ d, n, prefs, act }: { d: IsoDrawing; n: number; prefs: Prefs; act: PointActs }) {
   const [pane, setPane] = useState<'main' | 'joint' | 'change' | 'len' | 'size' | 'ft'>('main');
   const [armedDel, setArmedDel] = useState(false);
@@ -735,7 +736,7 @@ function PointMenu({ d, n, prefs, act }: { d: IsoDrawing; n: number; prefs: Pref
   const it = inlineAt(d, n);
   const sizes = runSizes(d);
   const lineSize = sizes[n - 1] ?? d.nps;
-  const cur = pk === 'inline' ? it!.type : pk === 'end' ? d.ends[n] : pk === 'elbow' ? d.fits?.[n] ?? 'lr' : d.fits?.[n] ?? 'tee';
+  const cur = pk === 'inline' ? it!.type : pk === 'end' ? endBase(d.ends[n]) : pk === 'elbow' ? d.fits?.[n] ?? 'lr' : d.fits?.[n] ?? 'tee';
   const kind = pk === 'inline' ? 'line' : pk === 'end' ? 'end' : pk === 'elbow' ? 'elbow' : 'branch';
   const c = catalogItem(cur, kind as CatalogItem['kind']);
   const conn = pk === 'inline' ? it!.conn ?? 'bw' : connAtSized(d, runSizes(d), n);
@@ -767,6 +768,12 @@ function PointMenu({ d, n, prefs, act }: { d: IsoDrawing; n: number; prefs: Pref
             {hasSize && <button className="btn" onClick={() => setPane('size')}>⌀ Size</button>}
             {armedDel ? <button className="btn danger" onClick={act.del}>Sure?</button> : <button className="btn danger" onClick={() => setArmedDel(true)}>✕ Delete</button>}
           </div>
+          {pk === 'end' && isEndElbow(d.ends[n]) && (() => {
+            const leg = nodeLegs(d, n)[0], curD = endElbowDir(d, n);
+            const ds = ['U', 'D', 'N', 'S', 'E', 'W'].filter((k) => !leg || Math.abs(dot3(DIR_VEC[k], leg.dir)) < 0.01);
+            return <div className="field"><span className="flabel">Outlet points</span>
+              <div className="chips">{ds.map((k) => <button key={k} className={'chip' + (k === curD ? ' on' : '')} onClick={() => act.endDir(k)}>{DIR_LABEL[k]}</button>)}</div></div>;
+          })()}
           {armedDel && <p className="fhint">Tap Sure? to {delLabel.toLowerCase()}.</p>}
           <button className="linkbtn small" onClick={act.more}>More options & notes…</button>
         </>
@@ -1886,6 +1893,15 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     }
   });
 
+  // fitting to fitting: the one weld between the two fittings, mid-line
+  if (opts.welds) d.runs.forEach((r, i) => {
+    if (!r.f2f || r.move || !S[r.from] || !S[i + 1]) return;
+    const w = wlist.find((q) => q.run === i && q.where !== 'reducer' && q.where !== 'flange'); if (!w) return;
+    const a = S[r.from], b = S[i + 1], m: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, u: [number, number] = [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+    els.push(...jointMark('bw', m, u, 'f2f' + i));
+    weldHitKey(w.key, m, u);
+  });
   // fitting callouts (sizes, RED TEE, WOL …): queued, then placed clear of the measurements, pipes and symbols
   const callouts: Array<{ key: string; text: string; at: [number, number]; dir: [number, number]; dist: number; cls?: string; angleAt?: number }> = [];
   // nodes
@@ -1900,6 +1916,7 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       const fit = d.fits?.[n];
       if (opts.welds) legScreen.forEach(([ux, uy], j) => {
         const jm = legJoint(fit, legScreen, j, connAtSized(d, sizes, n));
+        if (jm && d.runs[legs[j].run]?.f2f) return; // fitting to fitting: its one weld is drawn mid-line
         if (jm) { els.push(...jointMark(jm.conn, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy], `w${n}-${j}`, faceAt(n, legs[j].run))); weldHit(n, legs[j].run, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy]); }
       });
       // a flange set welded straight onto this fitting (fitting to fitting): the flange pair just past the fitting weld,
@@ -1958,8 +1975,9 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
           const off = pair ? 6.5 : ['union', 'coupling', 'dielectric'].includes(it.type) ? sz * 0.9 + 3 : sz * 1.15 + 4;
           for (const sgn of [-1, 1]) {
             const at: [number, number] = [p[0] + u[0] * off * sgn, p[1] + u[1] * off * sgn];
-            els.push(...jointMark(jc, at, u, `ij${n}${sgn}`, stemS));
             let bj = 0, bd = -2; legScreen.forEach((ls, j) => { const dd = ls[0] * u[0] * sgn + ls[1] * u[1] * sgn; if (dd > bd) { bd = dd; bj = j; } });
+            if (d.runs[legs[bj]?.run ?? -1]?.f2f) continue; // fitting to fitting: one weld, drawn mid-line
+            els.push(...jointMark(jc, at, u, `ij${n}${sgn}`, stemS));
             weldHit(n, legs[bj]?.run, at, u);
           }
         }
@@ -1977,14 +1995,19 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         } else els.push(...endSymbol(er.type === 'eccreducer' ? 'eccreducer' : 'reducer', p, legScreen[0], 'er' + n));
         if (er.size && opts.dims) callouts.push({ key: 'ers' + n, text: `${sizes[n - 1] ?? d.nps}"×${er.size}"`, at: [p[0] - legScreen[0][0] * 7, p[1] - legScreen[0][1] * 7], dir: [-legScreen[0][0], -legScreen[0][1]], dist: 16 });
         if (opts.welds) els.push(...jointMark(er.conn ?? 'bw', p, legScreen[0], 'erj' + n));
-      } else els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode, connAtSized(d, sizes, n), faceAt(n, legs[0]?.run)));
+      } else {
+        let outlet: [number, number] | undefined;
+        if (isEndElbow(endT) && P[n]) { const v = DIR_VEC[endElbowDir(d, n)], q0 = T3(P[n]), q1 = T3(add(P[n], mul(v, 12))), l = Math.hypot(q1[0] - q0[0], q1[1] - q0[1]); if (l > 0.5) outlet = [(q1[0] - q0[0]) / l, (q1[1] - q0[1]) / l]; }
+        els.push(...endSymbol(endT, p, legScreen[0] ?? [1, 0], 'e' + n, exportMode, connAtSized(d, sizes, n), faceAt(n, legs[0]?.run), outlet));
+      }
       // the joint between the pipe and the end fitting, shown with the chosen connection's mark
       // (a flange end shows how the flange is joined to the pipe: weld dot = weld neck, tick = threaded …; the nozzle draws its own)
       const ec0 = connAtSized(d, sizes, n);
       const dze = sized(d, sizes[legScreen[0] ? (nodeLegs(d, n)[0]?.run ?? 0) : 0] ?? d.nps);
       const ec: Conn = ['flange', 'blind'].includes(endT) && ec0 !== 'thd' ? (effFt(dze, endFtAt(dze, n)) === 'SW' ? 'sw' : 'bw') : ec0;
       if (opts.welds && legScreen[0] && !['open', 'weld', 'nozzle'].includes(endT) && !(['flange', 'blind'].includes(endT) && ec === 'flg'))
-        els.push(...jointMark(ec, [p[0] + legScreen[0][0] * (['flange', 'blind'].includes(endT) ? 6 : 3), p[1] + legScreen[0][1] * (['flange', 'blind'].includes(endT) ? 6 : 3)], legScreen[0], 'ej' + n, faceAt(n, legs[0]?.run)));
+        els.push(...jointMark(ec, [p[0] + legScreen[0][0] * (isEndElbow(endT) ? 8 : ['flange', 'blind'].includes(endT) ? 6 : 3), p[1] + legScreen[0][1] * (isEndElbow(endT) ? 8 : ['flange', 'blind'].includes(endT) ? 6 : 3)], legScreen[0], 'ej' + n, faceAt(n, legs[0]?.run)));
+        if (isEndElbow(endT) && legScreen[0]) weldHit(n, legs[0]?.run, [p[0] + legScreen[0][0] * 8, p[1] + legScreen[0][1] * 8], legScreen[0]);
     }
     if (!exportMode) {
       const isCursor = n === cursor, isSel = sel?.kind === 'node' && sel.id === n;
@@ -2069,7 +2092,7 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       const p = S[w.node]; const r = d.runs[w.run]; if (!p || !r) return;
       const other = r.from === w.node ? S[w.run + 1] : S[r.from]; if (!other) return;
       const [ux, uy, L] = unit(p, other);
-      const off = Math.min(L * 0.4, w.where === 'fitting' ? 9 : w.where === 'inline' ? 12 : w.where === 'reducer' ? 24 : w.where === 'flange' ? 25 : w.where === 'end' ? 4 : 0);
+      const off = d.runs[w.run]?.f2f ? L / 2 : Math.min(L * 0.4, w.where === 'fitting' ? 9 : w.where === 'inline' ? 12 : w.where === 'reducer' ? 24 : w.where === 'flange' ? 25 : w.where === 'end' ? 4 : 0);
       const c: [number, number] = [p[0] + ux * off, p[1] + uy * off];
       let nx = -uy, ny = ux; if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; }
       nx = -nx; ny = -ny; // dimensions go above / left of a line: weld tags start on the other side
@@ -2215,7 +2238,10 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
   return (
     <Card className="isoedit">
       <div className="row-between"><b>Line {i + 1}: {describeRun(r)}</b><button className="chip" onClick={onClose}>Done</button></div>
-      {axes.length === 1 ? (
+      <label className={'chip' + (r.f2f ? ' on' : '')} style={{ alignSelf: 'flex-start' }}><input type="checkbox" checked={!!r.f2f} onChange={(e) => setRun((q) => { const { f2f: _f, ...rest } = q; return e.target.checked ? { ...rest, f2f: true } : rest; })} /> Fitting to fitting — no pipe, one weld</label>
+      {r.f2f ? <p className="fhint">The fittings at both ends are welded straight to each other: this line is {Number.isFinite(cut.travel) ? formatFtIn(cut.travel, prefs) : '—'} {runRef(d, i)} (their take-offs + one root gap), with no pipe to cut and one weld.</p> : null}
+      {r.f2f && axes.length === 1 && <Select label="Direction" value={curDir!} options={(['N', 'S', 'E', 'W', 'U', 'D'] as const).map((k) => [k, DIRS[k].label])} onChange={turn} />}
+      {r.f2f ? null : axes.length === 1 ? (
         <Grid>
           <Field label={`Length (${runRef(d, i)})`} value={txt[axes[0]] ?? ''} onChange={(v) => apply({ ...txt, [axes[0]]: v })} parse={parseLength} placeholder="add dimension" hint={ftHint(txt[axes[0]] ?? '', prefs)} />
           <Select label="Direction" value={curDir!} options={(['N', 'S', 'E', 'W', 'U', 'D'] as const).map((k) => [k, DIRS[k].label])} onChange={turn} />
@@ -2351,9 +2377,15 @@ function NodeEditor({ d, node, update, onClose, prefs }: { d: IsoDrawing; node: 
       {k.kind !== 'multi' && !(k.kind === 'start-end' && !nodeLegs(d, node).length) && (
         <Select label="Joint here" value={connAtSized(d, runSizes(d), node)} options={CONN_ORDER.map((c) => [c, CONN_LABEL[c]])} onChange={(v) => update((x) => ({ ...x, nodeConn: { ...(x.nodeConn ?? {}), [node]: v as Conn } }))} />
       )}
-      {(k.kind === 'end' || k.kind === 'start-end') && (
-        <Select label="End" value={d.ends[node] ?? 'open'} options={(Object.keys(END_LABEL) as EndType[]).map((x) => [x, END_LABEL[x]])} onChange={(v) => update((x) => ({ ...x, ends: { ...x.ends, [node]: v as EndType } }))} />
-      )}
+      {(k.kind === 'end' || k.kind === 'start-end') && (<>
+        <Select label="End" value={endBase(d.ends[node])} options={(Object.keys(END_LABEL) as EndType[]).map((x) => [x, END_LABEL[x]])} onChange={(v) => update((x) => ({ ...x, ends: { ...x.ends, [node]: v as EndType } }))} />
+        {isEndElbow(d.ends[node]) && (() => {
+          const leg = nodeLegs(d, node)[0], cur = endElbowDir(d, node);
+          const opts2 = ['U', 'D', 'N', 'S', 'E', 'W'].filter((k) => !leg || Math.abs(dot3(DIR_VEC[k], leg.dir)) < 0.01);
+          return <label className="field"><span className="flabel">Outlet points</span>
+            <div className="chips">{opts2.map((k) => <button key={k} className={'chip' + (k === cur ? ' on' : '')} onClick={() => update((x) => ({ ...x, ends: { ...x.ends, [node]: `${endBase(x.ends[node])}:${k}` } }))}>{DIR_LABEL[k]}</button>)}</div></label>;
+        })()}
+      </>)}
       {std && (
         <Field label="End take-off (to the end of the fitting)" value={endT} parse={parseLength} placeholder={std.len != null ? formatFracIn(std.len, prefs) : 'none'}
           hint={d.endLen?.[node] != null ? 'your take-off — clear it to use the standard one' : std.len != null ? std.src : 'enter it if the line is dimensioned to the end of this fitting'}

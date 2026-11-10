@@ -74,6 +74,8 @@ export const CATALOG: CatalogItem[] = [
   { id: 'gauge', label: 'Pressure gauge', kind: 'end', group: 'Ends', short: 'PI' },
   { id: 'thermowell', label: 'Thermowell', kind: 'end', group: 'Ends', short: 'TW' },
   { id: 'reducer', label: 'Reducer (end)', kind: 'end', group: 'Ends' },
+  { id: 'ell90', label: 'Elbow 90° (end)', kind: 'end', group: 'Ends' },
+  { id: 'ell45', label: 'Elbow 45° (end)', kind: 'end', group: 'Ends' },
 ];
 export const CATALOG_GROUPS = ['Valves', 'Line', 'Elbows', 'Branches', 'Ends'];
 export const catalogItem = (id: string, kind?: ItemKind) => CATALOG.find((c) => c.id === id && (!kind || c.kind === kind));
@@ -81,7 +83,21 @@ export type Inline = string;
 const LINE_IDS = CATALOG.filter((c) => c.kind === 'line');
 export const INLINE_LABEL: Record<string, string> = { none: 'Pipe only', ...Object.fromEntries(LINE_IDS.map((c) => [c.id, c.label])) };
 export type EndType = string;
+/** An end value can carry a direction after a colon: an elbow on the end of a line stores its outlet, e.g. 'ell90:D'. */
+export const endBase = (e: string | undefined) => (e ?? 'open').split(':')[0];
+export const isEndElbow = (e: string | undefined) => endBase(e) === 'ell90' || endBase(e) === 'ell45';
+export const DIR_VEC: Record<string, Vec3> = { E: [1, 0, 0], W: [-1, 0, 0], N: [0, 1, 0], S: [0, -1, 0], U: [0, 0, 1], D: [0, 0, -1] };
+export const DIR_LABEL: Record<string, string> = { U: 'Up', D: 'Down', N: 'North', S: 'South', E: 'East', W: 'West' };
+/** Outlet of an elbow on the end of a line (a direction square to the pipe): the one stored, else up off level pipe / North off vertical pipe. */
+export function endElbowDir(d: IsoDrawing, node: number): string {
+  const e = d.ends[node] ?? '', want = e.split(':')[1];
+  const leg = nodeLegs(d, node)[0]; const pd: Vec3 = leg ? leg.dir : [1, 0, 0];
+  const ok = (k: string | undefined) => !!k && !!DIR_VEC[k] && Math.abs(dot(DIR_VEC[k], pd)) < 0.01;
+  if (ok(want)) return want!;
+  return ['U', 'N', 'E', 'D', 'S', 'W'].find(ok) ?? 'U';
+}
 export const END_LABEL: Record<string, string> = Object.fromEntries(CATALOG.filter((c) => c.kind === 'end').map((c) => [c.id, c.label]));
+export const endLabel = (e: string | undefined) => END_LABEL[endBase(e)] ?? endBase(e);
 
 /** A fitting placed on a line, at fraction t (0–1) of the way along it. */
 /** How fittings join the pipe. */
@@ -96,7 +112,9 @@ export interface LineItem { id: string; type: string; t: number; conn?: Conn; le
 export const isReducer = (type: string) => type === 'reducer' || type === 'eccreducer' || type === 'swage';
 
 /** `move`: an invisible jump that starts a new, separate line at another point (no pipe, no cut). */
-export interface Run { id: string; from: number; dx: number; dy: number; dz: number; inline: Inline; label?: string; meas?: Vec3; sketch?: boolean; items?: LineItem[]; move?: boolean }
+export interface Run { id: string; from: number; dx: number; dy: number; dz: number; inline: Inline; label?: string; meas?: Vec3; sketch?: boolean; items?: LineItem[]; move?: boolean;
+  /** Fitting to fitting: no pipe; the length is the two take-offs + one root gap, and the two welds are one. */
+  f2f?: boolean }
 /** Items on a run (older drawings kept a single `inline` item). */
 export const runItems = (r: Run): LineItem[] => r.items ?? (r.inline && r.inline !== 'none' ? [{ id: r.id + '-i', type: r.inline, t: 0.5 }] : []);
 export interface IsoNote { id: string; node: number; text: string }
@@ -360,6 +378,8 @@ export function nodeKind(d: IsoDrawing, node: number): NodeKind {
 export interface CutPiece { from: string; to: string; cut: number; ok: boolean }
 export interface CutRow {
   run: number; travel: number; to1: number; to2: number; gaps: number; cut: number; note: string[]; ok: boolean; skip?: boolean;
+  /** Fitting to fitting: no pipe on this line. */
+  f2f?: boolean;
   /** One pipe through measurement points: every line it covers (first = this row's line). */
   runs?: number[];
   /** This line is part of the pipe cut on another line's row (measurement point between them). */
@@ -490,9 +510,9 @@ function takeoutBase(d0: IsoDrawing, node0: number, run: number, note: string[],
         return { to: L.len, weld: (it.conn ?? 'bw') === 'bw' };
       }
       const e2 = endTakeoff(d, node);
-      if (e2 && e2.len !== null) note.push(`${END_LABEL[end].toLowerCase()} at the end: ${e2.src}`);
+      if (e2 && e2.len !== null) note.push(`${endLabel(end).toLowerCase()} at the end: ${e2.src}`);
       if (end === 'flange' || end === 'blind') return { to: e2?.len ?? 0, weld: effFt(d, endFtAt(d, node)) === 'WN' && conn !== 'thd' };
-      return { to: e2?.len ?? 0, weld: conn === 'bw' && ['weld', 'cap', 'nozzle'].includes(end) };
+      return { to: e2?.len ?? 0, weld: conn === 'bw' && (['weld', 'cap', 'nozzle'].includes(end) || isEndElbow(end)) };
     }
   }
 }
@@ -533,6 +553,24 @@ export function cutList(d0: IsoDrawing): CutRow[] {
   });
   return rows;
 }
+/**
+ * Fitting-to-fitting lines take their length from the fittings: set each one's dimension to its two take-offs + one
+ * gap (keeping its direction) so the drawing, dimensions and everything downstream use it.
+ */
+export function syncF2F(d: IsoDrawing): IsoDrawing {
+  if (!d.runs.some((r) => r.f2f && !r.move)) return d;
+  const rows = cutRows(d);
+  let changed = false;
+  const runs = d.runs.map((r, i) => {
+    if (!r.f2f || r.move) return r;
+    const t = rows[i].travel; if (!Number.isFinite(t) || t <= 0) return r;
+    const v = r.meas && len(r.meas) > 0 ? r.meas : sketchVec(r), L = len(v) || 1;
+    if (r.meas && Math.abs(len(r.meas) - t) < 1e-6) return r;
+    changed = true;
+    return { ...r, meas: [v[0] / L * t, v[1] / L * t, v[2] / L * t] as Vec3 };
+  });
+  return changed ? { ...d, runs } : d;
+}
 /** Dimension reference of a cut row: the start of its first line to the end of its last (C-C, E-F …). */
 export const cutRowRef = (d: IsoDrawing, c: CutRow) => { const rs = c.runs ?? [c.run]; return `${nodeRef(d, d.runs[rs[0]].from)}-${nodeRef(d, rs[rs.length - 1] + 1)}`; };
 function cutRows(d0: IsoDrawing): CutRow[] {
@@ -542,6 +580,11 @@ function cutRows(d0: IsoDrawing): CutRow[] {
     const note: string[] = [];
     const a = takeoutAt(d0, r.from, i, note, sizes), b = takeoutAt(d0, i + 1, i, note, sizes);
     const d = sized(d0, sizes[i]);
+    if (r.f2f) {
+      // fitting to fitting: no pipe — the fittings are welded together, so the line is just the two take-offs + one gap
+      const one = a.weld && b.weld ? d.gap : 0, travel = a.to + b.to + one;
+      return { run: i, travel, to1: a.to, to2: b.to, gaps: one, cut: 0, note: [...note, `fitting to fitting — no pipe, ${a.weld && b.weld ? 'one weld' : 'no weld'}: ${frac(a.to)} + ${frac(b.to)}${one ? ` + gap ${frac(one)}` : ''} = ${frac(travel)}`], ok: Number.isFinite(travel), f2f: true, skip: true };
+    }
     if (!isMeasured(r)) return { run: i, travel: NaN, to1: a.to, to2: b.to, gaps: 0, cut: NaN, note: ['no dimension yet'], ok: false };
     const travel = runLength(r);
     const gaps = (a.weld ? d.gap : 0) + (b.weld ? d.gap : 0);
@@ -550,7 +593,7 @@ function cutRows(d0: IsoDrawing): CutRow[] {
       const k = nodeKind(d, n).kind;
       if (k !== 'end' && k !== 'start-end') continue;
       const end = d.ends[n] ?? 'open';
-      if (endTakeoff(d, n)?.len === null) note.push(`${END_LABEL[end].toLowerCase()} at the end: enter its length (tap the point) if the line is dimensioned to its end`);
+      if (endTakeoff(d, n)?.len === null) note.push(`${endLabel(end).toLowerCase()} at the end: enter its length (tap the point) if the line is dimensioned to its end`);
     }
     const items = runItems(r).slice().sort((x, y) => itemPos(r, x) - itemPos(r, y));
     if (!items.length) {
@@ -617,7 +660,7 @@ export function nodeRef(d: IsoDrawing, node0: number): Ref {
   if (k === 'elbow' || k === 'tee' || k === 'cross' || k === 'multi') return 'C';
   if (k === 'straight') { const it = inlineAt(d, node); return it ? itemRef(it) : 'E'; }
   const end = d.ends[node] ?? 'open';
-  return end === 'flange' || end === 'blind' || end === 'nozzle' ? 'F' : 'E';
+  return end === 'flange' || end === 'blind' || end === 'nozzle' ? 'F' : isEndElbow(end) ? 'C' : 'E';
 }
 /** Which face of a line fitting the spools measure to. */
 export const itemRef = (it: LineItem): Ref => (it.type !== 'flange' && it.type !== 'orifice' && it.type !== 'spool' && it.conn === 'flg' ? 'F' : 'E');
@@ -673,6 +716,12 @@ export function endTakeoff(d: IsoDrawing, node: number): { len: number | null; s
   const own = d.endLen?.[node];
   if (own != null) return { len: own, src: `your take-off ${frac(own)}` };
   const cls = d.cls ?? 150, gk = d.gasket ?? 0.125;
+  if (isEndElbow(end)) {
+    const e = B169[d.nps], deg = endBase(end) === 'ell45' ? 45 : 90;
+    if (!e) return { len: null, src: '' };
+    const to = deg === 90 ? e.lr90 : e.lr45;
+    return { len: to, src: `LR ${deg}° elbow, line measured to its center: take-out ${frac(to)} (ASME B16.9)` };
+  }
   if (end === 'cap') { const e = bwFitting(d.nps).capE; return e != null ? { len: e, src: `cap E ${frac(e)}` } : { len: null, src: '' }; }
   if (end === 'flange') { const g = flangeFit(d, endFtAt(d, node)); return g ? { len: g.toPipe, src: `${g.src} (Class ${cls})${g.note ? '; ' + g.note : ''}` } : { len: null, src: '' }; }
   if (end === 'blind') { const g = flangeFit(d, endFtAt(d, node)); return g ? { len: g.toPipe + gk + g.rf + g.tf, src: `${g.ft} flange ${frac(g.toPipe)} + gasket ${frac(gk)} + blind RF ${frac(g.rf)} + tf ${frac(g.tf)} (Class ${cls})${g.note ? '; ' + g.note : ''}` } : { len: null, src: '' }; }
@@ -825,6 +874,12 @@ export function nodeSize(d: IsoDrawing, sizes: string[], n: number): string {
 export const connAtSized = (d: IsoDrawing, sizes: string[], n0: number): Conn => { const n = canon(d, n0); return d.nodeConn?.[n] ?? specFor(d, nodeSize(d, sizes, n)).conn; };
 
 export function weldList(d: IsoDrawing): Weld[] {
+  const all = weldListAll(d);
+  // fitting to fitting: the fittings are welded to each other — one weld (kept on the line's start side)
+  if (!d.runs.some((r) => r.f2f)) return all;
+  return all.filter((w) => !(d.runs[w.run]?.f2f && w.side === 'b' && w.where !== 'reducer' && w.where !== 'flange' && all.some((q) => q.run === w.run && q.side === 'a' && q.where !== 'reducer' && q.where !== 'flange')));
+}
+function weldListAll(d: IsoDrawing): Weld[] {
   const out: Weld[] = [];
   const sizes = runSizes(d);
   const side = (n: number, ri: number): 'a' | 'b' => (canon(d, d.runs[ri].from) === n ? 'a' : 'b');
@@ -936,6 +991,7 @@ export function materials(d: IsoDrawing): MaterialRow[] {
       else if (end === 'flange') { addAt(n, flangeName(z, endFtAt(sized(d, z), n)), z, `Class ${clsOf(z)} RF`); joint(z); }
       else if (end === 'blind') { flanged(z, 1, endFtAt(sized(d, z), n)); addAt(n, 'Blind flange', z, `Class ${clsOf(z)} RF`); joint(z); }
       else if (end === 'nozzle') { if (cn === 'flg') { flanged(z, 1, endFtAt(sized(d, z), n)); joint(z); } }
+      else if (isEndElbow(end)) addAt(n, `LR elbow ${endBase(end) === 'ell45' ? '45°' : '90°'}`, z, conn);
       else if (!['open', 'weld'].includes(end)) addAt(n, END_LABEL[end] ?? end, z, conn);
     }
   }

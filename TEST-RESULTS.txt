@@ -258,6 +258,11 @@
 ✓ ISO flange set welded straight onto a fitting (fitting to fitting) › one weld fitting-to-flange (the existing weld) + one flange-to-pipe weld; nothing between them
 ✓ ISO flange set welded straight onto a fitting (fitting to fitting) › material list: 2 WN flanges, a gasket, a stud bolt set and 3 butt welds
 ✓ ISO flange set welded straight onto a fitting (fitting to fitting) › stays on its weld when the line is split
+✓ ISO fitting to fitting (no pipe, one weld) › the line between two elbows is A + A + one gap = 6 + 6 + 1/8, no pipe
+✓ ISO fitting to fitting (no pipe, one weld) › one weld between the two elbows (3 welds in all), no pipe for that line in the material list
+✓ ISO elbow on the end of a line › line measured to the elbow center: cut = 48 − A 6 − gap
+✓ ISO elbow on the end of a line › one weld and an LR elbow in the material list
+✓ ISO elbow on the end of a line › outlet direction: the chosen one, else up off level pipe; never along the pipe
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -311,4 +316,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-312 passed, 0 failed, 312 total
+317 passed, 0 failed, 317 total

@@ -182,7 +182,8 @@ export function legJoint(type: string | undefined, legs: V2[], j: number, conn: 
 }
 
 /** Symbol at the end of a line. u = unit screen direction from the end back along the pipe. */
-export function endSymbol(type: string, p: V2, u: V2, key: string, exportMode?: boolean, conn?: Conn, face?: V2): React.ReactNode[] {
+export function endSymbol(type0: string, p: V2, u: V2, key: string, exportMode?: boolean, conn?: Conn, face?: V2, outlet?: V2): React.ReactNode[] {
+  const type = type0.split(':')[0]; // 'ell90:D' → 'ell90'
   const out: React.ReactNode[] = [];
   const o: V2 = [-u[0], -u[1]]; // outward
   const { P, X, n: nn } = frame(p, o);
@@ -192,6 +193,16 @@ export function endSymbol(type: string, p: V2, u: V2, key: string, exportMode?: 
   const txt = (t: string, a: number, b: number) => { const q = X(a, b); out.push(<text key={key + 't' + t} className="iso-fit" x={q[0]} y={q[1] + 3} textAnchor="middle">{t}</text>); };
   switch (type) {
     case 'open': if (!exportMode) out.push(<circle key={key} className="iso-endpt" cx={p[0]} cy={p[1]} r={2.6} />); break;
+    case 'ell90': case 'ell45': {
+      // an elbow on the end of a line: the pipe turns and stops — a short leg toward its outlet, open weld end ticked
+      const od: V2 = outlet ?? nn;
+      let dx = od[0], dy = od[1];
+      if (type === 'ell45') { const bx = o[0] + od[0], by = o[1] + od[1], bl = Math.hypot(bx, by) || 1; dx = bx / bl; dy = by / bl; }
+      const L = 13, e: [number, number] = [p[0] + dx * L, p[1] + dy * L];
+      out.push(<line key={key + 'el'} className="iso-pipe" x1={p[0]} y1={p[1]} x2={e[0]} y2={e[1]} />);
+      out.push(<line key={key + 'et'} className="iso-sym" x1={e[0] - dy * 3.5} y1={e[1] + dx * 3.5} x2={e[0] + dy * 3.5} y2={e[1] - dx * 3.5} />);
+      break;
+    }
     case 'cap': { const a = X(0, s), b = X(0, -s), c = X(s * 1.1, 0); out.push(<path key={key} className="iso-sym" d={`M${a[0]},${a[1]} Q${c[0]},${c[1]} ${b[0]},${b[1]}`} />); break; }
     case 'flange': case 'blind': {
       const a = F(0, s * 1.2), b = F(0, -s * 1.2); out.push(<line key={key} className="iso-sym thick" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />);

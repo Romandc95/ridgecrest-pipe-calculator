@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { miter, cope, thermalExpansion } from '../src/engine/shop';
-import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef, runSizes, weldList, materials, setOffsetAngle, offsetAt, specFor, endTakeoff, flangeFit } from '../src/engine/iso';
+import { runLength, newDrawing, nodePositions, nodeKind, cutList, iso, IsoDrawing, Run, describeRun, project, unproject, ISO_VIEW, displayPositions, deleteSubtree, splitRun, itemLength, runSegments, shownLength, mergeAt, runRef, runSizes, weldList, materials, setOffsetAngle, offsetAt, specFor, endTakeoff, flangeFit, syncF2F, endElbowDir, nodeRef } from '../src/engine/iso';
 import { flange, valveFaceToFace, nptMakeup } from '../src/engine/refdata';
 
 describe('miter (segmented elbow)', () => {
@@ -518,5 +518,45 @@ describe('ISO flange set welded straight onto a fitting (fitting to fitting)', (
     const { d: e } = splitRun(draw(), 1, 0.5, 'n');
     expect(e.wfits).toEqual({ 'n:a': { id: 'f' } });
     expect(weldList(e).filter((x) => x.node === 1).map((x) => x.key)).toEqual(['a:b', 'n:a', 'n:a:f']);
+  });
+});
+
+describe('ISO fitting to fitting (no pipe, one weld)', () => {
+  const run = (from: number, v: [number, number, number], id: string, f2f = false): Run => ({ id, from, dx: v[0] / 4, dy: v[1] / 4, dz: v[2] / 4, inline: 'none', sketch: true, meas: v, ...(f2f ? { f2f } : {}) });
+  // 4" LR: A east 48", elbow, B up (elbow welded straight to elbow), elbow, C north 48"
+  const draw = (): IsoDrawing => syncF2F({ ...newDrawing('t', 'x'), nps: '4', gap: 0.125, runs: [run(0, [48, 0, 0], 'a'), run(1, [0, 0, 20], 'b', true), run(2, [0, 48, 0], 'c')] });
+  it('the line between two elbows is A + A + one gap = 6 + 6 + 1/8, no pipe', () => {
+    const d = draw(); const c = cutList(d);
+    expect(runLength(d.runs[1])).toBeCloseTo(12.125, 9);
+    expect(c[1].cut).toBe(0); expect(c[1].f2f).toBe(true); expect(c[1].note.join(' ')).toMatch(/fitting to fitting/);
+    expect(c[0].cut).toBeCloseTo(48 - 6 - 0.125, 9); expect(c[2].cut).toBeCloseTo(48 - 6 - 0.125, 9);
+  });
+  it('one weld between the two elbows (3 welds in all), no pipe for that line in the material list', () => {
+    const d = draw(); const w = weldList(d);
+    expect(w.map((x) => x.key)).toEqual(['a:b', 'b:a', 'c:a']);
+    expect(materials(d).find((m) => m.item === 'Butt weld')!.qty).toBe(3);
+    expect(materials(d).find((m) => m.item === 'Pipe')!.qty).toBeCloseTo(Math.ceil((48 - 6.125) * 2) / 12, 9);
+  });
+});
+
+describe('ISO elbow on the end of a line', () => {
+  const run = (from: number, v: [number, number, number], id: string): Run => ({ id, from, dx: v[0] / 4, dy: v[1] / 4, dz: v[2] / 4, inline: 'none', sketch: true, meas: v });
+  const draw = (end: string): IsoDrawing => ({ ...newDrawing('t', 'x'), nps: '4', gap: 0.125, runs: [run(0, [48, 0, 0], 'a')], ends: { 1: end } });
+  it('line measured to the elbow center: cut = 48 − A 6 − gap', () => {
+    const d = draw('ell90:D');
+    expect(cutList(d)[0].cut).toBeCloseTo(48 - 6 - 0.125, 9);
+    expect(nodeRef(d, 1)).toBe('C');
+    expect(endTakeoff(d, 1)!.len).toBe(6);
+    expect(endTakeoff(draw('ell45:U'), 1)!.len).toBe(2.5); // B16.9 4" LR 45° = 2-1/2
+  });
+  it('one weld and an LR elbow in the material list', () => {
+    const d = draw('ell90:D');
+    expect(weldList(d).length).toBe(1);
+    expect(materials(d).find((m) => m.item === 'LR elbow 90°')!.qty).toBe(1);
+  });
+  it('outlet direction: the chosen one, else up off level pipe; never along the pipe', () => {
+    expect(endElbowDir(draw('ell90:D'), 1)).toBe('D');
+    expect(endElbowDir(draw('ell90'), 1)).toBe('U');
+    expect(endElbowDir(draw('ell90:E'), 1)).toBe('U');
   });
 });
