@@ -432,3 +432,36 @@ describe('Fit-Fit offset with two cut elbows', () => {
     expect(clockStr(90)).toBe('3:00'); expect(clockStr(0)).toBe('12:00'); expect(clockStr(45)).toBe('1:30');
   });
 });
+
+describe('ISO measurement points and field welds', () => {
+  const run = (from: number, v: [number, number, number], id: string): Run => ({ id, from, dx: v[0] / 4, dy: v[1] / 4, dz: v[2] / 4, inline: 'none', sketch: true, meas: v });
+  // 4" line: 36" then 24" straight on (a measurement point between), then a 90 up 48"
+  const draw = (): IsoDrawing => ({ ...newDrawing('t', 'x'), nps: '4', gap: 0.125, runs: [run(0, [36, 0, 0], 'a'), run(1, [24, 0, 0], 'b'), run(2, [0, 0, 48], 'c')] });
+  it('a plain point on a straight line is not a weld', () => {
+    const d = draw();
+    expect(weldList(d).some((w) => w.node === 1)).toBe(false);
+    expect(weldList(d).filter((w) => w.node === 2).length).toBe(2); // the elbow: two welds
+  });
+  it('the pipe runs through it: one cut, no root gaps at the point', () => {
+    const c = cutList(draw());
+    expect(c[0].runs).toEqual([0, 1]); expect(c[1].skip).toBe(true); expect(c[1].contOf).toBe(0);
+    expect(c[0].travel).toBe(60);
+    expect(c[0].cut).toBeCloseTo(60 - 6 - 0.125, 9); // 4" LR elbow A = 6, one root gap at the elbow
+    expect(materials(draw()).find((m) => m.item === 'Pipe')!.qty).toBeCloseTo(Math.ceil(60 - 6.125 + 48 - 6.125) / 12, 9);
+  });
+  it('a field weld (pipe joint) at the point splits the pipe: two cuts, two root gaps, one butt weld', () => {
+    const d = draw(); d.inl = { 1: { id: 'j', type: 'spool', t: 0.5, conn: 'bw' } };
+    const c = cutList(d);
+    expect(!!c[1].skip).toBe(false); expect(c[0].cut).toBeCloseTo(36 - 0.125, 9); expect(c[1].cut).toBeCloseTo(24 - 0.125 - 6 - 0.125, 9);
+    const w = weldList(d).filter((x) => x.node === 1); expect(w.length).toBe(1);
+    d.welds = { [w[0].key]: { field: true } };
+    expect(materials(d).find((m) => m.item === 'Butt weld' && m.spec === 'field')!.qty).toBe(1);
+  });
+  it('a fitting with pieces on one side folds into the same pipe', () => {
+    const d = draw(); d.runs[0].items = [{ id: 'v', type: 'gate', t: 0.5, conn: 'flg' }];
+    const c = cutList(d);
+    expect(c[0].pieces!.length).toBe(2); expect(c[0].runs).toEqual([0, 1]);
+    const last = c[0].pieces![1]; expect(last.to).toBe('end');
+    expect(c[0].cut).toBeCloseTo(c[0].pieces![0].cut + last.cut, 9);
+  });
+});

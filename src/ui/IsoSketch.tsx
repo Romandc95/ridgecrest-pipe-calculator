@@ -18,7 +18,7 @@ function ftHint(text: string, prefs: Prefs): string | undefined {
 }
 import {
   IsoDrawing, Run, Inline, INLINE_LABEL, EndType, END_LABEL, DIRS, Vec3, newDrawing, nodeKind, nodeLegs, cutList,
-  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, pipeOrder, TextStyle, TextBorder, TextArrow, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
+  runLength, runVec, describeRun, isMeasured, sketchVec, View, ISO_VIEW, VIEW_PRESETS, project, unproject, viewBasis, displayPositions, deleteSubtree, splitRun, stemDir, itemLength, endTakeoff, runSegments, itemPos, runRef, cutRowRef, isMeasurePoint, inlineAt, faceAdj, shownLength, mergeAt, sidesOf, runSizes, isReducer, runOrder, pipeOrder, TextStyle, TextBorder, TextArrow, sized, connAtSized, specFor, drawingSizes, SizeSpec, offsetAt, setOffsetAngle, weldList, materials, Weld, WeldInfo, DrawingInfo,
   CATALOG, CATALOG_GROUPS, catalogItem, runItems, CatalogItem, Conn, CONN_LABEL, CONN_ORDER, connAt,
   FlangeType, FLANGE_TYPE_LABEL, itemFt, endFtAt, effFt, flangeFit, isFlangePair, LineItem,
 } from '../engine/iso';
@@ -182,11 +182,59 @@ export function IsoSketch() {
     else if (start) toast('New line started');
   };
   /** Put a catalog item on a line or point. Returns false (with a message) if it doesn't fit there. */
-  const place = (key: string, target0: Sel, t = 0.5): boolean => {
+  /**
+   * Field weld: dropped on a weld it marks that weld FW (at an elbow or tee, the weld on the side it was dropped);
+   * on a measurement point or anywhere along a line it adds a pipe-to-pipe butt joint there, marked field;
+   * on a line end it is a field weld / tie-in.
+   */
+  const placeFieldWeld = (target: Sel, t: number, leg?: number): boolean => {
+    if (!target) return false;
+    const markField = (x: IsoDrawing, node: number, onlyLeg?: number) => {
+      const ws = weldList(x).filter((w) => w.node === node);
+      const pick = onlyLeg !== undefined && ws.some((w) => w.run === onlyLeg) ? ws.filter((w) => w.run === onlyLeg) : ws;
+      const welds = { ...(x.welds ?? {}) };
+      pick.forEach((w) => { welds[w.key] = { ...(welds[w.key] ?? {}), field: true }; });
+      return { x: { ...x, welds }, n: pick.length };
+    };
+    const joint = (): LineItem => ({ id: uid(), type: 'spool', t: 0.5, conn: 'bw' });
+    if (target.kind === 'node') {
+      const n = target.id, nk = nodeKind(d, n).kind;
+      if (nk === 'end' || nk === 'start-end') {
+        const cur = d.ends[n] ?? 'open';
+        if (cur !== 'open' && !weldList(d).some((w) => w.node === n)) { toast('No weld at that end — drop it on an open end or a welded end'); return false; }
+        update((x) => markField(cur === 'open' ? { ...x, ends: { ...x.ends, [n]: 'weld' }, nodeConn: { ...(x.nodeConn ?? {}), [n]: 'bw' } } : x, n).x);
+        setSel({ kind: 'node', id: n }); toast(cur === 'open' ? 'Field weld / tie-in placed' : 'Field weld marked'); return true;
+      }
+      if (isMeasurePoint(d, n)) {
+        update((x) => markField({ ...x, inl: { ...(x.inl ?? {}), [n]: joint() } }, n).x);
+        setSel({ kind: 'node', id: n }); toast('Field weld placed — the pipe is cut here'); return true;
+      }
+      if (!weldList(d).some((w) => w.node === n)) { toast('No weld at that point'); return false; }
+      update((x) => markField(x, n, leg).x);
+      toast('Field weld marked (FW on the weld map)'); return true;
+    }
+    if (target.kind !== 'run') return false;
+    const r = d.runs[target.id];
+    if (!r || r.move) { toast('That dotted link is not a pipe'); return false; }
+    let tt = snapSplitT(r, t);
+    if (isMeasured(r)) { const L = runLength(r); tt = Math.max(1, Math.min(L - 1, Math.round(t * L))) / L; }
+    update((x) => {
+      const q = x.runs[target.id]; const sl = Math.hypot(q.dx, q.dy, q.dz), want = GRID * 6;
+      const grow = q.sketch && sl > 0 && sl < want ? want / sl : 1;
+      const x2 = grow === 1 ? x : { ...x, runs: x.runs.map((z, k) => (k === target.id ? { ...z, dx: z.dx * grow, dy: z.dy * grow, dz: z.dz * grow } : z)) };
+      const sp = splitRun(x2, target.id, tt, uid());
+      return markField({ ...sp.d, inl: { ...(sp.d.inl ?? {}), [sp.node]: joint() } }, sp.node).x;
+    });
+    setSel({ kind: 'node', id: d.runs.length + 1 });
+    toast('Field weld placed — two lines, measure each to the weld');
+    return true;
+  };
+  const place = (key: string, target0: Sel, t = 0.5, leg?: number): boolean => {
     const [kind, id] = key.split(':');
     const item = catalogItem(id, kind as CatalogItem['kind']);
     const target: Sel = target0?.kind === 'item' ? { kind: 'run', id: target0.run } : target0;
     if (!item || !target) return false;
+    if (item.id === 'weld') return placeFieldWeld(target, t, leg);
     if (item.kind === 'branch') return placeBranch(item, target, t);
     if (item.kind === 'end' && item.id === 'reducer') return place('line:reducer', target, t);
     if (item.kind === 'line') {
@@ -474,7 +522,7 @@ export function IsoSketch() {
   const missing = d.runs.filter((r) => !r.move && !isMeasured(r)).length;
 
   const editor = selRun !== null
-    ? <RunEditor key={d.runs[selRun].id} d={d} i={selRun} prefs={prefs} cut={cuts[selRun]} update={update} onClose={() => setSel(null)}
+    ? <RunEditor key={d.runs[selRun].id} d={d} i={selRun} prefs={prefs} cut={cuts[cuts[selRun].contOf ?? selRun]} update={update} onClose={() => setSel(null)}
         onDelete={() => { update((x) => deleteSubtree(x, selRun)); setSel(null); setCursor(d.runs[selRun].from); }} />
     : selNode !== null && pointKind(d, selNode) && !more ? null
     : selNode !== null ? (inlineAt(d, selNode) ? <InlineEditor key={'i' + selNode} d={d} node={selNode} update={update} onClose={() => setSel(null)} prefs={prefs} /> : <NodeEditor key={selNode} d={d} node={selNode} update={update} onClose={() => setSel(null)} prefs={prefs} />) : null;
@@ -483,7 +531,7 @@ export function IsoSketch() {
     <DrawTools opts={opts} setOpts={setOpts} lenText={lenText} setLenText={setLenText} addDir={addDir} undo={undo} canUndo={canUndo} redo={redo} canRedo={canRedo} heading={heading} addOffset={addOffset}
       cur={cur} isBranch={cur !== d.runs.length} missing={missing} compact={full} prefs={prefs} startPoint={() => setArmed(armed === 'start' ? null : 'start')} placingStart={armed === 'start'} />
   );
-  const palette = <Palette conn={opts.conn} setConn={(c) => setOpts({ conn: c })} ft={opts.ft ?? 'WN'} setFt={(f) => setOpts({ ft: f })} armed={armed} setArmed={setArmed} drop={(key, cx, cy) => { const h = canvasApi.current?.dropAt(key, cx, cy); if (!h) { toast(dropHint(key)); return; } place(key, h.sel, h.t); }}
+  const palette = <Palette conn={opts.conn} setConn={(c) => setOpts({ conn: c })} ft={opts.ft ?? 'WN'} setFt={(f) => setOpts({ ft: f })} armed={armed} setArmed={setArmed} drop={(key, cx, cy) => { const h = canvasApi.current?.dropAt(key, cx, cy); if (!h) { toast(dropHint(key)); return; } place(key, h.sel, h.t, h.leg); }}
     hover={(key, cx, cy) => canvasApi.current?.hover(key ? canvasApi.current.dropAt(key, cx, cy) : null)} compact={full} />;
 
   const stage = (
@@ -989,14 +1037,14 @@ type DrawLink = { node: number } | { run: number; t: number };
 export interface CanvasApi {
   hitAt: (clientX: number, clientY: number) => { sel: Sel; t: number } | null;
   /** Where a palette item dropped here would go: the nearest spot that fits that kind of item (generous, so a near miss still lands). */
-  dropAt: (key: string, clientX: number, clientY: number) => { sel: Sel; t: number; at: [number, number] } | null;
+  dropAt: (key: string, clientX: number, clientY: number) => { sel: Sel; t: number; at: [number, number]; leg?: number } | null;
   /** Show where the item being dragged will land. */
   hover: (h: { at: [number, number] } | null) => void;
 }
 /** What to say when a dragged item has nowhere to go. */
 function dropHint(key: string): string {
   const [kind] = key.split(':');
-  return kind === 'elbow' ? 'Drop elbows on a turn in the drawing' : kind === 'end' ? 'Drop end fittings on the end of a line' : kind === 'branch' ? 'Drop branch fittings on a line or a tee point' : 'Drop it on a straight line';
+  return key === 'end:weld' ? 'Drop the field weld on a weld, anywhere along a line, or on a line end' : kind === 'elbow' ? 'Drop elbows on a turn in the drawing' : kind === 'end' ? 'Drop end fittings on the end of a line' : kind === 'branch' ? 'Drop branch fittings on a line or a tee point' : 'Drop it on a straight line';
 }
 function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, apiRef, onPick, onItemDrag, onInlDrag, menu, startOn, onStartBtn, onNotice, onView, onTap, onDraw, offsetOn, onOffsetBtn, onPlaceText, onTextMove, onMode, callouts, onTextBtn, onPlaceArrow, onTextMoved, children }: {
   d: IsoDrawing; disp: { P: Vec3[]; k: number; vecs: Vec3[] }; opts: Opts; prefs: Prefs; cursor: number; sel: Sel; rot: boolean; fitTick: number;
@@ -1145,15 +1193,24 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         if (d.links?.[n] !== undefined) return false;
         const nk = nodeKind(d, n).kind;
         if (kind === 'elbow') return nk === 'elbow';
+        if (kind === 'end' && id === 'weld') return nk === 'end' || nk === 'start-end' || isMeasurePoint(d, n) || weldNodes.has(n);
         if (kind === 'end') return id === 'reducer' ? (nk === 'end' || nk === 'start-end') && n > 0 && !inlineAt(d, n) : nk === 'end' || nk === 'start-end';
         if (kind === 'branch') return nk === 'tee' || nk === 'cross' || nk === 'elbow' || nk === 'straight';
         if (kind === 'line') return (nk === 'straight' && !inlineAt(d, n)) || (isReducer(id) && (nk === 'end' || nk === 'start-end') && n > 0 && !inlineAt(d, n));
         return false;
       };
-      let bn = -1, bd = kind === 'line' || kind === 'branch' ? 22 : 48;
+      const fw = kind === 'end' && id === 'weld';
+      const weldNodes = new Set(fw ? weldList(d).map((w) => w.node) : []);
+      let bn = -1, bd = kind === 'line' || kind === 'branch' || fw ? 22 : 48;
       P.forEach((p, n) => { if (n > d.runs.length || !okNode(n) || nodeLegs(d, n).length === 0) return; const q = T3(p); const dd = Math.hypot(loc.x - q[0], loc.y - q[1]); if (dd < bd) { bd = dd; bn = n; } });
-      if (bn >= 0) { const q = T3(P[bn]); return { sel: { kind: 'node', id: bn }, t: 0.5, at: [q[0], q[1]] }; }
-      if (kind === 'line' || kind === 'branch') {
+      if (bn >= 0) {
+        const q = T3(P[bn]);
+        // which side of the point it was dropped on: the line that leaves the point toward the drop (for a weld at an elbow / tee)
+        let leg: number | undefined, best = -2;
+        if (fw) nodeLegs(d, bn).forEach((l) => { const o = T3(P[l.run + 1 === bn ? d.runs[l.run].from : l.run + 1]); const ux = o[0] - q[0], uy = o[1] - q[1], vx = loc.x - q[0], vy = loc.y - q[1]; const c = (ux * vx + uy * vy) / ((Math.hypot(ux, uy) || 1) * (Math.hypot(vx, vy) || 1)); if (c > best) { best = c; leg = l.run; } });
+        return { sel: { kind: 'node', id: bn }, t: 0.5, at: [q[0], q[1]], leg };
+      }
+      if (kind === 'line' || kind === 'branch' || fw) {
         let br = -1, bt = 0.5, bdist = 34;
         d.runs.forEach((rr, i) => {
           if (rr.move) return;
@@ -2058,7 +2115,8 @@ function RunEditor({ d, i, prefs, cut, update, onClose, onDelete }: {
           );
         })}
       </div>
-      <p className="fhint">{cut.pieces ? `Cut: ${cut.pieces.map((q, k) => `${i + 1}${String.fromCharCode(97 + k)} ${Number.isNaN(q.cut) ? '?' : formatFtIn(q.cut, prefs)}`).join(' · ')}` : cut.ok ? `Cut length ${formatFracIn(cut.cut, prefs)}` : isMeasured(r) ? 'Cut length impossible — fittings longer than the line' : 'Add a dimension to get the cut length.'}{cut.ok && cut.note.length ? ` · ${cut.note.join('; ')}` : ''}</p>
+      {(cut.runs?.length ?? 1) > 1 && <p className="fhint">One pipe through the measurement point{cut.runs!.length > 2 ? 's' : ''} — lines {cut.runs!.map((k) => k + 1).join(' + ')}, {formatFtIn(cut.travel, prefs)} {cutRowRef(d, cut)}. Drop a field weld on the point if it is a pipe joint.</p>}
+      <p className="fhint">{cut.pieces ? `Cut: ${cut.pieces.map((q, k) => `${i + 1}${String.fromCharCode(97 + k)} ${Number.isNaN(q.cut) ? '?' : formatFtIn(q.cut, prefs)}`).join(' · ')}` : cut.ok ? `Cut length ${formatFracIn(cut.cut, prefs)}${(cut.runs?.length ?? 1) > 1 ? ' (whole pipe)' : ''}` : isMeasured(r) ? 'Cut length impossible — fittings longer than the line' : 'Add a dimension to get the cut length.'}{cut.ok && cut.note.length ? ` · ${cut.note.join('; ')}` : ''}</p>
       <div className="actions">
         {isMeasured(r) && r.sketch && <button className="btn" onClick={() => { setTxt({ t: '' }); setRun((q) => { const { meas: _m, ...rest } = q; return { ...rest, sketch: true }; }); }}>Clear dimension</button>}
         {descendants > 0 && !armed
@@ -2178,7 +2236,7 @@ function CutPanel({ d, cuts, prefs, onShare }: { d: IsoDrawing; cuts: ReturnType
   const L = (i: number) => String.fromCharCode(97 + i);
   const missing = cuts.filter((c) => Number.isNaN(c.travel)).length;
   const text = [`${d.name} — ${d.nps}" pipe, gap ${formatFracIn(d.gap, prefs)}`,
-    ...cuts.map((c) => `Line ${c.run + 1} ${describeRun(d.runs[c.run])}${sz(c.run)}: ${Number.isNaN(c.travel) ? 'NO DIMENSION' : `${runRef(d, c.run)} ${formatFtIn(shownLength(d, c.run), prefs)}, ${c.pieces ? c.pieces.map((q, k) => `${c.run + 1}${L(k)} ${q.from}→${q.to} CUT ${Number.isNaN(q.cut) ? '?' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE'}`).join(', ') : `CUT ${c.ok ? formatFtIn(c.cut, prefs) : 'IMPOSSIBLE'}`}`}${c.note.length && !Number.isNaN(c.travel) ? ' (' + c.note.join('; ') + ')' : ''}`),
+    ...cuts.map((c) => `Line ${(c.runs ?? [c.run]).map((k) => k + 1).join('+')} ${(c.runs ?? [c.run]).map((k) => describeRun(d.runs[k])).join(' + ')}${sz(c.run)}: ${Number.isNaN(c.travel) ? 'NO DIMENSION' : `${cutRowRef(d, c)} ${formatFtIn(c.runs ? c.travel : shownLength(d, c.run), prefs)}, ${c.pieces ? c.pieces.map((q, k) => `${c.run + 1}${L(k)} ${q.from}→${q.to} CUT ${Number.isNaN(q.cut) ? '?' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE'}`).join(', ') : `CUT ${c.ok ? formatFtIn(c.cut, prefs) : 'IMPOSSIBLE'}`}`}${c.note.length && !Number.isNaN(c.travel) ? ' (' + c.note.join('; ') + ')' : ''}`),
     `Total pipe ${formatFtIn(total, prefs)}${missing ? ` (+ ${missing} undimensioned)` : ''}`].join('\n');
   return (
     <Card>
@@ -2502,21 +2560,22 @@ function sheetData(d: IsoDrawing, prefs: Prefs) {
   const spools: Array<{ run: number; t: number; letter: string }> = [];
   let li = 0;
   cuts.forEach((c) => {
-    const what = `${describeRun(d.runs[c.run])} · ${sizes[c.run]}" Sch ${specFor(d, sizes[c.run]).sch}`;
+    const thru = (c.runs?.length ?? 1) > 1 ? ' (one pipe through the measurement point' + ((c.runs!.length > 2) ? 's)' : ')') : '';
+    const what = `${(c.runs ?? [c.run]).map((k) => describeRun(d.runs[k])).join(' + ')}${thru} · ${sizes[c.run]}" Sch ${specFor(d, sizes[c.run]).sch}`;
     if (c.pieces && !Number.isNaN(c.travel)) {
       const segs = runSegments(d, c.run), tr = runLength(d.runs[c.run]) || 1;
       c.pieces.forEach((q, k) => {
         const letter = pieceLetter(li++);
         const sg = segs && segs.length === c.pieces!.length ? segs[k] : null;
         spools.push({ run: c.run, t: sg ? Math.max(0.05, Math.min(0.95, (sg.a + sg.b) / 2 / tr)) : (k + 0.5) / c.pieces!.length, letter });
-        cutRows.push([letter, `${what} · ${q.from} → ${q.to}`, k === 0 ? `${formatFtIn(c.travel, prefs)} ${runRef(d, c.run)}` : '', Number.isNaN(q.cut) ? 'need length' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE']);
+        cutRows.push([letter, `${what} · ${q.from} → ${q.to}`, k === 0 ? `${formatFtIn(c.travel, prefs)} ${cutRowRef(d, c)}` : '', Number.isNaN(q.cut) ? 'need length' : q.ok ? formatFtIn(q.cut, prefs) : 'IMPOSSIBLE']);
       });
       return;
     }
     const letter = pieceLetter(li++);
     spools.push({ run: c.run, t: 0.5, letter });
     if (Number.isNaN(c.travel)) { cutRows.push([letter, what, 'no dimension', '—']); return; }
-    cutRows.push([letter, what, `${formatFtIn(shownLength(d, c.run), prefs)} ${runRef(d, c.run)}`, c.ok ? formatFtIn(c.cut, prefs) : Number.isNaN(c.cut) ? 'need length' : 'IMPOSSIBLE']);
+    cutRows.push([letter, what, `${formatFtIn(c.runs ? c.travel : shownLength(d, c.run), prefs)} ${cutRowRef(d, c)}`, c.ok ? formatFtIn(c.cut, prefs) : Number.isNaN(c.cut) ? 'need length' : 'IMPOSSIBLE']);
   });
   const total = cuts.reduce((s, c) => s + (c.pieces ? c.pieces.reduce((t, q) => t + (q.ok ? q.cut : 0), 0) : c.ok ? c.cut : 0), 0);
   // material list numbered 1, 2, 3 … (pipe is lettered and welds are counted, so they get no number); the same number goes on every matching fitting

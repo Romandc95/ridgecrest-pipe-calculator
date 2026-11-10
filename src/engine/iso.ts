@@ -45,7 +45,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'trap', label: 'Steam trap', kind: 'line', group: 'Line', short: 'T' },
   { id: 'flowmeter', label: 'Flow meter', kind: 'line', group: 'Line', short: 'FM' },
   { id: 'sightglass', label: 'Sight glass', kind: 'line', group: 'Line' },
-  { id: 'spool', label: 'Spool break', kind: 'line', group: 'Line' },
+  { id: 'spool', label: 'Weld joint / spool break', kind: 'line', group: 'Line' },
   // elbows
   { id: 'lr', label: 'LR elbow', kind: 'elbow', group: 'Elbows', short: 'LR' },
   { id: 'sr', label: 'SR elbow', kind: 'elbow', group: 'Elbows', short: 'SR' },
@@ -340,6 +340,10 @@ export function nodeKind(d: IsoDrawing, node: number): NodeKind {
 export interface CutPiece { from: string; to: string; cut: number; ok: boolean }
 export interface CutRow {
   run: number; travel: number; to1: number; to2: number; gaps: number; cut: number; note: string[]; ok: boolean; skip?: boolean;
+  /** One pipe through measurement points: every line it covers (first = this row's line). */
+  runs?: number[];
+  /** This line is part of the pipe cut on another line's row (measurement point between them). */
+  contOf?: number;
   /** When fittings sit on the line: the pipe pieces (spools) between them. */
   pieces?: CutPiece[];
 }
@@ -436,7 +440,7 @@ function takeoutAt(d0: IsoDrawing, node0: number, run: number, note: string[], s
       if (c == null) { note.push('no tee data'); return { to: 0, weld: true }; }
       return { to: c, weld: true };
     }
-    case 'straight': return { to: 0, weld: true };
+    case 'straight': return { to: 0, weld: false }; // a measurement point: the pipe runs straight through it
     default: {
       // run ends: a cap, weld-neck flange, nozzle or field weld is a butt weld; threaded / flanged items are not
       const end = d.ends[node] ?? 'open';
@@ -456,7 +460,44 @@ function takeoutAt(d0: IsoDrawing, node0: number, run: number, note: string[], s
 }
 
 /** Cut list: center-to-center travel less fitting take-outs and a root gap at every butt weld. */
+/**
+ * A measurement point: a point on a straight line with nothing at it (no fitting, no joint). The pipe runs straight
+ * through it — no weld, no root gap — so the lines either side are cut as one piece.
+ */
+export function isMeasurePoint(d: IsoDrawing, n: number): boolean {
+  if (n < 1 || n > d.runs.length || isLinked(d, n)) return false;
+  if (nodeKind(d, n).kind !== 'straight' || inlineAt(d, n)) return false;
+  if (d.runs[n - 1]?.move) return false;
+  const nx = d.runs.findIndex((r, i) => i !== n - 1 && r.from === n);
+  return nx >= 0 && !d.runs[nx].move;
+}
 export function cutList(d0: IsoDrawing): CutRow[] {
+  const rows = cutRows(d0);
+  // one pipe through measurement points: fold each line into the row of the line before it
+  const head = rows.map((_, i) => i);
+  const one = (c: CutRow): CutPiece[] => c.pieces ?? [{ from: 'start', to: 'end', cut: c.cut, ok: c.ok }];
+  d0.runs.forEach((r, i) => {
+    if (r.move || !isMeasurePoint(d0, r.from)) return;
+    const p = r.from - 1; if (p < 0 || p >= i) return;
+    const h = head[p]; head[i] = h;
+    const A = rows[h], B = rows[i];
+    const hadPieces = !!(A.pieces || B.pieces);
+    const pa = one(A), pb = one(B);
+    const joinCut = pa[pa.length - 1].cut + pb[0].cut;
+    const pieces = [...pa.slice(0, -1), { from: pa[pa.length - 1].from, to: pb[0].to, cut: joinCut, ok: joinCut > 0 }, ...pb.slice(1)];
+    A.travel += B.travel; A.to2 = B.to2; A.gaps += B.gaps;
+    B.note.forEach((n) => { if (!A.note.includes(n)) A.note.push(n); });
+    A.cut = pieces.reduce((t, q) => t + q.cut, 0);
+    A.ok = pieces.every((q) => q.ok);
+    if (hadPieces) A.pieces = pieces; else delete A.pieces;
+    A.runs = [...(A.runs ?? [A.run]), i];
+    rows[i] = { ...B, skip: true, contOf: h };
+  });
+  return rows;
+}
+/** Dimension reference of a cut row: the start of its first line to the end of its last (C-C, E-F …). */
+export const cutRowRef = (d: IsoDrawing, c: CutRow) => { const rs = c.runs ?? [c.run]; return `${nodeRef(d, d.runs[rs[0]].from)}-${nodeRef(d, rs[rs.length - 1] + 1)}`; };
+function cutRows(d0: IsoDrawing): CutRow[] {
   const sizes = runSizes(d0);
   return d0.runs.map((r, i) => {
     if (r.move) return { run: i, travel: 0, to1: 0, to2: 0, gaps: 0, cut: 0, note: [], ok: true, skip: true };
@@ -775,7 +816,7 @@ export function weldList(d: IsoDrawing): Weld[] {
         if (['spool'].includes(it.type)) { push(n, n - 1, 'bw', 'joint'); continue; }
         if (['union', 'coupling', 'dielectric', 'swage', 'spectacle'].includes(it.type)) continue;
         if (isWeldConn(c)) legs.forEach((l) => push(n, l.run, c, 'inline'));
-      } else if (isWeldConn(conn) && n >= 1 && !d.runs[n - 1]?.move) push(n, n - 1, conn, 'joint');
+      } // no fitting: a measurement point on one continuous pipe, not a weld (drop a field weld there for a pipe joint)
     } else if (k === 'end' || k === 'start-end') {
       const end = d.ends[n] ?? 'open';
       const red = inlineAt(d, n);

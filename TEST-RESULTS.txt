@@ -248,6 +248,10 @@
 ✓ Fit-Fit offset with two cut elbows › pipe piece known → angle; angle known → pipe piece (round trip)
 ✓ Fit-Fit offset with two cut elbows › cut marks are radius × θ (rad)
 ✓ Fit-Fit offset with two cut elbows › options table and helpers
+✓ ISO measurement points and field welds › a plain point on a straight line is not a weld
+✓ ISO measurement points and field welds › the pipe runs through it: one cut, no root gaps at the point
+✓ ISO measurement points and field welds › a field weld (pipe joint) at the point splits the pipe: two cuts, two root gaps, one butt weld
+✓ ISO measurement points and field welds › a fitting with pieces on one side folds into the same pipe
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -301,4 +305,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-302 passed, 0 failed, 302 total
+306 passed, 0 failed, 306 total
