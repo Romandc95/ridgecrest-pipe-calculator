@@ -349,6 +349,9 @@ button { cursor: pointer; }
 
 /* full screen */
 .isofull { position: fixed; inset: 0; z-index: 200; background: var(--bg); display: grid; grid-template-rows: minmax(0, 1fr) auto; padding: var(--safe-t) 0 var(--safe-b); }
+.isofull-open, .isofull-open body { overflow: hidden !important; overscroll-behavior: none; }
+.isofull { overscroll-behavior: contain; }
+.isofull .isoside { overscroll-behavior: contain; }
 .isofull .isostage { height: auto; min-height: 0; border: 0; border-radius: 0; }
 .isofull .isoside { overflow-y: auto; -webkit-overflow-scrolling: touch; max-height: 44vh; padding: 8px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); background: var(--bg); }
 .isofull.wide { grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr) minmax(250px, 34%); padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }

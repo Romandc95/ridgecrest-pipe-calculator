@@ -115,6 +115,11 @@ export function IsoSketch() {
     return () => { window.clearTimeout(histSave.current); window.removeEventListener('pagehide', write); document.removeEventListener('visibilitychange', now); };
   }, [histTick, store]);
 
+  // while full screen is open the page behind it must not scroll (iOS carries scrolls through to it, which looks frozen)
+  useEffect(() => {
+    document.documentElement.classList.toggle('isofull-open', full);
+    return () => document.documentElement.classList.remove('isofull-open');
+  }, [full]);
   useEffect(() => {
     const onR = () => setWin({ w: window.innerWidth, h: window.innerHeight });
     const onFs = () => { if (!document.fullscreenElement && apiFull.current) { apiFull.current = false; setFull(false); setHide(false); } };
@@ -504,6 +509,9 @@ export function IsoSketch() {
   const enterFull = () => {
     setFull(true); setLand(true); setFitTick((t) => t + 1);
     const el = document.documentElement as HTMLElement & { requestFullscreen?: () => Promise<void> };
+    // phones / tablets: the full-window overlay only. iPadOS's own full-screen mode catches downward swipes (exit
+    // gesture) and limits typing, which made drawing in full screen stall.
+    if (matchMedia('(pointer: coarse)').matches) return;
     try {
       el.requestFullscreen?.().then(() => {
         apiFull.current = true;
@@ -1098,7 +1106,17 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     return { s, tx: W / 2 - ((x0 + x1) / 2) * s, ty: H / 2 + 8 - ((y0 + y1) / 2) * s };
   };
   // fit on open, on resize, on scale change; when the drawing grows, only if a point leaves the screen
-  useEffect(() => { setCam(fitCam()); }, [d.id, W, H, opts.scaled, fitTick]);
+  useEffect(() => { setCam(fitCam()); }, [d.id, opts.scaled, fitTick]);
+  // when the drawing area changes size (keyboard, toolbars, tool panel), keep the zoom and the centre; only a big change
+  // (rotation, first layout) refits
+  const prevSize = useRef({ w: W, h: H });
+  useEffect(() => {
+    const pv = prevSize.current; prevSize.current = { w: W, h: H };
+    if (pv.w === W && pv.h === H) return;
+    const big = Math.abs(W - pv.w) / Math.max(1, pv.w) > 0.35 || Math.abs(H - pv.h) / Math.max(1, pv.h) > 0.35;
+    if (big) { setCam(fitCam()); return; }
+    setCam((c) => ({ ...c, tx: c.tx + (W - pv.w) / 2, ty: c.ty + (H - pv.h) / 2 }));
+  }, [W, H]);
   useEffect(() => {
     const c = camRef.current;
     const out = P.some((p) => { const q = project(p, view); const x = q[0] * c.s + c.tx, y = q[1] * c.s + c.ty; return x < 30 || x > W - 30 || y < 50 || y > H - 50; });
