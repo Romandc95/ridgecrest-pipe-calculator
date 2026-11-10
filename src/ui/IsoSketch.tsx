@@ -2743,8 +2743,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
   const needs = d.runs.map((r, i) => (r.move ? 0 : 66 + (inlineAt(d, r.from) ? 22 : 0) + (inlineAt(d, i + 1) ? 22 : 0) + ((d.ends[i + 1] ?? 'open') !== 'open' ? 10 : 0) + (r.items?.length ?? 0) * 34));
   let vecs = disp0.vecs.map((v) => [...v] as Vec3);
   const build = (vs: Vec3[]) => { const P: Vec3[] = [[0, 0, 0]]; for (const i of runOrder(d)) { const a = P[d.runs[i].from] ?? [0, 0, 0]; P[i + 1] = add(a, vs[i]); } for (let n = 0; n <= d.runs.length; n++) if (!P[n]) P[n] = [0, 0, 0]; Object.entries(d.links ?? {}).forEach(([a, t]) => { if (P[t]) P[Number(a)] = P[t]; }); return P; };
-  let stretched = false;
-  for (let pass = 0; pass < 6; pass++) {
+  for (let pass = 0; pass < (opts.scaled ? 0 : 6); pass++) { // to scale: lines keep their true lengths
     const sc0 = fitScale(build(vecs));
     let changed = false;
     vecs = vecs.map((v, i) => {
@@ -2754,7 +2753,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
       changed = true; return mul(v, needs[i] / L);
     });
     if (!changed) break;
-    stretched = true;
+
   }
   const aw = DW / KK - 90, ah = DH / KK - 80;
   const GS = 40; // iso paper cell on the sheet; one step along any iso direction is GS sheet units
@@ -2773,7 +2772,17 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
   };
   let ex = extent(vecs);
   let sc = Math.min(aw / Math.max(30, ex.x1 - ex.x0), ah / Math.max(30, ex.y1 - ex.y0));
-  if (onGrid) {
+  // To scale: true lengths at the largest standard architectural scale that fits the 11 × 17 sheet (no snapping —
+  // that would change lengths). The sheet's own units are hundredths of an inch; a real inch along a pipe draws
+  // sc · KK units (the ISO projection keeps true length along the three axes).
+  let scaleLabel = '';
+  if (opts.scaled) {
+    const STD: Array<[number, string]> = [[3, '3"'], [1.5, '1-1/2"'], [1, '1"'], [0.75, '3/4"'], [0.5, '1/2"'], [0.375, '3/8"'], [0.25, '1/4"'], [0.1875, '3/16"'], [0.125, '1/8"'], [0.09375, '3/32"'], [0.0625, '1/16"'], [0.03125, '1/32"']];
+    const fit = STD.find(([x]) => (x / 12) * 100 / KK <= sc + 1e-9);
+    if (fit) { sc = (fit[0] / 12) * 100 / KK; scaleLabel = `${fit[1]} = 1'-0"`; }
+    else scaleLabel = `1 : ${Math.round(100 / (sc * KK))}`;
+  }
+  if (onGrid && !opts.scaled) {
     const cell = GS / KK, L1 = axLen[0];
     const snapAt = (s0: number) => vecs.map((v) => v.map((c) => { if (Math.abs(c) < 1e-9) return 0; const n = Math.max(1, Math.round((Math.abs(c) * L1 * s0) / cell)); return Math.sign(c) * n * cell / (L1 * s0); }) as Vec3);
     for (let k = 0; k < 12; k++) {
@@ -2805,7 +2814,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
   // right column: material, weld log, title block
   const info = d.info ?? {};
   const tbRows: Array<[string, string]> = [['DRAWING', d.name], ['CUSTOMER', info.customer ?? ''], ['JOB #', info.jobNo ?? ''], ['JOB SITE', info.site ?? ''], ['SYSTEM', info.system ?? ''], ['DRAWN BY', info.drawnBy ?? ''],
-    ...drawingSizes(d).map((z, i): [string, string] => { const sp = specFor(d, z); return [i ? '' : 'PIPE', `${z}" Sch ${sp.sch} · Class ${sp.cls} · ${CONN_LABEL[sp.conn]} · gap ${formatFracIn(sp.gap, prefs)}`]; }), ['DATE', date], ['STATUS', `COMPLETE · ${d.runs.filter((r) => !r.move).length} lines · ${wl.length} welds${showWelds ? '' : ' (map off)'}`]];
+    ...drawingSizes(d).map((z, i): [string, string] => { const sp = specFor(d, z); return [i ? '' : 'PIPE', `${z}" Sch ${sp.sch} · Class ${sp.cls} · ${CONN_LABEL[sp.conn]} · gap ${formatFracIn(sp.gap, prefs)}`]; }), ['DATE', date], ['SCALE', opts.scaled ? scaleLabel : 'NOT TO SCALE'], ['STATUS', `COMPLETE · ${d.runs.filter((r) => !r.move).length} lines · ${wl.length} welds${showWelds ? '' : ' (map off)'}`]];
   const RH = 25, TB = 44 + tbRows.length * RH + 6, tbY = SH - M - 10 - TB;
   const matH = Math.min(tbY - DY - 10 - (weldRows.length ? 150 : 0), 34 + (mat.length + 1) * 24 + 4);
   const weldY = DY + matH + 12, weldH = tbY - 12 - weldY;
@@ -2847,7 +2856,7 @@ function SheetSvg({ d, opts, prefs, svgRef, welds: showWelds = true, vb }: { d: 
           </g>
         ))}
       </g>
-      <text x={M + 4} y={SH - 8} style={{ font: '600 11px sans-serif', fill: '#888' }}>11" × 17" iso sheet · PipeWorks Pro · {opts.scaled ? (stretched ? 'drawn to scale — short pieces lengthened so every fitting and dimension shows; use the dimensions' : 'drawn to scale') : 'not to scale — use the dimensions'}</text>
+      <text x={M + 4} y={SH - 8} style={{ font: '600 11px sans-serif', fill: '#888' }}>11" × 17" iso sheet · PipeWorks Pro · {opts.scaled ? `drawn to scale, ${scaleLabel} when printed on 11 × 17 at 100%` : 'not to scale — use the dimensions'}</text>
     </svg>
   );
 }
