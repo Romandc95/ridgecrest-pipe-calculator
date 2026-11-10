@@ -1691,6 +1691,8 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
   // every weld dot gets an invisible tap target (tap a weld to edit it) that the field weld also snaps to
   const wlist = weldsOf(d);
   const whits: React.ReactNode[] = [];
+  // tap targets for the middle of a fitting / valve / flange pair, above the weld targets either side of it
+  const topHits: React.ReactNode[] = [];
   const weldHitKey = (key: string, at: [number, number], u: [number, number]) => {
     if (d.welds?.[key]?.field && !opts.weldmap) { let nx = -u[1], ny = u[0]; if (ny > 0) { nx = -nx; ny = -ny; } els.push(<text key={'fwl' + key} className="iso-fwlbl" x={at[0] + nx * 9} y={at[1] + ny * 9} textAnchor="middle" dominantBaseline="middle">FW</text>); }
     if (!exportMode) whits.push(<circle key={'wh' + key + whits.length} className="iso-weldhit" data-weld={key} data-wk={key} cx={at[0]} cy={at[1]} r={7} />);
@@ -1901,6 +1903,7 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         const off0 = legJoint(fit, legScreen, j2, connAtSized(d, sizes, n))?.off ?? 8;
         const at1: [number, number] = [p[0] + ux * (off0 + 8), p[1] + uy * (off0 + 8)], at2: [number, number] = [p[0] + ux * (off0 + 16), p[1] + uy * (off0 + 16)];
         els.push(<g key={'wf' + fw0.key} className="iso-item">{lineSymbol('flange', at1, [ux, uy], 7, 'wfs' + fw0.key)}</g>);
+        if (!exportMode) topHits.push(<circle key={'wft' + fw0.key} className="iso-weldhit" data-weld={fw0.key} cx={at1[0]} cy={at1[1]} r={6} />);
         if (opts.welds) { els.push(...jointMark('bw', at2, [ux, uy], 'wfd' + fw0.key)); weldHitKey(fw0.key + ':f', at2, [ux, uy]); }
       });
       const fs = d.fitSize?.[n];
@@ -1979,6 +1982,7 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
     if (!exportMode) {
       const isCursor = n === cursor, isSel = sel?.kind === 'node' && sel.id === n;
       els.push(<circle key={'hn' + n} data-node={n} data-inl={inlineAt(d, n) ? '1' : undefined} cx={p[0]} cy={p[1]} r={inlineAt(d, n) ? 16 : 13} className={"iso-nodehit" + (isCursor ? ' cursor' : '') + (isSel ? ' sel' : '')} />);
+      { const it0 = inlineAt(d, n); if (it0 && it0.type !== 'spool' && k.kind === 'straight') topHits.push(<circle key={'th' + n} data-node={n} data-inl="1" cx={p[0]} cy={p[1]} r={6} className="iso-weldhit" />); }
     }
     if (opts.labels) els.push(<text key={'nl' + n} className="iso-node" x={p[0] + 8} y={p[1] - 8}>{n}</text>);
   }
@@ -2137,7 +2141,7 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       })}
     </g>);
   });
-  return <g>{casing}{under}{els}{tags}{whits}</g>;
+  return <g>{casing}{under}{els}{tags}{whits}{topHits}</g>;
 }
 
 // ------------------------------------------------------------------ editors
