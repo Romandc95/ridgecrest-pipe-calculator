@@ -1126,8 +1126,11 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     const s = Math.min((W - 70) / (x1 - x0), (H - 90) / (y1 - y0));
     return { s, tx: W / 2 - ((x0 + x1) / 2) * s, ty: H / 2 + 8 - ((y0 + y1) / 2) * s };
   };
+  // the zoom of the last fit: zooming in past it magnifies the whole drawing (see `mag` below)
+  const [baseS, setBaseS] = useState(Infinity);
+  const fitNow = (): Cam => { const c = fitCam(); setBaseS(c.s); return c; };
   // fit on open, on resize, on scale change; when the drawing grows, only if a point leaves the screen
-  useEffect(() => { setCam(fitCam()); }, [d.id, opts.scaled, fitTick]);
+  useEffect(() => { setCam(fitNow()); }, [d.id, opts.scaled, fitTick]);
   // when the drawing area changes size (keyboard, toolbars, tool panel), keep the zoom and the centre; only a big change
   // (rotation, first layout) refits
   const prevSize = useRef({ w: W, h: H });
@@ -1135,29 +1138,29 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     const pv = prevSize.current; prevSize.current = { w: W, h: H };
     if (pv.w === W && pv.h === H) return;
     const big = Math.abs(W - pv.w) / Math.max(1, pv.w) > 0.35 || Math.abs(H - pv.h) / Math.max(1, pv.h) > 0.35;
-    if (big) { setCam(fitCam()); return; }
+    if (big) { setCam(fitNow()); return; }
     setCam((c) => ({ ...c, tx: c.tx + (W - pv.w) / 2, ty: c.ty + (H - pv.h) / 2 }));
   }, [W, H]);
   useEffect(() => {
     const c = camRef.current;
     const out = P.some((p) => { const q = project(p, view); const x = q[0] * c.s + c.tx, y = q[1] * c.s + c.ty; return x < 30 || x > W - 30 || y < 50 || y > H - 50; });
-    if (out) setCam(fitCam());
+    if (out) setCam(fitNow());
   }, [P.length, JSON.stringify(P[P.length - 1])]);
   // keep the drawing centred on screen when the view turns (presets, compass, orbit); Home refits
   const prevView = useRef(view);
   useEffect(() => {
     const pv = prevView.current; prevView.current = view;
-    if (homing.current) { homing.current = false; setCam(fitCam()); return; }
+    if (homing.current) { homing.current = false; setCam(fitNow()); return; }
     if (gestureTurn.current) { gestureTurn.current = false; return; }
     if (pv.az === view.az && pv.el === view.el) return;
     // a whole step (compass, presets) refits the drawing; small orbit drags keep it centred where it is
-    if (Math.abs(normAz(pv.az - view.az)) > 60 || Math.abs(pv.el - view.el) > 20) { setCam(fitCam()); return; }
+    if (Math.abs(normAz(pv.az - view.az)) > 60 || Math.abs(pv.el - view.el) > 20) { setCam(fitNow()); return; }
     const C = P.reduce((a, p) => add(a, p), [0, 0, 0] as Vec3).map((v) => v / P.length) as Vec3;
     const a = project(C, pv), b = project(C, view);
     setCam((c) => ({ ...c, tx: c.tx + (a[0] - b[0]) * c.s, ty: c.ty + (a[1] - b[1]) * c.s }));
   }, [view.az, view.el]);
   const goHome = () => {
-    if (Math.abs(view.az - ISO_VIEW.az) < 1e-6 && Math.abs(view.el - ISO_VIEW.el) < 1e-6) { setCam(fitCam()); return; }
+    if (Math.abs(view.az - ISO_VIEW.az) < 1e-6 && Math.abs(view.el - ISO_VIEW.el) < 1e-6) { setCam(fitNow()); return; }
     homing.current = true; onView({ ...ISO_VIEW });
   };
 
@@ -1481,11 +1484,17 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   const AX = ['E', 'N', 'Up'], AXN = ['W', 'S', 'Dn'];
 
   // the full drawing, laid out only when something it shows changes (not for pan / pinch / the drawing ghost / drop marker)
+  // Zooming in past the last "fit" magnifies everything — pipe, fittings, valves, text — like a closer look, instead of keeping
+  // symbols the same size on screen: the drawing is laid out at the fit scale and then scaled up by `mag`.
+  // At fit or zoomed out it is laid out as before.
+  const fitS = baseS;
+  const mag = Number.isFinite(fitS) && cam.s > fitS * 1.0001 ? cam.s / fitS : 1;
+  const T3art = mag === 1 ? T3 : (p: Vec3): [number, number] => { const q = project(p, view); return [q[0] * fitS + cam.tx / mag, q[1] * fitS + cam.ty / mag]; };
   const artOpts = { ...opts, textEdit: armed === 'notes', ...(opts.callouts !== false ? callouts : {}) };
   const artKey = JSON.stringify(artOpts);
-  const artEl = useMemo(() => <IsoArt d={d} disp={disp} T3={T3} sel={sel} cursor={cursor} opts={artOpts} prefs={prefs} />,
+  const artEl = useMemo(() => <IsoArt d={d} disp={disp} T3={T3art} sel={sel} cursor={cursor} opts={artOpts} prefs={prefs} />,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [d, disp, cam, view.az, view.el, sel, cursor, artKey, prefs]);
+    [d, disp, cam, view.az, view.el, sel, cursor, artKey, prefs, fitS]);
   return (
     <div className={'isostage mode-' + opts.mode + (armed ? ' armed' : '')} ref={wrap}>
       {/* coloured frame + label for the current mode (working drawing only); tap the label to switch */}
@@ -1498,7 +1507,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         <HatchDefs />
         <IsoPaper W={W} H={H} T3={gcam ? T3live : T3} g={g} />
         {opts.mode === 'draw' && (!armed || armed === 'start') && <PlaneGrid W={W} H={H} T3={T3} o={ghost?.origin ?? P[gridFrom] ?? [0, 0, 0]} g={g} />}
-        <g transform={gcam ? `translate(${gcam.tx - cam.tx * (gcam.s / cam.s)} ${gcam.ty - cam.ty * (gcam.s / cam.s)}) scale(${gcam.s / cam.s})` : undefined}>{artEl}</g>
+        <g transform={gcam ? `translate(${gcam.tx - cam.tx * (gcam.s / cam.s)} ${gcam.ty - cam.ty * (gcam.s / cam.s)}) scale(${gcam.s / cam.s})` : undefined}><g transform={mag !== 1 ? `scale(${mag})` : undefined}>{artEl}</g></g>
         {dropMark && <g className="iso-dropmark"><circle cx={dropMark[0]} cy={dropMark[1]} r={13} /><circle cx={dropMark[0]} cy={dropMark[1]} r={3} /></g>}
         {ghost && (() => {
           const o3 = ghost.origin ?? P[ghost.from];
@@ -1549,7 +1558,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       <div className="isozoom">
         <button className="ibtn" aria-label="Zoom in" onClick={() => zoom(1.3)}>+</button>
         <button className="ibtn" aria-label="Zoom out" onClick={() => zoom(1 / 1.3)}>−</button>
-        <button className="ibtn" onClick={() => setCam(fitCam())}>Fit</button>
+        <button className="ibtn" onClick={() => setCam(fitNow())}>Fit</button>
       </div>
     </div>
   );
