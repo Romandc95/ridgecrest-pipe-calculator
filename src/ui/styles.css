@@ -705,3 +705,7 @@ ol.steps code { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anyw
 .shp-radius { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
 .shp-dot { fill: var(--muted); }
 .dg-lbl.shp-cuttxt { fill: #e0533f; font-weight: 700; }
+
+/* calculator Back key: steps back one keystroke */
+.key.back .pri { display: flex; align-items: center; justify-content: center; }
+.key.back svg { display: block; }

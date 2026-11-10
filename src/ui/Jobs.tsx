@@ -157,6 +157,7 @@ function Help() {
           <li>Angle/Slope accepts degrees (45), slope per foot (1⁄8 Inch) or percent grade (2 Conv x² %).</li>
           <li>Pipe Matl cycles material; Conv+Matl cycles schedule (or type 80 Conv Matl). Size: 6 Inch Pipe Size, then Pipe Size again for OD, ID, wall, weights, area.</li>
           <li>Stor 1–9 / Rcl 1–9 memory registers; M+ / Conv M+ (M−) accumulate; Rcl M+ shows total, then average and count. C clears; C twice clears project values; AC restores defaults.</li>
+          <li>Back (⌫, or Backspace on a keyboard) steps back one keystroke per press — digits, units, operators, = and even C — restoring the calculator exactly as it was before that key. It remembers the last 200 keystrokes while the app is open; after reopening, ⌫ deletes the last digit typed.</li>
         </ul>
       </Card>
       <Card>

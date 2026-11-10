@@ -6,6 +6,11 @@ import { Tok } from '../engine/expr';
 import { useApp } from './components';
 import { usePersistent, shareText } from './store';
 
+/** Back key: the outlined "delete" arrow with an ×. */
+function BackIcon() {
+  return <svg viewBox="0 0 28 22" width="26" height="20" aria-hidden="true"><path d="M9.2 3h14.3A2.5 2.5 0 0 1 26 5.5v11a2.5 2.5 0 0 1-2.5 2.5H9.2a1.4 1.4 0 0 1-1-.45L2.6 11.9a1.3 1.3 0 0 1 0-1.8l5.6-6.65A1.4 1.4 0 0 1 9.2 3Z" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinejoin="round" /><path d="m12.8 7.6 6.8 6.8m0-6.8-6.8 6.8" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" /></svg>;
+}
+
 interface KeyDef { k: Key; label: React.ReactNode; cls: string; aria: string }
 const L = (k: Key, label: React.ReactNode, cls: string, aria?: string): KeyDef => ({ k, label, cls, aria: aria ?? (typeof label === 'string' ? label : k) });
 
@@ -13,7 +18,7 @@ export const KEYPAD: KeyDef[][] = [
   [L('angle', <>Angle<br />Slope</>, 'proj', 'Angle/Slope'), L('offset', 'Offset', 'proj'), L('run', 'Run', 'proj'), L('travel', 'Travel', 'proj'), L('material', <>Pipe<br />Matl</>, 'proj', 'Pipe Material')],
   [L('pow', <>x<sup>y</sup></>, 'fn', 'x to the y'), L('sin', 'Sin', 'fn'), L('cos', 'Cos', 'fn'), L('tan', 'Tan', 'fn'), L('size', <>Pipe<br />Size</>, 'proj', 'Pipe Size')],
   [L('(', '(', 'fn'), L(')', ')', 'fn'), L('circle', 'Circle', 'fn'), L('sq', <>x<sup>2</sup></>, 'fn', 'x squared'), L('sqrt', '√x', 'fn', 'square root')],
-  [L('mm', 'mm', 'unit'), L('ft', 'Feet', 'unit'), L('in', 'Inch', 'unit'), L('frac', <span className="fracglyph">⁄</span>, 'unit', 'Fraction'), L('bksp', '⌫', 'unit', 'Backspace')],
+  [L('mm', 'mm', 'unit'), L('ft', 'Feet', 'unit'), L('in', 'Inch', 'unit'), L('frac', <span className="fracglyph">⁄</span>, 'unit', 'Fraction'), L('bksp', <BackIcon />, 'unit back', 'Back one keystroke')],
   [L('conv', 'Conv', 'conv'), L('7', '7', 'num'), L('8', '8', 'num'), L('9', '9', 'num'), L('div', '÷', 'op', 'divide')],
   [L('store', 'Stor', 'mem', 'Store'), L('4', '4', 'num'), L('5', '5', 'num'), L('6', '6', 'num'), L('mul', '×', 'op', 'multiply')],
   [L('recall', 'Rcl', 'mem', 'Recall'), L('1', '1', 'num'), L('2', '2', 'num'), L('3', '3', 'num'), L('sub', '−', 'op', 'subtract')],
@@ -42,9 +47,19 @@ export function Calculator({ onOpenPrefs }: { onOpenPrefs: () => void }) {
     if (s.openPrefs !== prefsN.current) { prefsN.current = s.openPrefs; onOpenPrefs(); }
   }, [s.lastEval?.id, s.openPrefs]);
 
+  // Back (⌫) steps back one keystroke at a time — digits, operators, units, =, even C — by restoring the
+  // calculator exactly as it was before that key. Kept for this visit (the last 200 keystrokes).
+  const sRef = useRef(s); sRef.current = s;
+  const hist = useRef<CalcState[]>([]);
   const tap = (k: Key) => {
     if (settings.haptics && 'vibrate' in navigator) { try { navigator.vibrate(6); } catch { /* */ } }
-    setS((p) => press({ ...initialState(), ...p, regs: { ...DEFAULT_REGS(), ...p.regs } }, k, opts));
+    if (k === 'bksp' && !sRef.current.conv) { // with Conv lit this key is Conv → Force
+      const prev = hist.current.pop();
+      if (prev) { sRef.current = prev; setS(prev); return; }
+    } else { hist.current.push(JSON.parse(JSON.stringify(sRef.current)) as CalcState); /* deep copy: press() updates arrays in place */ if (hist.current.length > 200) hist.current.shift(); }
+    const p = sRef.current;
+    const next = press({ ...initialState(), ...p, regs: { ...DEFAULT_REGS(), ...p.regs } }, k, opts);
+    sRef.current = next; setS(next);
   };
 
   // hardware keyboard support (desktop / iPad)
