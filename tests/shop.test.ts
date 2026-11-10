@@ -490,3 +490,33 @@ describe('ISO weld info stays with its weld when lines are split or joined', () 
     expect(m.welds![onB.key]).toEqual({ field: true, stencil: 'RC-7' });
   });
 });
+
+describe('ISO flange set welded straight onto a fitting (fitting to fitting)', () => {
+  const run = (from: number, v: [number, number, number], id: string): Run => ({ id, from, dx: v[0] / 4, dy: v[1] / 4, dz: v[2] / 4, inline: 'none', sketch: true, meas: v });
+  // 4" Class 150: A east 48", 90° elbow at point 1, B up 60" (open end); flange set on the elbow's B side
+  const draw = (): IsoDrawing => ({ ...newDrawing('t', 'x'), nps: '4', gap: 0.125, runs: [run(0, [48, 0, 0], 'a'), run(1, [0, 0, 60], 'b')], wfits: { 'b:a': { id: 'f' } } });
+  const set = 2 * (2.94 + 0.06) + 0.125; // 2 × (B16.5 Y + raised face) + 1/8" gasket = 6-1/8"
+  it('B side: pipe starts past the flange set — elbow 6 + gap + 6-1/8, one gap at the flange-to-pipe weld', () => {
+    const c = cutList(draw());
+    expect(c[1].cut).toBeCloseTo(60 - (6 + 0.125 + set) - 0.125, 9);
+    expect(c[1].note.some((n) => /fitting to fitting/.test(n))).toBe(true);
+    expect(c[0].cut).toBeCloseTo(48 - 6 - 0.125, 9); // the other side of the elbow is untouched
+  });
+  it('one weld fitting-to-flange (the existing weld) + one flange-to-pipe weld; nothing between them', () => {
+    const w = weldList(draw()).filter((x) => x.node === 1);
+    expect(w.map((x) => x.key)).toEqual(['a:b', 'b:a', 'b:a:f']);
+    expect(w.find((x) => x.key === 'b:a:f')!.where).toBe('flange');
+  });
+  it('material list: 2 WN flanges, a gasket, a stud bolt set and 3 butt welds', () => {
+    const m = materials(draw());
+    expect(m.find((r) => r.item === 'WN flange')!.qty).toBe(2);
+    expect(m.find((r) => r.item === 'Gasket')!.qty).toBe(1);
+    expect(m.find((r) => r.item === 'Stud bolt set')!.qty).toBe(1);
+    expect(m.find((r) => r.item === 'Butt weld')!.qty).toBe(3);
+  });
+  it('stays on its weld when the line is split', () => {
+    const { d: e } = splitRun(draw(), 1, 0.5, 'n');
+    expect(e.wfits).toEqual({ 'n:a': { id: 'f' } });
+    expect(weldList(e).filter((x) => x.node === 1).map((x) => x.key)).toEqual(['a:b', 'n:a', 'n:a:f']);
+  });
+});

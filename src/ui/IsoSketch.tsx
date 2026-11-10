@@ -242,7 +242,13 @@ export function IsoSketch() {
     toast('Field weld placed — two lines, measure each to the weld');
     return true;
   };
-  const place = (key: string, target0: Sel, t = 0.5, leg?: number): boolean => {
+  const place = (key: string, target0: Sel, t = 0.5, leg?: number, wk?: string): boolean => {
+    if (wk && key === 'line:flange') {
+      update((x) => ({ ...x, wfits: { ...(x.wfits ?? {}), [wk]: { id: uid() } } }));
+      setSel({ kind: 'weld', key: wk });
+      toast('Flange set welded to the fitting — fitting to fitting, one weld');
+      return true;
+    }
     const [kind, id] = key.split(':');
     const item = catalogItem(id, kind as CatalogItem['kind']);
     const target: Sel = target0?.kind === 'item' ? { kind: 'run', id: target0.run } : target0;
@@ -551,7 +557,7 @@ export function IsoSketch() {
     <DrawTools opts={opts} setOpts={setOpts} lenText={lenText} setLenText={setLenText} addDir={addDir} undo={undo} canUndo={canUndo} redo={redo} canRedo={canRedo} heading={heading} addOffset={addOffset}
       cur={cur} isBranch={cur !== d.runs.length} missing={missing} compact={full} prefs={prefs} startPoint={() => setArmed(armed === 'start' ? null : 'start')} placingStart={armed === 'start'} />
   );
-  const palette = <Palette conn={opts.conn} setConn={(c) => setOpts({ conn: c })} ft={opts.ft ?? 'WN'} setFt={(f) => setOpts({ ft: f })} armed={armed} setArmed={setArmed} drop={(key, cx, cy) => { const h = canvasApi.current?.dropAt(key, cx, cy); if (!h) { toast(dropHint(key)); return; } place(key, h.sel, h.t, h.leg); }}
+  const palette = <Palette conn={opts.conn} setConn={(c) => setOpts({ conn: c })} ft={opts.ft ?? 'WN'} setFt={(f) => setOpts({ ft: f })} armed={armed} setArmed={setArmed} drop={(key, cx, cy) => { const h = canvasApi.current?.dropAt(key, cx, cy); if (!h) { toast(dropHint(key)); return; } place(key, h.sel, h.t, h.leg, h.wk); }}
     hover={(key, cx, cy) => canvasApi.current?.hover(key ? canvasApi.current.dropAt(key, cx, cy) : null)} compact={full} />;
 
   const stage = (
@@ -561,6 +567,7 @@ export function IsoSketch() {
       menu={sel?.kind === 'angle' && offsetAt(d, sel.node) ? { at: disp.P[sel.node], node: <AnglePop key={'ap' + sel.node + ':' + d.updated} d={d} node={sel.node} onSet={(a) => { const nd = setOffsetAngle(d, sel.node, a); if (nd) { update(() => nd); toast(`Offset now ${formatNumber(a, 2)}°`); } else toast('Enter an angle between 1° and 89°'); }} onClose={() => setSel(null)} /> }
         : weldSel >= 0 ? { at: disp.P[welds[weldSel].node], node: <WeldPop key={'wp' + welds[weldSel].key} d={d} w={welds[weldSel]} num={weldSel + 1} update={update} onClose={() => setSel(null)}
           onMove={inlineAt(d, welds[weldSel].node)?.type === 'spool' ? () => { setArmed('mv:' + welds[weldSel].node); setSel(null); } : undefined}
+          onRemoveSet={(() => { const k0 = welds[weldSel].key.replace(/:f$/, ''); return d.wfits?.[k0] ? () => { update((x) => { const wf = { ...(x.wfits ?? {}) }; delete wf[k0]; const ws = { ...(x.welds ?? {}) }; delete ws[k0 + ':f']; return { ...x, wfits: wf, welds: ws }; }); setSel(null); toast('Flange set removed'); } : undefined; })()}
           onRemove={inlineAt(d, welds[weldSel].node)?.type === 'spool' ? () => { const n = welds[weldSel].node; update((x) => mergeAt(x, n)); setSel(null); toast('Weld removed — one pipe again'); } : undefined} /> }
         : textSel && disp.P[textSel.node] ? { at: add(disp.P[textSel.node], mul(textSel.off, disp.k || 1)), node: <TextPop key={'tp' + textSel.id} note={textSel} onText={(v) => setText(textSel.id, v)}
           onArrow={(aid) => { setArmed('arrow:' + textSel.id + (aid ? ':' + aid : '')); setSel(null); }}
@@ -1059,7 +1066,7 @@ type DrawLink = { node: number } | { run: number; t: number };
 export interface CanvasApi {
   hitAt: (clientX: number, clientY: number) => { sel: Sel; t: number } | null;
   /** Where a palette item dropped here would go: the nearest spot that fits that kind of item (generous, so a near miss still lands). */
-  dropAt: (key: string, clientX: number, clientY: number) => { sel: Sel; t: number; at: [number, number]; leg?: number } | null;
+  dropAt: (key: string, clientX: number, clientY: number) => { sel: Sel; t: number; at: [number, number]; leg?: number; wk?: string } | null;
   /** Show where the item being dragged will land. */
   hover: (h: { at: [number, number] } | null) => void;
 }
@@ -1239,6 +1246,15 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         return false;
       };
       const fw = kind === 'end' && id === 'weld';
+      // a flange pair dropped on a fitting's weld dot: welded straight onto that fitting (fitting to fitting)
+      if (kind === 'line' && id === 'flange' && svg.current) {
+        let bw: { key: string; x: number; y: number } | null = null, bdw = 22;
+        const fwelds = weldsOf(d).filter((q) => q.where === 'fitting' && !d.wfits?.[q.key]);
+        svg.current.querySelectorAll('[data-wk]').forEach((el) => { const key = el.getAttribute('data-wk')!; if (!fwelds.some((q) => q.key === key)) return; const rr = el.getBoundingClientRect(); const x = rr.x + rr.width / 2, y = rr.y + rr.height / 2; const dd = Math.hypot(x - cx, y - cy); if (dd < bdw) { bdw = dd; bw = { key, x, y }; } });
+        const hit = bw as { key: string; x: number; y: number } | null;
+        const w = hit ? fwelds.find((q) => q.key === hit.key) : undefined;
+        if (hit && w) { const l2 = toLocal({ clientX: hit.x, clientY: hit.y }); return { sel: { kind: 'node', id: w.node }, t: 0.5, at: [l2.x, l2.y], leg: w.run, wk: w.key }; }
+      }
       if (fw && svg.current) {
         let bw: { key: string; x: number; y: number } | null = null, bdw = 30;
         svg.current.querySelectorAll('[data-wk]').forEach((el) => { const rr = el.getBoundingClientRect(); const x = rr.x + rr.width / 2, y = rr.y + rr.height / 2; const dd = Math.hypot(x - cx, y - cy); if (dd < bdw) { bdw = dd; bw = { key: el.getAttribute('data-wk')!, x, y }; } });
@@ -1666,8 +1682,12 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
   // every weld dot gets an invisible tap target (tap a weld to edit it) that the field weld also snaps to
   const wlist = weldsOf(d);
   const whits: React.ReactNode[] = [];
+  const weldHitKey = (key: string, at: [number, number], u: [number, number]) => {
+    if (d.welds?.[key]?.field && !opts.weldmap) { let nx = -u[1], ny = u[0]; if (ny > 0) { nx = -nx; ny = -ny; } els.push(<text key={'fwl' + key} className="iso-fwlbl" x={at[0] + nx * 9} y={at[1] + ny * 9} textAnchor="middle" dominantBaseline="middle">FW</text>); }
+    if (!exportMode) whits.push(<circle key={'wh' + key + whits.length} className="iso-weldhit" data-weld={key} data-wk={key} cx={at[0]} cy={at[1]} r={7} />);
+  };
   const weldHit = (n: number, run: number | undefined, at: [number, number], u?: [number, number]) => {
-    const w = wlist.find((q) => q.node === n && (run === undefined || q.run === run) && !q.key.endsWith(':r')) ?? wlist.find((q) => q.node === n && (run === undefined || q.run === run));
+    const w = wlist.find((q) => q.node === n && (run === undefined || q.run === run) && !q.key.endsWith(':r') && q.where !== 'flange') ?? wlist.find((q) => q.node === n && (run === undefined || q.run === run));
     // a field weld at a fitting gets "FW" beside its dot too (the weld map's numbered tag does this when it is on)
     if (w && u && d.welds?.[w.key]?.field && !opts.weldmap) { let nx = -u[1], ny = u[0]; if (ny > 0) { nx = -nx; ny = -ny; } els.push(<text key={'fwl' + w.key} className="iso-fwlbl" x={at[0] + nx * 9} y={at[1] + ny * 9} textAnchor="middle" dominantBaseline="middle">FW</text>); }
     if (exportMode) return;
@@ -1864,6 +1884,16 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
         const jm = legJoint(fit, legScreen, j, connAtSized(d, sizes, n));
         if (jm) { els.push(...jointMark(jm.conn, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy], `w${n}-${j}`)); weldHit(n, legs[j].run, [p[0] + ux * jm.off, p[1] + uy * jm.off], [ux, uy]); }
       });
+      // a flange set welded straight onto this fitting (fitting to fitting): the flange pair just past the fitting weld,
+      // then the flange-to-pipe weld
+      legScreen.forEach(([ux, uy], j2) => {
+        const fw0 = wlist.find((q) => q.node === n && q.run === legs[j2].run && q.where === 'fitting');
+        if (!fw0 || !d.wfits?.[fw0.key]) return;
+        const off0 = legJoint(fit, legScreen, j2, connAtSized(d, sizes, n))?.off ?? 8;
+        const at1: [number, number] = [p[0] + ux * (off0 + 8), p[1] + uy * (off0 + 8)], at2: [number, number] = [p[0] + ux * (off0 + 16), p[1] + uy * (off0 + 16)];
+        els.push(<g key={'wf' + fw0.key} className="iso-item">{lineSymbol('flange', at1, [ux, uy], 7, 'wfs' + fw0.key)}</g>);
+        if (opts.welds) { els.push(...jointMark('bw', at2, [ux, uy], 'wfd' + fw0.key)); weldHitKey(fw0.key + ':f', at2, [ux, uy]); }
+      });
       const fs = d.fitSize?.[n];
       els.push(...nodeSymbol(fit, k.kind, p, legScreen, 'ns' + n, undefined, fs ? (fit === 'redtee' ? `${sizes[n - 1] ?? d.nps}"×${fs}"` : `${fs}"`) : undefined,
         (text, dir, dist) => callouts.push({ key: 'nl' + n, text, at: [p[0], p[1]], dir: [dir[0], dir[1]], dist })));
@@ -2019,7 +2049,7 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
       const p = S[w.node]; const r = d.runs[w.run]; if (!p || !r) return;
       const other = r.from === w.node ? S[w.run + 1] : S[r.from]; if (!other) return;
       const [ux, uy, L] = unit(p, other);
-      const off = Math.min(L * 0.4, w.where === 'fitting' ? 9 : w.where === 'inline' ? 12 : w.where === 'reducer' ? 24 : w.where === 'end' ? 4 : 0);
+      const off = Math.min(L * 0.4, w.where === 'fitting' ? 9 : w.where === 'inline' ? 12 : w.where === 'reducer' ? 24 : w.where === 'flange' ? 25 : w.where === 'end' ? 4 : 0);
       const c: [number, number] = [p[0] + ux * off, p[1] + uy * off];
       let nx = -uy, ny = ux; if (ny > 0 || (Math.abs(ny) < 1e-6 && nx > 0)) { nx = -nx; ny = -ny; }
       nx = -nx; ny = -ny; // dimensions go above / left of a line: weld tags start on the other side
@@ -2471,10 +2501,10 @@ async function shareImage(d: IsoDrawing, markup: string, W: number, H: number, s
 }
 
 // ------------------------------------------------------------------ weld map, text notes, dialogs
-function WeldPop({ d, w, num, update, onClose, onMove, onRemove }: { d: IsoDrawing; w: Weld; num: number; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void; onClose: () => void; onMove?: () => void; onRemove?: () => void }) {
+function WeldPop({ d, w, num, update, onClose, onMove, onRemove, onRemoveSet }: { d: IsoDrawing; w: Weld; num: number; update: (f: (d: IsoDrawing) => IsoDrawing, mergeKey?: string) => void; onClose: () => void; onMove?: () => void; onRemove?: () => void; onRemoveSet?: () => void }) {
   const info: WeldInfo = d.welds?.[w.key] ?? {};
   const set = (p: Partial<WeldInfo>, mk?: string) => update((x) => ({ ...x, welds: { ...(x.welds ?? {}), [w.key]: { ...(x.welds?.[w.key] ?? {}), ...p } } }), mk);
-  const where = { fitting: 'fitting weld', inline: 'valve / fitting weld', joint: 'pipe-to-pipe weld', end: 'end fitting weld', reducer: 'reducer-to-elbow weld' }[w.where];
+  const where = { fitting: 'fitting weld', inline: 'valve / fitting weld', joint: 'pipe-to-pipe weld', end: 'end fitting weld', reducer: 'reducer-to-elbow weld', flange: 'flange-to-pipe weld' }[w.where];
   return (
     <div className="itemmenu-in weldpop">
       <div className="row-between"><b>{info.field ? 'FW' : 'W'}{num} · {w.conn === 'sw' ? 'Socket weld' : 'Butt weld'}</b><button className="linkbtn" onClick={onClose}>Done</button></div>
@@ -2484,6 +2514,8 @@ function WeldPop({ d, w, num, update, onClose, onMove, onRemove }: { d: IsoDrawi
       <Segmented small value={info.field ? 'field' : 'shop'} onChange={(v) => set({ field: v === 'field' })} options={[['shop', 'Shop weld'], ['field', 'Field weld']]} />
       <label className="field"><span className="flabel">Notes</span>
         <textarea className="isotext" rows={3} value={info.notes ?? ''} placeholder="Rod, process, inspection, date…" onChange={(e) => set({ notes: e.target.value }, 'wno' + w.key)} /></label>
+      {onRemoveSet && <><span className="fhint">{w.where === 'flange' ? 'Flange-to-pipe weld of a flange set welded straight onto the fitting.' : 'Fitting-to-flange weld: a flange set is welded straight onto this fitting (fitting to fitting).'}</span>
+        <div className="menubtns"><button className="btn danger" onClick={onRemoveSet}>✕ Remove flange set</button></div></>}
       {(onMove || onRemove) && <div className="menubtns">
         {onMove && <button className="btn" onClick={onMove}>✥ Move weld</button>}
         {onRemove && <button className="btn danger" onClick={onRemove}>✕ Remove weld</button>}

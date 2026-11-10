@@ -254,6 +254,10 @@
 ✓ ISO measurement points and field welds › a fitting with pieces on one side folds into the same pipe
 ✓ ISO weld info stays with its weld when lines are split or joined › splitting the line keeps the elbow weld FW (not the new point)
 ✓ ISO weld info stays with its weld when lines are split or joined › joining the lines back drops the joint weld and keeps the far-end weld
+✓ ISO flange set welded straight onto a fitting (fitting to fitting) › B side: pipe starts past the flange set — elbow 6 + gap + 6-1/8, one gap at the flange-to-pipe weld
+✓ ISO flange set welded straight onto a fitting (fitting to fitting) › one weld fitting-to-flange (the existing weld) + one flange-to-pipe weld; nothing between them
+✓ ISO flange set welded straight onto a fitting (fitting to fitting) › material list: 2 WN flanges, a gasket, a stud bolt set and 3 butt welds
+✓ ISO flange set welded straight onto a fitting (fitting to fitting) › stays on its weld when the line is split
 ✓ unit parsing › 5' 7 3/8" = 67.375 in
 ✓ unit parsing › 7 3/8" = 7.375 in
 ✓ unit parsing › 7-3/8" = 7.375 in
@@ -307,4 +311,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-308 passed, 0 failed, 308 total
+312 passed, 0 failed, 312 total

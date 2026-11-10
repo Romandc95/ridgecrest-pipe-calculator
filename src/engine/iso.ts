@@ -126,6 +126,8 @@ export interface IsoDrawing {
   inl?: Record<number, LineItem>;
   /** Weld map: welder stencil, shop / field and notes per weld (keyed by weldList keys). */
   welds?: Record<string, WeldInfo>;
+  /** A flange set welded straight onto a fitting (fitting to fitting, no pipe between), keyed by that fitting weld. */
+  wfits?: Record<string, { id: string }>;
   /** Line ends joined onto another point (end node → the point it connects to): closes a loop / ties a new line back in. */
   links?: Record<number, number>;
   /** Title block details asked for when the drawing is named / completed. */
@@ -292,13 +294,14 @@ export function splitRun(d: IsoDrawing, i: number, t: number, newId: string): { 
     items: items.filter((it) => it.t >= t).map((it) => ({ ...it, t: (it.t - t) / (1 - t) })),
   };
   // the weld at the old start now belongs to the first piece (new id); keep its stencil / field / notes with it
-  const welds = renameWelds(d.welds, (k) => (k.startsWith(r.id + ':a') ? newId + k.slice(r.id.length) : k));
-  return { d: { ...d, runs: [...d.runs.map((q, k) => (k === i ? rest : q)), first], ...(welds ? { welds } : {}) }, node };
+  const ren = (k: string) => (k.startsWith(r.id + ':a') ? newId + k.slice(r.id.length) : k);
+  const welds = renameWelds(d.welds, ren), wfits = renameWelds(d.wfits, ren);
+  return { d: { ...d, runs: [...d.runs.map((q, k) => (k === i ? rest : q)), first], ...(welds ? { welds } : {}), ...(wfits ? { wfits } : {}) }, node };
 }
 /** Weld-map info keyed by `${runId}:${side}…`: rename (or drop with null) keys when lines are split or joined. */
-function renameWelds(w: IsoDrawing['welds'], f: (k: string) => string | null): IsoDrawing['welds'] {
+function renameWelds<T>(w: Record<string, T> | undefined, f: (k: string) => string | null): Record<string, T> | undefined {
   if (!w) return w;
-  const out: NonNullable<IsoDrawing['welds']> = {};
+  const out: Record<string, T> = {};
   for (const [k, v] of Object.entries(w)) { const nk = f(k); if (nk !== null) out[nk] = v; }
   return out;
 }
@@ -365,8 +368,26 @@ export interface CutRow {
   pieces?: CutPiece[];
 }
 
-/** Take-out at one end of a run, using ASME B16.9 fittings for the drawing's NPS and the fitting chosen at that point. */
+/**
+ * Take-out at one end of a run. A flange set welded straight onto the fitting at that end (fitting to fitting) adds
+ * one root gap + 2 × (Y + raised face) + gasket: the pipe starts at the far flange.
+ */
 function takeoutAt(d0: IsoDrawing, node0: number, run: number, note: string[], sizes?: string[]): { to: number; weld: boolean } {
+  const t = takeoutBase(d0, node0, run, note, sizes);
+  const node = canon(d0, node0), r = d0.runs[run];
+  if (!r || !d0.wfits || !t.weld) return t;
+  const key = `${r.id}:${canon(d0, r.from) === node ? 'a' : 'b'}`;
+  if (!d0.wfits[key]) return t;
+  const ds = sized(d0, sizes?.[run] ?? d0.nps);
+  const f = flangeFit(ds, 'WN');
+  if (!f) { note.push(`flange set on the fitting: no B16.5 flange for ${ds.nps}" Class ${ds.cls ?? 150}`); return { to: NaN, weld: true }; }
+  const gk = ds.gasket ?? 0.125;
+  const add = ds.gap + 2 * f.toPipe + gk;
+  note.push(`flange set welded to the fitting (fitting to fitting): gap ${frac(ds.gap)} + 2 × WN ${frac(f.toPipe)} + gasket ${frac(gk)} = ${frac(add)}`);
+  return { to: t.to + add, weld: true };
+}
+/** Take-out at one end of a run, using ASME B16.9 fittings for the drawing's NPS and the fitting chosen at that point. */
+function takeoutBase(d0: IsoDrawing, node0: number, run: number, note: string[], sizes?: string[]): { to: number; weld: boolean } {
   const node = canon(d0, node0);
   const d: IsoDrawing = sizes ? sized(d0, sizes[run] ?? d0.nps) : d0;
   const red = d0.inl?.[node];
@@ -376,7 +397,7 @@ function takeoutAt(d0: IsoDrawing, node0: number, run: number, note: string[], s
     const H = itemLength(up, red).len;
     const inl = { ...(d0.inl ?? {}) }; delete inl[node];
     const sz2 = sizes ? sizes.slice() : d0.runs.map(() => d0.nps); sz2[run] = red.size ?? up.nps;
-    const el = takeoutAt({ ...d0, inl }, node, run, note, sz2);
+    const el = takeoutBase({ ...d0, inl }, node, run, note, sz2);
     if (H === null) { note.push('enter the reducer length (tap it)'); return { to: NaN, weld: true }; }
     note.push(`reducer ${up.nps}"×${red.size ?? '?'}" (${frac(H)}) welded to the elbow`);
     return { to: el.to + H + d.gap, weld: true };
@@ -733,8 +754,9 @@ export function mergeAt(d: IsoDrawing, node: number): IsoDrawing {
     return out;
   };
   // welds at the joined point go away; the far end of B is now the joined line's end
-  const welds = renameWelds(d.welds, (k) => (k.startsWith(A.id + ':b') || k.startsWith(B.id + ':a') ? null : k.startsWith(B.id + ':b') ? A.id + k.slice(B.id.length) : k));
-  return { ...d, ...(welds ? { welds } : {}), runs, ends: mapRec(d.ends, node), fits: mapRec(d.fits, node), nodeConn: mapRec(d.nodeConn, node), fitSize: mapRec(d.fitSize, node),
+  const ren = (k: string) => (k.startsWith(A.id + ':b') || k.startsWith(B.id + ':a') ? null : k.startsWith(B.id + ':b') ? A.id + k.slice(B.id.length) : k);
+  const welds = renameWelds(d.welds, ren), wfits = renameWelds(d.wfits, ren);
+  return { ...d, ...(welds ? { welds } : {}), ...(wfits ? { wfits } : {}), runs, ends: mapRec(d.ends, node), fits: mapRec(d.fits, node), nodeConn: mapRec(d.nodeConn, node), fitSize: mapRec(d.fitSize, node),
     endLen: mapRec(d.endLen, node), inl: mapRec(d.inl, node), notes: d.notes.filter((t) => t.node !== node).map((t) => ({ ...t, node: remap(t.node) })),
     ...(d.texts ? { texts: d.texts.map((t) => (t.node === node ? { ...t, node: remap(A.from) } : { ...t, node: remap(t.node) })) } : {}),
     links: Object.fromEntries(Object.entries(d.links ?? {}).filter(([n, t]) => Number(n) !== node && t !== node).map(([n, t]) => [remap(Number(n)), remap(t)])) };
@@ -782,7 +804,7 @@ export function setOffsetAngle(d: IsoDrawing, node: number, angle: number): IsoD
 }
 
 // ---------------------------------------------------------------- weld map
-export interface Weld { key: string; node: number; run: number; side: 'a' | 'b'; conn: Conn; where: 'fitting' | 'inline' | 'joint' | 'end' | 'reducer' }
+export interface Weld { key: string; node: number; run: number; side: 'a' | 'b'; conn: Conn; where: 'fitting' | 'inline' | 'joint' | 'end' | 'reducer' | 'flange' }
 /** Flanged joints count as welds too: the pipe side is a weld-neck flange butt-welded to the pipe. */
 const isWeldConn = (c: Conn) => c === 'bw' || c === 'sw' || c === 'flg';
 const weldType = (c: Conn): Conn => (c === 'flg' ? 'bw' : c);
@@ -824,7 +846,11 @@ export function weldList(d: IsoDrawing): Weld[] {
         if (fit === 'sockolet') c = header ? null : 'sw';
         if (fit === 'threadolet') c = null;
         if (fit === 'miter') c = null;
-        if (c && isWeldConn(c)) push(n, l.run, c, 'fitting');
+        if (c && isWeldConn(c)) {
+          push(n, l.run, c, 'fitting');
+          // flange set welded onto the fitting: the fitting weld is fitting-to-flange; the far flange is welded to the pipe
+          if (d.wfits?.[out[out.length - 1].key]) push(n, l.run, 'bw', 'flange', ':f');
+        }
         if (red && l.run === n - 1 && isWeldConn(red.conn ?? 'bw')) push(n, l.run, red.conn ?? 'bw', 'reducer', ':r');
       });
     } else if (k === 'straight') {
@@ -916,6 +942,8 @@ export function materials(d: IsoDrawing): MaterialRow[] {
   // legacy fittings sitting on lines
   d.runs.forEach((r, i) => runItems(r).forEach((it) => { if (it.type !== 'spool') add(INLINE_LABEL[it.type] ?? it.type, sizes[i], CONN_LABEL[it.conn ?? 'bw']); }));
   const welds = weldList(d);
+  // flange sets welded straight onto fittings
+  welds.filter((w) => w.where === 'flange').forEach((w) => { const z = sizes[w.run] ?? d.nps; addAt(w.node, flangeName(z, 'WN'), z, `Class ${clsOf(z)} RF`, 2); joint(z); });
   const bw = welds.filter((w) => w.conn === 'bw'), sw = welds.filter((w) => w.conn === 'sw');
   const fieldOf = (w: Weld) => !!d.welds?.[w.key]?.field;
   if (bw.length) { const f = bw.filter(fieldOf).length; if (bw.length - f) add('Butt weld', '', 'shop', bw.length - f); if (f) add('Butt weld', '', 'field', f); }
