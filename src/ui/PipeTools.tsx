@@ -1,9 +1,10 @@
 import React from 'react';
 import { ExpansionTool } from './ShopTools';
-import { Field, Results, Row, Msg, Formula, ToolActions, Segmented, Select, useTool, useFmt, Card, Grid } from './components';
+import { Field, Results, Row, Msg, Formula, ToolActions, Segmented, Select, useTool, useFmt, Card, Grid, useApp } from './components';
 import { parseLength, parseMeasurement, tryParse } from '../engine/parse';
 import { MATERIALS, MATERIAL_ORDER, Material, typesFor, sizesFor, pipeProps, manualPipe, DATASETS, PipeProps } from '../engine/pipedata';
-import { pressureLoss, circle, WATER } from '../engine/hydraulics';
+import { pressureLoss, circle, WATER, LossMethod } from '../engine/hydraulics';
+import { ROUGHNESS_SOURCE } from '../engine/pipedata';
 import { CalcError, Q, fromUnit, inDisplayUnit, UNIT_LABEL, LB_PER_FT3_WATER, DENS_TO_PCF, DensUnit, FLOW_TO_CFS, VEL_TO_FPS, PRESS_TO_PSI } from '../engine/units';
 import { formatNumber } from '../engine/format';
 
@@ -211,6 +212,8 @@ function PFATool() {
 
 // ---- Pressure loss ---------------------------------------------------------------------
 function LossTool() {
+  const { settings, setSettings } = useApp();
+  const method: LossMethod = settings.lossMethod === 'reference' ? 'reference' : 'standard';
   const [inp0, set, reset] = useTool('loss', { Q: '', Qu: 'gpm', L: '' });
   const inp = { ...inp0, Qu: Object.prototype.hasOwnProperty.call(FLOW_TO_CFS, inp0.Qu) ? inp0.Qu : 'gpm' };
   const p = usePipe('losspipe');
@@ -218,7 +221,8 @@ function LossTool() {
     if (!p.pipe.ok) throw new CalcError('DATA', p.pipe.err);
     const q = val(plain, inp.Q); if (q === undefined) throw new CalcError('INPUT', 'Enter the flow rate.');
     const L = val(parseLength, inp.L);
-    return { pl: pressureLoss(p.pipe.v.id, q * FLOW_TO_CFS[inp.Qu as keyof typeof FLOW_TO_CFS], MATERIALS[p.mat].roughnessFt, L === undefined ? null : L / 12), L };
+    const eps = method === 'reference' ? MATERIALS[p.mat].roughnessFt : MATERIALS[p.mat].roughnessStdFt;
+    return { pl: pressureLoss(p.pipe.v.id, q * FLOW_TO_CFS[inp.Qu as keyof typeof FLOW_TO_CFS], eps, L === undefined ? null : L / 12, method), L };
   });
   const res = r.ok ? r.v : null;
   const per = res?.pl.perFoot ? ' per ft' : '';
@@ -231,6 +235,7 @@ function LossTool() {
           <Select label="Unit" value={inp.Qu} options={FLOW_U} onChange={(v) => set('Qu', v)} />
           <Field label="Pipe length (optional)" value={inp.L} onChange={(v) => set('L', v)} parse={parseLength} hint="blank = loss per foot" />
         </Grid>
+        <Segmented small value={method} onChange={(v) => setSettings((x) => ({ ...x, lossMethod: v as LossMethod }))} options={[['standard', 'Standard (Colebrook)'], ['reference', 'Reference calc']]} />
         {inp.Q && !r.ok && <Msg>{r.err}</Msg>}
         <button className="btn ghost" onClick={reset}>Clear</button>
       </Card>
@@ -245,10 +250,12 @@ function LossTool() {
         <ul>
           <li>Darcy–Weisbach: Δp = f · (L/D) · ρV²/2, D = pipe inside diameter.</li>
           <li>Fluid: water, ρ = {WATER.rho} kg/m³, μ = {WATER.mu} Pa·s (≈ 68 °F). Other fluids / temperatures are not modelled.</li>
-          <li>Re &lt; 3 000: laminar f = 64/Re. 3 000–100 000: Blasius f = 0.3164·Re^−0.25 (smooth). Above 100 000: Kármán–Prandtl smooth if roughness ε is inside the viscous sublayer, otherwise Colebrook–White.</li>
-          <li>Roughness ε (×10⁻⁶ ft), from the reference calculator: PVC 15.6, copper 4.9, steel 221, stainless 49.2, brass 4.9, aluminum 4.9, cast iron 850. Selected: {formatNumber(MATERIALS[p.mat].roughnessFt * 1e6)}.</li>
+          {method === 'standard'
+            ? <li>Standard method (Moody chart / Crane TP-410 basis): Re &lt; 2 300 laminar f = 64/Re; Re ≥ 2 300 Colebrook–White 1/√f = −2·log10(ε/3.7D + 2.51/(Re√f)). Re 2 300–4 000 is the transition zone and is flagged.</li>
+            : <li>Reference-calculator method (reproduces its worked examples): Re &lt; 3 000 laminar; 3 000–100 000 Blasius f = 0.3164·Re^−0.25 (smooth pipe, roughness ignored); above 100 000 Kármán–Prandtl smooth unless roughness exceeds the viscous sublayer, then Colebrook–White. Reads about 20% low for steel compared with the standard method.</li>}
+          <li>Roughness ε for this pipe: {formatNumber((method === 'reference' ? MATERIALS[p.mat].roughnessFt : MATERIALS[p.mat].roughnessStdFt) * 1e6)} × 10⁻⁶ ft. {ROUGHNESS_SOURCE}</li>
           <li>Straight pipe only — no fitting or valve losses. Transitional flow (≈2 300–4 000) is inherently uncertain.</li>
-          <li>Verified against the reference guide: 2" Std steel, 4 gpm → Re 6 120.09, 0.000205 psi/ft, 0.010232 psi per 50 ft; 40 gpm → 0.575408 psi per 50 ft. Above Re 100 000 the reference method is not published, so results there may differ.</li>
+          <li>Reference-calculator method verified against its guide: 2" Std steel, 4 gpm → Re 6 120.09, 0.000205 psi/ft, 0.010232 psi per 50 ft; 40 gpm → 0.575408 psi per 50 ft. Above Re 100 000 the reference method is not published, so results there may differ.</li>
         </ul>
       </Formula>
       <ToolActions tool="loss" title="Pressure loss" inputs={inp} summary={res ? `Pressure loss${per}: ${formatNumber(res.pl.units.psi)} psi (${formatNumber(res.pl.units.ftH2O)} ft head), Re ${formatNumber(res.pl.Re, 2)}, ${res.pl.method}` : ''} disabled={!res} />

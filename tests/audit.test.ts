@@ -179,3 +179,66 @@ describe('audit: reference data integrity', () => {
   });
   it('B31.1 Table 121.5 spans (water / steam-gas-air)', () => { expect(SUPPORT_SPAN['6']).toEqual([17, 21]); expect(SUPPORT_SPAN['24']).toEqual([32, 42]); });
 });
+
+// C1 (audit): B16.5 tabulates tf and Y without the raised face (para. 6.4.1; 0.06" Class 150/300, 0.25" Class 400+).
+// Vendor tables that include the 1/16" face list Class 150 WN Y as 1-7/8, 2-1/2, 3, 3-1/2, 4-1/2 for NPS 1/2, 2, 4, 6, 12.
+import { newDrawing, itemLength, endTakeoff, flangeFit } from '../src/engine/iso';
+describe('audit C1: flange take-offs include the raised face', () => {
+  const dr = (nps: string, cls: number) => ({ ...newDrawing('t', 'x'), nps, cls } as any);
+  it('Class 150 Y + RF equals the published RF-included length through hub', () => {
+    for (const [nps, withRF] of [['1/2', 1.88], ['2', 2.5], ['4', 3.0], ['6', 3.5], ['12', 4.5]] as const) expect(Math.abs(flangeFit(dr(nps, 150), 'WN')!.toPipe - withRF) <= 0.011).toBe(true); // tables are rounded to 0.01"
+  });
+  it('4" Class 150 WN flange pair = 2 × (2.94 + 0.06) + 1/8 gasket = 6-1/8"', () => {
+    expect(itemLength(dr('4', 150), { id: 'f', type: 'flange', t: 0.5 } as any).len).toBeCloseTo(6.125, 9);
+  });
+  it('2" Class 600 WN flange pair = 2 × (2.88 + 0.25) + 1/8 = 6.385"; flange end 4" Class 600 = 4.00 + 0.25', () => {
+    expect(itemLength(dr('2', 600), { id: 'f', type: 'flange', t: 0.5 } as any).len).toBeCloseTo(6.385, 9);
+    const d = dr('4', 600); d.ends = { 1: 'flange' }; d.runs = [{ id: 'a', from: 0, dx: 10, dy: 0, dz: 0, inline: 'none' }];
+    expect(endTakeoff(d, 1)!.len).toBeCloseTo(4.25, 9);
+  });
+  it('4" Class 150 blind end = WN (3.00) + gasket 1/8 + blind RF 0.06 + blind tf 0.88', () => {
+    const d = dr('4', 150); d.ends = { 1: 'blind' }; d.runs = [{ id: 'a', from: 0, dx: 10, dy: 0, dz: 0, inline: 'none' }];
+    expect(endTakeoff(d, 1)!.len).toBeCloseTo(3.0 + 0.125 + 0.06 + 0.88, 9);
+  });
+  it('2" Class 150 socket-weld flange: Y 0.94 − socket 0.69 + 1/16 setback + RF 0.06 = 0.3725"', () => {
+    expect(flangeFit(dr('2', 150), 'SW')!.toPipe).toBeCloseTo(0.94 - 0.69 + 0.0625 + 0.06, 9);
+  });
+});
+
+// C2 (audit): standard method = Colebrook–White with Moody roughness.
+import { colebrook, frictionFactor, pressureLoss } from '../src/engine/hydraulics';
+import { MATERIALS } from '../src/engine/pipedata';
+describe('audit C2: friction factor and pressure loss', () => {
+  it('Colebrook satisfies its own equation to 1e-12 across the Moody chart', () => {
+    for (const Re of [4000, 1e4, 1e5, 1e6, 1e7]) for (const rr of [0, 1e-5, 1e-4, 1e-3, 1e-2, 0.05]) {
+      const f = colebrook(Re, rr); const rhs = -2 * Math.log10(rr / 3.7 + 2.51 / (Re * Math.sqrt(f)));
+      expect(Math.abs(1 / Math.sqrt(f) - rhs) < 1e-12).toBe(true);
+    }
+  });
+  it('matches the explicit Haaland (±2%) and Swamee–Jain (±3%) approximations', () => {
+    for (const Re of [5000, 5e4, 5e5, 5e6]) for (const rr of [1e-5, 1e-4, 1e-3, 1e-2]) {
+      const f = colebrook(Re, rr);
+      const haaland = Math.pow(-1.8 * Math.log10(Math.pow(rr / 3.7, 1.11) + 6.9 / Re), -2);
+      const sj = 0.25 / Math.pow(Math.log10(rr / 3.7 + 5.74 / Math.pow(Re, 0.9)), 2);
+      expect(Math.abs(f / haaland - 1) < 0.02).toBe(true); expect(Math.abs(f / sj - 1) < 0.03).toBe(true); // Haaland ±2%, Swamee–Jain ±3% at the range corners
+    }
+  });
+  it('fully rough limit: f → (2·log10(3.7/(ε/D)))⁻² (von Kármán)', () => {
+    close(colebrook(1e12, 0.01), Math.pow(2 * Math.log10(3.7 / 0.01), -2), 1e-6);
+  });
+  it('laminar below Re 2 300, transition flagged to 4 000, Colebrook above', () => {
+    expect(frictionFactor(2000, 1e-4, 0.05, 0.04).f).toBeCloseTo(0.032, 9);
+    expect(frictionFactor(3000, 1e-4, 0.05, 0.06).method).toMatch(/Transition/);
+    expect(frictionFactor(1e5, 1e-4, 0.05, 2).method).toMatch(/Colebrook/);
+  });
+  it('2" Sch 40 steel, 40 gpm, 100 ft: Re 61 201, standard ≈ 1.33 psi (f ≈ 0.0232), reference 1.151 psi', () => {
+    const id = 2.067, q = 40 / 448.8311688;
+    const std = pressureLoss(id, q, MATERIALS.steel.roughnessStdFt, 100);
+    const rr = 0.00015 / (id / 12); close(std.f, colebrook(std.Re, rr)); expect(std.Re).toBeCloseTo(61201, 0);
+    expect(std.f).toBeCloseTo(0.0232, 3); expect(std.lossMethod).toBe('standard');
+    expect(pressureLoss(id, q, MATERIALS.steel.roughnessFt, 100, 'reference').psi).toBeCloseTo(1.151, 3);
+  });
+  it('steel uses the Moody commercial-steel roughness 0.00015 ft in the standard method', () => {
+    expect(MATERIALS.steel.roughnessStdFt).toBeCloseTo(0.00015, 12); expect(MATERIALS.castiron.roughnessStdFt).toBeCloseTo(0.00085, 12);
+  });
+});

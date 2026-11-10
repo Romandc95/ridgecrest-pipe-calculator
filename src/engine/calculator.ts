@@ -10,7 +10,7 @@ import { sqrtQ, powQ, negate, add } from './arith';
 import { solveRollingOffset, solveSimpleOffset, parallelCutback, angleFromSlopePerFt, angleFromGrade } from './layout';
 import { elbowTakeout, ElbowType, ELBOW_ORDER, arcs, steelOD, B169 } from './fittings';
 import { Material, MATERIAL_ORDER, MATERIALS, typesFor, defaultType, pipeProps, npsLabel, sizesFor } from './pipedata';
-import { pressureLoss, circle } from './hydraulics';
+import { pressureLoss, circle, LossMethod } from './hydraulics';
 
 export type Key =
   | 'angle' | 'offset' | 'run' | 'travel' | 'material'
@@ -101,7 +101,7 @@ export function initialState(): CalcState {
   };
 }
 
-export interface CalcOptions { chain: boolean; prefs: FormatPrefs }
+export interface CalcOptions { chain: boolean; prefs: FormatPrefs; lossMethod?: LossMethod }
 const DEF_OPTS: CalcOptions = { chain: false, prefs: DEFAULT_PREFS };
 
 // ---------------------------------------------------------------- entry helpers
@@ -874,7 +874,7 @@ function projectKey(s: CalcState, fn: Fn, opts: CalcOptions) {
       return;
     }
     case 'flow': case 'vel': case 'press': case 'force': case 'area':
-      return hydraulicKey(s, fn, input, cyc);
+      return hydraulicKey(s, fn, input, cyc, opts.lossMethod ?? 'standard');
     case 'wtvol': {
       if (input) {
         if (input.kind !== 'num') throw new CalcError('DIM', 'Enter the density as a plain number in the unit shown.');
@@ -911,7 +911,7 @@ function projectKey(s: CalcState, fn: Fn, opts: CalcOptions) {
   throw new CalcError('ENT', `Key ${fn} is not available.`);
 }
 
-function hydraulicKey(s: CalcState, fn: 'flow' | 'vel' | 'press' | 'force' | 'area', input: Q | null, cyc: string | undefined) {
+function hydraulicKey(s: CalcState, fn: 'flow' | 'vel' | 'press' | 'force' | 'area', input: Q | null, cyc: string | undefined, lossMethod: LossMethod = 'standard') {
   const r = s.regs;
   if (input) {
     switch (fn) {
@@ -982,7 +982,7 @@ function hydraulicKey(s: CalcState, fn: 'flow' | 'vel' | 'press' | 'force' | 'ar
       else if (r.vel !== undefined) q = r.vel * (pipe.area / 144);
       else throw new CalcError('INPUT', 'Enter a Flow or Velocity for the pressure-loss calculation.');
       const lenFt = r.A !== undefined && r.geoOrder.includes('A') ? r.A / 12 : null;
-      const pl = pressureLoss(pipe.id, q, MATERIALS[r.material].roughnessFt, lenFt);
+      const pl = pressureLoss(pipe.id, q, lossMethod === 'reference' ? MATERIALS[r.material].roughnessFt : MATERIALS[r.material].roughnessStdFt, lenFt, lossMethod);
       const per = pl.perFoot ? ' PER FT' : '';
       const items: Display[] = [
         { label: 'PSI' + per, q: { v: pl.psi, kind: 'press', dim: 0, unit: 'psi' }, tag: 'solved', note: pl.method },

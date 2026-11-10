@@ -1,6 +1,7 @@
 // Local persistence (localStorage). Everything stays on the device.
 import { useEffect, useRef, useState } from 'react';
 import { FormatPrefs, DEFAULT_PREFS } from '../engine/format';
+import type { LossMethod } from '../engine/hydraulics';
 
 export type OutUnit = 'ftin' | 'infrac' | 'indec' | 'ftdec' | 'mm' | 'm';
 
@@ -8,10 +9,11 @@ export interface Settings {
   theme: 'dark' | 'light' | 'system';
   prefs: FormatPrefs;
   chain: boolean;
+  lossMethod: LossMethod;
   outUnit: OutUnit; // guided-mode length display
   haptics: boolean;
 }
-export const DEFAULT_SETTINGS: Settings = { theme: 'dark', prefs: DEFAULT_PREFS, chain: false, outUnit: 'infrac', haptics: true };
+export const DEFAULT_SETTINGS: Settings = { theme: 'dark', prefs: DEFAULT_PREFS, chain: false, lossMethod: 'standard', outUnit: 'infrac', haptics: true };
 
 export interface SavedItem {
   id: string; ts: number; kind: 'calc' | 'guided'; tool?: string; title: string;

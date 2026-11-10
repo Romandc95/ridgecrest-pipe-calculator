@@ -152,6 +152,8 @@ describe('guide: pipe layout key sequences', () => {
   });
 });
 
+// Pressure-loss examples are the reference calculator's: they use its method (audit C2 made Colebrook the default).
+const REF = { lossMethod: 'reference' as const };
 describe('guide: pipe data, flow, pressure', () => {
   it('3" Steel Sch 80 data', () => {
     const p = pipeProps('steel', '80', '3');
@@ -203,17 +205,17 @@ describe('guide: pipe data, flow, pressure', () => {
     s = run('mul 10 eq', {}, s); expect(val(s)).toBeCloseTo(217.1418, 1);
   });
   it('pressure loss 2" Std steel, 4 gpm per foot: Re 6120.09, 0.000205 psi/ft', () => {
-    let s = run('2 in size c:6 4 c:ft c:frac');
+    let s = run('2 in size c:6 4 c:ft c:frac', REF);
     expect(val(s)).toBeCloseTo(0.000205, 6);
-    s = run('c:frac', {}, s); expect(val(s)).toBeCloseTo(6120.09, 1);
+    s = run('c:frac', REF, s); expect(val(s)).toBeCloseTo(6120.09, 1);
   });
   it('pressure loss over 50 ft: 0.010232 psi, 1.47346 psf', () => {
-    let s = run('2 in size c:6 4 c:ft 50 ft run c:frac'); expect(val(s)).toBeCloseTo(0.010232, 6);
-    s = run('c:frac c:frac', {}, s); expect(shown(s)).toMatch('1.47346');
+    let s = run('2 in size c:6 4 c:ft 50 ft run c:frac', REF); expect(val(s)).toBeCloseTo(0.010232, 6);
+    s = run('c:frac c:frac', REF, s); expect(shown(s)).toMatch('1.47346');
   });
   it('pressure loss at 40 gpm: 0.575408 psi, Re 61200.9', () => {
     const p = pipeProps('steel', 'Std', '2');
-    const r = pressureLoss(p.id, 40 / 448.8311688, 221e-6, 50);
+    const r = pressureLoss(p.id, 40 / 448.8311688, 221e-6, 50, 'reference');
     expect(r.psi).toBeCloseTo(0.575408, 5); expect(r.Re).toBeCloseTo(61200.9, 0);
     expect(r.units.kPa).toBeCloseTo(3.9673, 4); expect(r.units.inHg).toBeCloseTo(1.171543, 4);
   });

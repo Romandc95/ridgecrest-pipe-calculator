@@ -155,21 +155,25 @@ export function endFtAt(d: IsoDrawing, node: number): FlangeType {
   return d.endFt?.[node] ?? (connAt(d, node) === 'sw' ? 'SW' : 'WN');
 }
 /**
- * One flange as fitted: toPipe = flange face to the end of the pipe (weld neck: the hub end where the butt weld is;
- * socket weld: hub length Y less socket depth, plus the 1/16" setback). Falls back to weld neck when B16.5 has no
- * socket-weld flange in that class and size.
+ * One flange as fitted: toPipe = gasket face (top of the raised face) to the end of the pipe.
+ * ASME B16.5 tabulates tf and Y without the raised face (0.06" Class 150/300, 0.25" Class 400+, "in addition to"
+ * tf, para. 6.4.1), so the raised-face height is added here. Weld neck: Y + RF to the hub end where the butt weld is;
+ * socket weld: Y − socket depth + 1/16" setback + RF. Falls back to weld neck when B16.5 has no socket-weld flange
+ * in that class and size. Take-offs are for raised-face flanges (flat-face / ring-joint facings are not modelled).
  */
-export function flangeFit(d: IsoDrawing, want: FlangeType): { ft: FlangeType; toPipe: number; hub: number; tf: number; weld: Conn; src: string; note: string } | null {
+export function flangeFit(d: IsoDrawing, want: FlangeType): { ft: FlangeType; toPipe: number; hub: number; tf: number; rf: number; weld: Conn; src: string; note: string } | null {
   const cls = (d.cls ?? 150) as FlangeClass;
   const f = safe(() => flange(cls, d.nps)); if (!f) return null;
+  const rf = f.rfHeight;
+  const wn = (note: string) => { const toPipe = f.yWN + rf; return { ft: 'WN' as FlangeType, toPipe, hub: f.yWN, tf: f.tf, rf, weld: 'bw' as Conn, src: `WN flange Y ${frac(f.yWN)} + RF ${frac(rf)} = ${frac(toPipe)} gasket face to weld end`, note }; };
   if (want === 'SW') {
     if (f.ySO != null && f.socketDepth != null) {
-      const toPipe = f.ySO - f.socketDepth + SW_SETBACK;
-      return { ft: 'SW', toPipe, hub: f.ySO, tf: f.tf, weld: 'sw', src: `SW flange: Y ${frac(f.ySO)} − socket ${frac(f.socketDepth)} + 1/16" setback = ${frac(toPipe)} face to pipe end`, note: '' };
+      const toPipe = f.ySO - f.socketDepth + SW_SETBACK + rf;
+      return { ft: 'SW', toPipe, hub: f.ySO, tf: f.tf, rf, weld: 'sw', src: `SW flange: Y ${frac(f.ySO)} − socket ${frac(f.socketDepth)} + 1/16" setback + RF ${frac(rf)} = ${frac(toPipe)} gasket face to pipe end`, note: '' };
     }
-    return { ft: 'WN', toPipe: f.yWN, hub: f.yWN, tf: f.tf, weld: 'bw', src: `WN flange ${frac(f.yWN)} to face`, note: `no socket-weld flange in Class ${cls} ${d.nps}" (B16.5) — weld neck used` };
+    return wn(`no socket-weld flange in Class ${cls} ${d.nps}" (B16.5) — weld neck used`);
   }
-  return { ft: 'WN', toPipe: f.yWN, hub: f.yWN, tf: f.tf, weld: 'bw', src: `WN flange ${frac(f.yWN)} to face`, note: '' };
+  return wn('');
 }
 /** Flange type actually used (socket weld falls back to weld neck where it isn't made). */
 export const effFt = (d: IsoDrawing, want: FlangeType): FlangeType => flangeFit(d, want)?.ft ?? want;
@@ -509,8 +513,8 @@ export function itemLength(d: IsoDrawing, it: LineItem): { len: number | null; s
     if (g) {
       const L = 2 * g.toPipe + gk;
       return { len: L, src: g.ft === 'SW'
-        ? `2 × SW flange (Y − socket + 1/16" = ${frac(g.toPipe)}) + gasket ${frac(gk)} = ${frac(L)} pipe end to pipe end (Class ${cls})${g.note ? '; ' + g.note : ''}${it.type === 'orifice' ? ' — check the orifice flange' : ''}`
-        : `2 × WN flange ${frac(g.toPipe)} + gasket ${frac(gk)} = ${frac(L)} (Class ${cls})${g.note ? '; ' + g.note : ''}${it.type === 'orifice' ? ' — check the orifice flange' : ''}` };
+        ? `2 × SW flange (Y − socket + 1/16" + RF = ${frac(g.toPipe)}) + gasket ${frac(gk)} = ${frac(L)} pipe end to pipe end (Class ${cls})${g.note ? '; ' + g.note : ''}${it.type === 'orifice' ? ' — check the orifice flange' : ''}`
+        : `2 × WN flange (Y + RF = ${frac(g.toPipe)}) + gasket ${frac(gk)} = ${frac(L)} (Class ${cls})${g.note ? '; ' + g.note : ''}${it.type === 'orifice' ? ' — check the orifice flange' : ''}` };
     }
   }
   if (isReducer(it.type) && it.type !== 'swage') {
@@ -592,7 +596,7 @@ export function endTakeoff(d: IsoDrawing, node: number): { len: number | null; s
   const cls = d.cls ?? 150, gk = d.gasket ?? 0.125;
   if (end === 'cap') { const e = bwFitting(d.nps).capE; return e != null ? { len: e, src: `cap E ${frac(e)}` } : { len: null, src: '' }; }
   if (end === 'flange') { const g = flangeFit(d, endFtAt(d, node)); return g ? { len: g.toPipe, src: `${g.src} (Class ${cls})${g.note ? '; ' + g.note : ''}` } : { len: null, src: '' }; }
-  if (end === 'blind') { const g = flangeFit(d, endFtAt(d, node)); return g ? { len: g.toPipe + gk + g.tf, src: `${g.ft} flange ${frac(g.toPipe)} + gasket + blind ${frac(g.tf)} (Class ${cls})${g.note ? '; ' + g.note : ''}` } : { len: null, src: '' }; }
+  if (end === 'blind') { const g = flangeFit(d, endFtAt(d, node)); return g ? { len: g.toPipe + gk + g.rf + g.tf, src: `${g.ft} flange ${frac(g.toPipe)} + gasket ${frac(gk)} + blind RF ${frac(g.rf)} + tf ${frac(g.tf)} (Class ${cls})${g.note ? '; ' + g.note : ''}` } : { len: null, src: '' }; }
   return { len: null, src: '' };
 }
 

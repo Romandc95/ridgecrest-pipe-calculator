@@ -24,7 +24,7 @@ const OPSYM: Record<string, string> = { '+': '+', '-': '−', '*': '×', '/': '�
 
 export function Calculator({ onOpenPrefs }: { onOpenPrefs: () => void }) {
   const { settings, saveItem, toast } = useApp();
-  const opts = { chain: settings.chain, prefs: settings.prefs };
+  const opts = { chain: settings.chain, prefs: settings.prefs, lossMethod: settings.lossMethod };
   const [s, setS] = usePersistent<CalcState>('calc', initialState());
   const [tape, setTape] = useState(false);
   const lastEvalId = useRef(s.lastEval?.id ?? 0);

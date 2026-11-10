@@ -65,6 +65,12 @@ Calc · Layout · ISO · **Specs** · **Conversion** · Jobs (owner's order and 
 ## Specs tab details
 - Flanges: B16.5 dimensions, diagram, table, and a "Bolting ›" link. Bolting: the one torque tool (bolt size from flange class/size or entered by hand; stud grade with ASTM A193 yield by size, lubrication/nut-factor presets incl. dry + custom K, target as % yield or psi, optional approved job target, passes, wrench, tightening order, bolt pattern). Torque is calculated by the PCC-1 short form T = K·D·F/12, not copied from vendor charts.
 
+## Engineering audit (Nov 2026) — decisions
+- Report: Claude Doc https://claude.ai/artifact/KXnWpwWCrai6BoKMKtzDNo. Independent verification tests live in `tests/audit.test.ts`.
+- **Flange take-offs include the raised face** (C1, fixed): B16.5 lists tf and Y *without* the RF (0.06" Class 150/300, 0.25" Class 400+). `flangeFit().toPipe` = gasket face to pipe end = Y + RF (SW: Y − socket + 1/16" + RF); blind end adds blind RF + tf. Raised-face facing only (FF/RTJ not modelled).
+- **Pressure loss** (C2, fixed): default `lossMethod: 'standard'` = laminar < Re 2300, Colebrook–White above (2300–4000 flagged), steel ε 0.00015 ft (Moody) via `MATERIALS[m].roughnessStdFt`. `'reference'` keeps the 4095 guide method (Blasius ≤ Re 100k, steel ε 221e-6 ft) so its worked examples still match; switch on the Loss tool and in Settings → Math; the keypad follows the setting.
+- Still open from the audit (owner not yet decided): C3–C6 guards/wording, U1 `7''` inches, U2 conflict tolerance, U3 one length style, data gaps (NPS 22, 26–48 pipe + B16.9; B16.47 flanges).
+
 ## Open items / offered but not started
 - Account login + sync across devices via **Supabase** — waiting on the owner's Supabase Project URL and anon key. Don't start without them.
 - Offered: dash format (`5'-7 5/8"`) in cut list / material list too; pipe letters instead of "Line 3" in line menus.

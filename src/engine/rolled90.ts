@@ -21,8 +21,8 @@ export const rolled90Range = (A: number, B: number, g: number) => ({ dmin: rolle
 /** The roll angle that gives drop D. D(θ) = [A + B·tan(θ/2) + g]·sin θ rises steadily on 1°–90°, so bisection finds it. */
 export function rolled90Angle(A: number, B: number, g: number, D: number): { deg: number; iterations: number; dmin: number; dmax: number } {
   const { dmin, dmax } = rolled90Range(A, B, g);
-  if (D < dmin) throw new CalcError('RANGE', `That drop needs a roll of less than 1°. The smallest drop in range (θ = 1°) is ${dmin.toFixed(4)}".`);
-  if (D > dmax) throw new CalcError('RANGE', `That drop is more than this pair can make. At θ = 90° the most it can drop is A + B + g = ${dmax.toFixed(4)}". Add straight pipe or use larger-radius fittings.`);
+  if (D < dmin) throw new CalcError('GEOM', `That drop needs a roll of less than 1°. The smallest drop in range (θ = 1°) is ${dmin.toFixed(4)}".`);
+  if (D > dmax) throw new CalcError('GEOM', `That drop is more than this pair can make. At θ = 90° the most it can drop is A + B + g = ${dmax.toFixed(4)}". Add straight pipe or use larger-radius fittings.`);
   let lo = 1, hi = 90, it = 0;
   while (hi - lo > 1e-12 && it < 200) { const m = (lo + hi) / 2; if (rolled90(A, B, g, m).D < D) lo = m; else hi = m; it++; }
   return { deg: (lo + hi) / 2, iterations: it, dmin, dmax };

@@ -8,7 +8,8 @@ export type Material = 'steel' | 'stainless' | 'copper' | 'plastic' | 'brass' | 
 export interface MaterialInfo {
   id: Material; label: string; short: string;
   densityLbIn3: number | null; densitySource: string;
-  roughnessFt: number; // absolute roughness ε in feet (reference calculator appendix D values)
+  roughnessFt: number; // absolute roughness ε in feet used by the reference-calculator loss method (its appendix values)
+  roughnessStdFt: number; // ε in feet for the standard (Colebrook) method — see ROUGHNESS_SOURCE
   datasets: string[]; coverage: string;
 }
 
@@ -149,14 +150,16 @@ export const DATASETS: Record<string, Dataset> = {
 };
 
 const R6 = 1e-6;
+/** Roughness for the standard method. Only steel differs from the reference calculator's values. */
+export const ROUGHNESS_SOURCE = 'Standard method: commercial steel 0.00015 ft, cast iron 0.00085 ft, drawn tubing (copper, brass, aluminum) 0.000005 ft — Moody (1944) chart, as tabulated by Pump Fundamentals and Crane TP-410. Stainless 0.0000492 ft and PVC 0.0000156 ft are the reference calculator values, inside the published ranges (stainless 0.0015–0.03 mm, plastic 0.0015–0.01 mm; Neutrium). The reference calculator\'s steel 0.000221 ft (0.067 mm) is above the Moody value and is used only by the reference-calculator method.';
 export const MATERIALS: Record<Material, MaterialInfo> = {
-  steel: { id: 'steel', label: 'Steel', short: 'STEEL', densityLbIn3: 490 / 1728, densitySource: '490 lb/ft³ (basis of ASME B36.10M plain-end weights)', roughnessFt: 221 * R6, datasets: ['steel'], coverage: 'ASME B36.10M, NPS 1/8–24.' },
-  stainless: { id: 'stainless', label: 'Stainless steel', short: 'S.STEEL', densityLbIn3: 0.289, densitySource: '0.289 lb/in³ (austenitic 304/316, ≈8.0 g/cm³)', roughnessFt: 49.2 * R6, datasets: ['stainless'], coverage: 'ASME B36.19M 5S/10S/40S/80S + Sch 160.' },
-  copper: { id: 'copper', label: 'Copper', short: 'COPPER', densityLbIn3: 0.323, densitySource: '0.323 lb/in³ (≈8.94 g/cm³)', roughnessFt: 4.9 * R6, datasets: ['copper'], coverage: 'ASTM B88 K/L/M, B306 DWV, B819 medical. ACR not included.' },
-  plastic: { id: 'plastic', label: 'PVC / plastic', short: 'PLASTIC', densityLbIn3: 1.40 * 0.0361273, densitySource: '1.40 g/cm³ (typical rigid PVC)', roughnessFt: 15.6 * R6, datasets: ['plastic'], coverage: 'ASTM D1785 Sch 40/80, D2241 SDR 21/26/32.5/41 (computed). Sch 120 not included.' },
-  aluminum: { id: 'aluminum', label: 'Aluminum', short: 'AL.', densityLbIn3: 0.0975, densitySource: '0.0975 lb/in³ (6061 alloy)', roughnessFt: 4.9 * R6, datasets: ['aluminum'], coverage: 'ANSI H35.2 Sch 40/80, NPS 1/8–12.' },
-  brass: { id: 'brass', label: 'Brass', short: 'BRASS', densityLbIn3: null, densitySource: 'not included', roughnessFt: 4.9 * R6, datasets: [], coverage: 'No traceable brass pipe table (ASTM B43) is bundled. Enter OD and wall manually.' },
-  castiron: { id: 'castiron', label: 'Cast iron', short: 'CAST', densityLbIn3: null, densitySource: 'not included', roughnessFt: 850 * R6, datasets: [], coverage: 'No traceable cast-iron table (CISPI 301 / ASTM A74 / A888) is bundled. Enter OD and wall manually.' },
+  steel: { id: 'steel', label: 'Steel', short: 'STEEL', densityLbIn3: 490 / 1728, densitySource: '490 lb/ft³ (basis of ASME B36.10M plain-end weights)', roughnessFt: 221 * R6, roughnessStdFt: 150 * R6, datasets: ['steel'], coverage: 'ASME B36.10M, NPS 1/8–24.' },
+  stainless: { id: 'stainless', label: 'Stainless steel', short: 'S.STEEL', densityLbIn3: 0.289, densitySource: '0.289 lb/in³ (austenitic 304/316, ≈8.0 g/cm³)', roughnessFt: 49.2 * R6, roughnessStdFt: 49.2 * R6, datasets: ['stainless'], coverage: 'ASME B36.19M 5S/10S/40S/80S + Sch 160.' },
+  copper: { id: 'copper', label: 'Copper', short: 'COPPER', densityLbIn3: 0.323, densitySource: '0.323 lb/in³ (≈8.94 g/cm³)', roughnessFt: 4.9 * R6, roughnessStdFt: 5 * R6, datasets: ['copper'], coverage: 'ASTM B88 K/L/M, B306 DWV, B819 medical. ACR not included.' },
+  plastic: { id: 'plastic', label: 'PVC / plastic', short: 'PLASTIC', densityLbIn3: 1.40 * 0.0361273, densitySource: '1.40 g/cm³ (typical rigid PVC)', roughnessFt: 15.6 * R6, roughnessStdFt: 15.6 * R6, datasets: ['plastic'], coverage: 'ASTM D1785 Sch 40/80, D2241 SDR 21/26/32.5/41 (computed). Sch 120 not included.' },
+  aluminum: { id: 'aluminum', label: 'Aluminum', short: 'AL.', densityLbIn3: 0.0975, densitySource: '0.0975 lb/in³ (6061 alloy)', roughnessFt: 4.9 * R6, roughnessStdFt: 5 * R6, datasets: ['aluminum'], coverage: 'ANSI H35.2 Sch 40/80, NPS 1/8–12.' },
+  brass: { id: 'brass', label: 'Brass', short: 'BRASS', densityLbIn3: null, densitySource: 'not included', roughnessFt: 4.9 * R6, roughnessStdFt: 5 * R6, datasets: [], coverage: 'No traceable brass pipe table (ASTM B43) is bundled. Enter OD and wall manually.' },
+  castiron: { id: 'castiron', label: 'Cast iron', short: 'CAST', densityLbIn3: null, densitySource: 'not included', roughnessFt: 850 * R6, roughnessStdFt: 850 * R6, datasets: [], coverage: 'No traceable cast-iron table (CISPI 301 / ASTM A74 / A888) is bundled. Enter OD and wall manually.' },
 };
 export const MATERIAL_ORDER: Material[] = ['steel', 'stainless', 'brass', 'aluminum', 'castiron', 'plastic', 'copper'];
 

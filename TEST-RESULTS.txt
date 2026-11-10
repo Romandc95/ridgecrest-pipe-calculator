@@ -25,6 +25,17 @@
 ✓ audit: reference data integrity › torque short form: 3/4" B7 at 50% yield, K 0.16 → As 0.3345 in², 175.6 ft·lb
 ✓ audit: reference data integrity › PCC-1 legacy cross pattern for 12 and 16 bolts
 ✓ audit: reference data integrity › B31.1 Table 121.5 spans (water / steam-gas-air)
+✓ audit C1: flange take-offs include the raised face › Class 150 Y + RF equals the published RF-included length through hub
+✓ audit C1: flange take-offs include the raised face › 4" Class 150 WN flange pair = 2 × (2.94 + 0.06) + 1/8 gasket = 6-1/8"
+✓ audit C1: flange take-offs include the raised face › 2" Class 600 WN flange pair = 2 × (2.88 + 0.25) + 1/8 = 6.385"; flange end 4" Class 600 = 4.00 + 0.25
+✓ audit C1: flange take-offs include the raised face › 4" Class 150 blind end = WN (3.00) + gasket 1/8 + blind RF 0.06 + blind tf 0.88
+✓ audit C1: flange take-offs include the raised face › 2" Class 150 socket-weld flange: Y 0.94 − socket 0.69 + 1/16 setback + RF 0.06 = 0.3725"
+✓ audit C2: friction factor and pressure loss › Colebrook satisfies its own equation to 1e-12 across the Moody chart
+✓ audit C2: friction factor and pressure loss › matches the explicit Haaland (±2%) and Swamee–Jain (±3%) approximations
+✓ audit C2: friction factor and pressure loss › fully rough limit: f → (2·log10(3.7/(ε/D)))⁻² (von Kármán)
+✓ audit C2: friction factor and pressure loss › laminar below Re 2 300, transition flagged to 4 000, Colebrook above
+✓ audit C2: friction factor and pressure loss › 2" Sch 40 steel, 40 gpm, 100 ft: Re 61 201, standard ≈ 1.33 psi (f ≈ 0.0232), reference 1.151 psi
+✓ audit C2: friction factor and pressure loss › steel uses the Moody commercial-steel roughness 0.00015 ft in the standard method
 ✓ simple offset › 3" offset, 4" run → 5" travel, 36.8699°
 ✓ simple offset › offset + angle: L = O/sinθ, A = O/tanθ
 ✓ simple offset › every valid pair gives the same triangle
@@ -290,4 +301,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-291 passed, 0 failed, 291 total
+302 passed, 0 failed, 302 total

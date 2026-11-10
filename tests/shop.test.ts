@@ -162,7 +162,7 @@ describe('ISO route', () => {
   });
   it('a flanged valve on a line: B16.10 face-to-face, WN flanges + gasket, two spools; your length overrides', () => {
     const d = base(); d.runs = [{ ...run(0, 60, 0, 0), items: [{ id: 'v', type: 'gate', t: 0.5, conn: 'flg' }] }];
-    const v = valveFaceToFace(150, 'gate', '4')!, y = flange(150, '4').yWN;
+    const v = valveFaceToFace(150, 'gate', '4')!, y = flange(150, '4').yWN + 0.06; // B16.5 Y excludes the 1/16" raised face
     const c = cutList(d)[0];
     const piece = 30 - v / 2 - (0.125 + y + 0.125); // open ends: no take-off, no gap at the ends
     expect(c.pieces![0].cut).toBeCloseTo(piece, 9); expect(c.pieces![1].cut).toBeCloseTo(piece, 9);
@@ -196,7 +196,7 @@ describe('ISO route', () => {
     const d = base(); d.runs = [{ ...run(0, 120, 0, 0), sketch: true, meas: [120, 0, 0] }, run(1, 0, 48, 0)];
     const sp = splitRun(d, 0, 0.5, 'b'); const e = sp.d; const M = sp.node; // valve point
     e.inl = { [M]: { id: 'v', type: 'gate', t: 0.5, conn: 'flg' } };
-    const v = valveFaceToFace(150, 'gate', '4')!, y = flange(150, '4').yWN;
+    const v = valveFaceToFace(150, 'gate', '4')!, y = flange(150, '4').yWN + 0.06; // Y + raised face
     // run 2 (start → valve) and run 0 (valve → elbow)
     expect(shownLength(e, 2)).toBeCloseTo(60 - v / 2, 9); expect(runRef(e, 2)).toBe('E-F');
     expect(shownLength(e, 0)).toBeCloseTo(60 - v / 2, 9); expect(runRef(e, 0)).toBe('F-C');
@@ -260,7 +260,7 @@ describe('ISO weld map and materials', () => {
   it('socket-weld flange pair (2"): pipe stops Y − socket + 1/16" from each face, no root gap, socket welds, SW flanges', () => {
     const d = { ...base(), nps: '2' }; d.runs = [run(0, 60, 0, 0, 'a'), run(1, 60, 0, 0, 'b')];
     d.inl = { 1: { id: 'f', type: 'flange', t: 0.5, ft: 'SW', conn: 'sw' } };
-    const f = flange(150, '2'); const toPipe = f.ySO! - f.socketDepth! + 1 / 16;
+    const f = flange(150, '2'); const toPipe = f.ySO! - f.socketDepth! + 1 / 16 + f.rfHeight; // gasket face to pipe end
     expect(itemLength(d, d.inl[1]).len).toBeCloseTo(2 * toPipe + 0.125, 9);
     const c = cutList(d);
     expect(c[0].cut).toBeCloseTo(60 - toPipe - 0.0625, 9); // start is an open end: no take-off, no gap
@@ -270,13 +270,13 @@ describe('ISO weld map and materials', () => {
     expect(m.find((r) => r.item === 'SW flange')!.qty).toBe(2); expect(m.some((r) => r.item === 'WN flange')).toBe(false);
     // the same pair as weld neck: root gap and WN hub
     d.inl = { 1: { id: 'f', type: 'flange', t: 0.5, ft: 'WN' } };
-    expect(cutList(d)[0].cut).toBeCloseTo(60 - f.yWN - 0.0625 - 0.125, 9);
+    expect(cutList(d)[0].cut).toBeCloseTo(60 - (f.yWN + f.rfHeight) - 0.0625 - 0.125, 9);
   });
   it('socket-weld flange end: take-off to pipe end; falls back to weld neck where B16.5 has no SW flange', () => {
     const d = { ...base(), nps: '2' }; d.runs = [run(0, 60, 0, 0, 'a')]; d.ends = { 1: 'flange' }; d.endFt = { 1: 'SW' };
     const f = flange(150, '2');
-    expect(endTakeoff(d, 1)!.len).toBeCloseTo(f.ySO! - f.socketDepth! + 1 / 16, 9);
-    expect(cutList(d)[0].cut).toBeCloseTo(60 - (f.ySO! - f.socketDepth! + 1 / 16), 9);
+    expect(endTakeoff(d, 1)!.len).toBeCloseTo(f.ySO! - f.socketDepth! + 1 / 16 + 0.06, 9);
+    expect(cutList(d)[0].cut).toBeCloseTo(60 - (f.ySO! - f.socketDepth! + 1 / 16 + 0.06), 9);
     expect(materials(d).some((r) => r.item === 'SW flange')).toBe(true);
     expect(flangeFit({ ...d, nps: '6' }, 'SW')!.ft).toBe('WN'); // no 6" socket-weld flange
     expect(flangeFit({ ...d, nps: '6' }, 'SW')!.note).toMatch(/weld neck used/);
@@ -324,8 +324,8 @@ describe('ISO fitting with no standard length', () => {
     const c = cutList(d);
     expect(Number.isNaN(c[0].cut)).toBe(false);
     expect(Number.isNaN(c[1].cut)).toBe(false);
-    // 3" Class 150 WN flange Y = 2.69", gasket 1/8", gap 1/8": the pipe stops short of the meter face by Y + gasket + gap
-    expect(Math.abs(c[0].cut - (38.375 - (2.69 + 0.125 + 0.125))) < 1e-6).toBe(true);
+    // 3" Class 150 WN flange Y = 2.69" + 1/16" raised face, gasket 1/8", gap 1/8": the pipe stops short of the meter face by Y + RF + gasket + gap
+    expect(Math.abs(c[0].cut - (38.375 - (2.69 + 0.06 + 0.125 + 0.125))) < 1e-6).toBe(true);
   });
 });
 
