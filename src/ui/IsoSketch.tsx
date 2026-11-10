@@ -68,6 +68,14 @@ const normAz = (a: number) => ((a + 180) % 360 + 360) % 360 - 180;
 /** Next compass step (ISO orientations every 90°) from an azimuth, turning in direction dir (+1 / −1). */
 const stepAz = (az: number, dir: number) => { const k = (az - ISO_VIEW.az) / 90; return normAz(ISO_VIEW.az + 90 * (dir > 0 ? Math.floor(k + 1e-6) + 1 : Math.ceil(k - 1e-6) - 1)); };
 
+// Cut list, weld list and pipe letters worked out once per version of a drawing (every edit makes a new drawing
+// object, so the cache renews itself) instead of on every screen update.
+const perDrawing = new WeakMap<IsoDrawing, { cuts?: ReturnType<typeof cutList>; welds?: Weld[]; spools?: { key: string; v: { spools: ReturnType<typeof sheetData>['spools'] } } }>();
+const memoOf = (d: IsoDrawing) => { let m = perDrawing.get(d); if (!m) { m = {}; perDrawing.set(d, m); } return m; };
+const cutsOf = (d: IsoDrawing) => { const m = memoOf(d); return (m.cuts ??= cutList(d)); };
+const weldsOf = (d: IsoDrawing) => { const m = memoOf(d); return (m.welds ??= weldList(d)); };
+const spoolsOf = (d: IsoDrawing, prefs: Prefs) => { const m = memoOf(d), key = JSON.stringify(prefs); if (m.spools?.key !== key) m.spools = { key, v: { spools: sheetData(d, prefs).spools } }; return m.spools.v; };
+
 export function IsoSketch() {
   const { settings, toast } = useApp();
   const prefs = settings.prefs;
@@ -501,8 +509,8 @@ export function IsoSketch() {
   const closeText = (id: string) => { const t = d.texts?.find((q) => q.id === id); if (t && !t.text.trim()) setText(id, null); setSel(null); };
   const openDrawing = (id: string) => { setStore((s) => ({ ...s, current: id })); setSel(null); setArmed(null); setOffOpen(false); setFitTick((t) => t + 1); };
   const newDrawingNow = () => { const nd = newDrawing(`Iso ${store.drawings.length + 1}`, uid()); setStore((s) => ({ drawings: [nd, ...s.drawings], current: nd.id })); setOpts({ view: { ...ISO_VIEW }, mode: 'draw' }); openDrawing(nd.id); toast('New drawing'); }; // a new drawing opens in the home (standard ISO) view
-  const calloutData = (() => { if (opts.callouts === false) return undefined; const sd = sheetData(d, prefs); return { spools: sd.spools }; })(); // working drawing: pipe letters only (item numbers go on the completed sheet)
-  const welds = weldList(d); // any weld can be tapped to edit it (weld map on or off)
+  const calloutData = opts.callouts === false ? undefined : spoolsOf(d, prefs); // working drawing: pipe letters only (item numbers go on the completed sheet)
+  const welds = weldsOf(d); // any weld can be tapped to edit it (weld map on or off)
   const weldSel = sel?.kind === 'weld' ? welds.findIndex((w) => w.key === sel.key) : -1;
   const textSel = sel?.kind === 'text' ? d.texts?.find((t) => t.id === sel.id) ?? null : null;
 
@@ -530,7 +538,7 @@ export function IsoSketch() {
   const wide = full && (rot || !portrait);
   const selRun = sel?.kind === 'run' && d.runs[sel.id] ? sel.id : null;
   const selNode = sel?.kind === 'node' && sel.id <= d.runs.length ? sel.id : null;
-  const cuts = cutList(d);
+  const cuts = cutsOf(d);
   const missing = d.runs.filter((r) => !r.move && !isMeasured(r)).length;
 
   const editor = selRun !== null
@@ -1080,7 +1088,13 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   const view = opts.view;
   const P = disp.P;
   const [cam, setCam] = useState<Cam>({ s: 2, tx: 180, ty: 150 });
-  const camRef = useRef(cam); camRef.current = cam;
+  // during a pan or pinch the drawing is NOT laid out again for every finger movement: the last full drawing is slid /
+  // scaled as one picture (gcam = where the camera is right now), and laid out once when the fingers lift
+  const [gcam, setGcam] = useState<Cam | null>(null);
+  const gcamRef = useRef<Cam | null>(null);
+  const setLive = (c: Cam) => { gcamRef.current = c; setGcam(c); };
+  const commitLive = () => { const live = gcamRef.current; if (!live) return; gcamRef.current = null; setGcam(null); setCam(live); camRef.current = live; };
+  const camRef = useRef(cam); camRef.current = gcamRef.current ?? cam;
   const [ghost, setGhost] = useState<{ from: number; v: Vec3; origin?: Vec3 } | null>(null);
   const [dropMark, setDropMark] = useState<[number, number] | null>(null);
   const homing = useRef(false);
@@ -1141,6 +1155,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   };
 
   const T3 = (p: Vec3): [number, number] => { const q = project(p, view); return [q[0] * cam.s + cam.tx, q[1] * cam.s + cam.ty]; };
+  const T3live = (p: Vec3): [number, number] => { const c = gcam ?? cam, q = project(p, view); return [q[0] * c.s + c.tx, q[1] * c.s + c.ty]; };
   const toLocal = (e: { clientX: number; clientY: number }) => {
     const r = svg.current!.getBoundingClientRect();
     if (rot) return { x: ((e.clientY - r.top) / r.height) * W, y: ((r.right - e.clientX) / r.width) * H };
@@ -1228,10 +1243,10 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
         let bw: { key: string; x: number; y: number } | null = null, bdw = 30;
         svg.current.querySelectorAll('[data-wk]').forEach((el) => { const rr = el.getBoundingClientRect(); const x = rr.x + rr.width / 2, y = rr.y + rr.height / 2; const dd = Math.hypot(x - cx, y - cy); if (dd < bdw) { bdw = dd; bw = { key: el.getAttribute('data-wk')!, x, y }; } });
         const hit = bw as { key: string; x: number; y: number } | null;
-        const w = hit ? weldList(d).find((q) => q.key === hit.key) : undefined;
+        const w = hit ? weldsOf(d).find((q) => q.key === hit.key) : undefined;
         if (hit && w) { const l2 = toLocal({ clientX: hit.x, clientY: hit.y }); return { sel: { kind: 'node', id: w.node }, t: 0.5, at: [l2.x, l2.y], leg: w.run }; }
       }
-      const weldNodes = new Set(fw ? weldList(d).map((w) => w.node) : []);
+      const weldNodes = new Set(fw ? weldsOf(d).map((w) => w.node) : []);
       let bn = -1, bd = kind === 'line' || kind === 'branch' || fw ? 22 : 48;
       P.forEach((p, n) => { if (n > d.runs.length || !okNode(n) || nodeLegs(d, n).length === 0) return; const q = T3(p); const dd = Math.hypot(loc.x - q[0], loc.y - q[1]); if (dd < bd) { bd = dd; bn = n; } });
       if (bn >= 0) {
@@ -1358,7 +1373,7 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       const mid = { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 };
       const ns = Math.max(0.02, Math.min(400, s.cam.s * (dist / s.dist))), kk = ns / s.cam.s;
       // (two fingers only zoom and move — turning is done with the compass / spin arrows)
-      setCam({ s: ns, tx: mid.x - (s.mid.x - s.cam.tx) * kk, ty: mid.y - (s.mid.y - s.cam.ty) * kk });
+      setLive({ s: ns, tx: mid.x - (s.mid.x - s.cam.tx) * kk, ty: mid.y - (s.mid.y - s.cam.ty) * kk });
       s.moved = true; return;
     }
     if (ps.length !== 1) return;
@@ -1394,13 +1409,14 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
     } else if (opts.mode === 'orbit' && !s.pan) {
       onView({ az: normAz(s.view.az - dx * 0.45), el: clampEl(s.view.el + dy * 0.45) });
     } else {
-      setCam({ ...s.cam, tx: s.cam.tx + dx, ty: s.cam.ty + dy });
+      setLive({ ...s.cam, tx: s.cam.tx + dx, ty: s.cam.ty + dy });
     }
   };
   const onUp = (e: React.PointerEvent) => {
     const s = st.current;
     const loc = toLocal(e);
     const cancelled = e.type === 'pointercancel';
+    commitLive();
     ptrs.current.delete(e.pointerId);
     if (ptrs.current.size > 0) { const ps = [...ptrs.current.values()]; st.current = { ...(s ?? { view, cAng: 0, target: 'none' as const }), cam: camRef.current, mid: ps[0], dist: 0, moved: true, drawFrom: null }; setGhost(null); return; }
     st.current = null;
@@ -1448,6 +1464,12 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
   const gridFrom = ghost ? ghost.from : cursor;
   const AX = ['E', 'N', 'Up'], AXN = ['W', 'S', 'Dn'];
 
+  // the full drawing, laid out only when something it shows changes (not for pan / pinch / the drawing ghost / drop marker)
+  const artOpts = { ...opts, textEdit: armed === 'notes', ...(opts.callouts !== false ? callouts : {}) };
+  const artKey = JSON.stringify(artOpts);
+  const artEl = useMemo(() => <IsoArt d={d} disp={disp} T3={T3} sel={sel} cursor={cursor} opts={artOpts} prefs={prefs} />,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [d, disp, cam, view.az, view.el, sel, cursor, artKey, prefs]);
   return (
     <div className={'isostage mode-' + opts.mode + (armed ? ' armed' : '')} ref={wrap}>
       {/* coloured frame + label for the current mode (working drawing only); tap the label to switch */}
@@ -1458,9 +1480,9 @@ function IsoCanvas({ d, disp, opts, prefs, cursor, sel, rot, fitTick, armed, api
       <svg ref={svg} viewBox={`0 0 ${W} ${H}`} width={W} height={H} onMouseDown={(e) => e.preventDefault() /* the tap's follow-up mouse press must not pull focus off a text box that just opened */} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         role="img" aria-label={`Isometric sketch ${d.name}`}>
         <HatchDefs />
-        <IsoPaper W={W} H={H} T3={T3} g={g} />
+        <IsoPaper W={W} H={H} T3={gcam ? T3live : T3} g={g} />
         {opts.mode === 'draw' && (!armed || armed === 'start') && <PlaneGrid W={W} H={H} T3={T3} o={ghost?.origin ?? P[gridFrom] ?? [0, 0, 0]} g={g} />}
-        <IsoArt d={d} disp={disp} T3={T3} sel={sel} cursor={cursor} opts={{ ...opts, textEdit: armed === 'notes', ...(opts.callouts !== false ? callouts : {}) }} prefs={prefs} />
+        <g transform={gcam ? `translate(${gcam.tx - cam.tx * (gcam.s / cam.s)} ${gcam.ty - cam.ty * (gcam.s / cam.s)}) scale(${gcam.s / cam.s})` : undefined}>{artEl}</g>
         {dropMark && <g className="iso-dropmark"><circle cx={dropMark[0]} cy={dropMark[1]} r={13} /><circle cx={dropMark[0]} cy={dropMark[1]} r={3} /></g>}
         {ghost && (() => {
           const o3 = ghost.origin ?? P[ghost.from];
@@ -1642,7 +1664,7 @@ function IsoArt({ d, disp, T3, sel, cursor, opts, prefs, exportMode }: {
   const unit = (a: [number, number], b: [number, number]) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [dx / L, dy / L, L] as const; };
   const sizes = runSizes(d);
   // every weld dot gets an invisible tap target (tap a weld to edit it) that the field weld also snaps to
-  const wlist = weldList(d);
+  const wlist = weldsOf(d);
   const whits: React.ReactNode[] = [];
   const weldHit = (n: number, run: number | undefined, at: [number, number], u?: [number, number]) => {
     const w = wlist.find((q) => q.node === n && (run === undefined || q.run === run) && !q.key.endsWith(':r')) ?? wlist.find((q) => q.node === n && (run === undefined || q.run === run));
