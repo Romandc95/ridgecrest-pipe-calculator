@@ -1,3 +1,30 @@
+✓ audit: simple offset, every input pair, 1°–90°, 1/2" to 200 ft › any two of O, A, L, θ give back the other two
+✓ audit: simple offset, every input pair, 1°–90°, 1/2" to 200 ft › rejects negative, zero-angle, >90°, impossible and conflicting input
+✓ audit: rolling and combination offsets › 3-4-5 roll: true offset 20, travel √(A² + H² + V²)
+✓ audit: rolling and combination offsets › combination offset equals the vector length and the angles between legs
+✓ audit: rolling and combination offsets › parallel cutback = spacing · tan(θ/2)
+✓ audit: elbow take-outs and arcs, every B16.9 size › B16.9 LR 90° take-out is the table A, SR is the table A, other angles R·tan(θ/2)
+✓ audit: elbow take-outs and arcs, every B16.9 size › published B16.9 values (spot check): 6" LR 9, LR45 3-3/4, SR 6; 3/4" LR 1-1/8; 24" LR 36
+✓ audit: elbow take-outs and arcs, every B16.9 size › sizes with no B16.9 data say so instead of guessing (22", 26"–78")
+✓ audit: elbow take-outs and arcs, every B16.9 size › cut length = travel − take-outs − gaps; impossible arrangements are flagged, negatives rejected
+✓ audit: elbow take-outs and arcs, every B16.9 size › trim: kept + removed arcs make the full 90°
+✓ audit: Fit-Fit against the PI (tangent-intersection) geometry › every size, gaps 0–1/8: solved angle reproduces the offset; travel·sinθ = offset
+✓ audit: Fit-Fit against the PI (tangent-intersection) geometry › pipe-length mode inverts angle mode
+✓ audit: Fit-Fit against the PI (tangent-intersection) geometry › offset beyond two 90s is refused with the pipe needed
+✓ audit: Rolled 90 against a 3-D construction › drop and horizontal match the second PI built in 3-D; the inverse and the closed form agree
+✓ audit: Rolled 90 against a 3-D construction › degrees-minutes-seconds carries 60″ and 60′
+✓ audit: miters and copes › the segmented centerline closes on the bend: start and end tangent points are take-out from the PI
+✓ audit: miters and copes › cope depth: equal-size square tee = branch radius; reducing = R − √(R² − r²)
+✓ audit: fractions, rounding and parsing › every 1/16" from 0 to 100 ft formats and parses back exactly
+✓ audit: fractions, rounding and parsing › every 1/64" to 12" at 1/64 resolution parses back exactly
+✓ audit: fractions, rounding and parsing › rounds halves up and carries into inches and feet; tiny negatives show as zero
+✓ audit: fractions, rounding and parsing › accepts the usual ways of writing a length
+✓ audit: reference data integrity › every wall is positive and less than half the OD; steel schedules thicken with number
+✓ audit: reference data integrity › calculated plain-end weights agree with B36.10M tabulated weights within 0.3%
+✓ audit: reference data integrity › every B16.5 flange: bolt circle inside the OD, holes clear the raised face, bolts in fours, hub longer than the ring
+✓ audit: reference data integrity › torque short form: 3/4" B7 at 50% yield, K 0.16 → As 0.3345 in², 175.6 ft·lb
+✓ audit: reference data integrity › PCC-1 legacy cross pattern for 12 and 16 bolts
+✓ audit: reference data integrity › B31.1 Table 121.5 spans (water / steam-gas-air)
 ✓ simple offset › 3" offset, 4" run → 5" travel, 36.8699°
 ✓ simple offset › offset + angle: L = O/sinθ, A = O/tanθ
 ✓ simple offset › every valid pair gives the same triangle
@@ -263,4 +290,4 @@
 ✓ dimensional arithmetic › √ length rejected
 ✓ dimensional arithmetic › metric + imperial mixes correctly
 
-264 passed, 0 failed, 264 total
+291 passed, 0 failed, 291 total
